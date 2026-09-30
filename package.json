@@ -32,7 +32,8 @@
     "install:profile": "bash scripts/install.sh",
     "uninstall:profile": "bash scripts/uninstall.sh",
     "migrate:fields": "node scripts/migrate-drop-fields.mjs",
-    "preview:sprites": "node scripts/preview-sprites.mjs"
+    "preview:sprites": "node scripts/preview-sprites.mjs",
+    "preview:styles": "node scripts/make-style-preview.mjs"
   },
   "keywords": [
     "deepseek",
