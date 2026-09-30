@@ -206,6 +206,8 @@ export function makeTools(deps: ToolDeps): {
           sandboxId: typeof args.sandboxId === 'string' ? args.sandboxId : undefined,
           persist: args.persist !== false,
           maxAgents: args.maxAgents === undefined ? undefined : Number(args.maxAgents),
+          // 工具层不复用 runTick：一步的解析（沙盒 + 运行态 + 默认路由 + 定时器）
+          // 只该有一处，散成两份就会出现"界面走的路能用、工具走的路不能用"。
         })
         lines.push(`【第 ${result.tick} 步】驱动 ${result.driven} 个智能体`)
         for (const outcome of result.outcomes) {

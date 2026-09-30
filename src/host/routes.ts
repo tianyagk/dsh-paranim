@@ -143,6 +143,8 @@ export interface ParanimRoutes {
   persistRun: (args: { workspace?: string; sandboxId?: string }) => Promise<void>
   /** 重置推演：保留沙盒设定，回到开局那一天（可选只带 N 个智能体）。 */
   resetRun: (args: { workspace?: string; sandboxId?: string; count?: number }) => Promise<WorldView>
+  /** 模型调用自检：逐 chunk 明细（诊断"空文本"这类无法从报错看出的失败）。 */
+  llmProbe: (args: { provider?: string; model?: string; reasoningEffort?: string; system?: string; user?: string }) => Promise<{ ok: boolean; text: string }>
   /** 注入 /api 网关的信任域（由 index.ts 在挂载时调用）。 */
   setTrustedHosts: (hosts: readonly string[]) => void
   dispose: () => void
@@ -252,23 +254,96 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
   const makeCaller = (llm: PluginLlm | undefined) => {
     return async (agent: { id: string; name: string }, call: AgentCall, signal: AbortSignal): Promise<string> => {
       if (llm === undefined) throw new Error('宿主 llm 服务不可用')
-      let text = ''
-      for await (const chunk of llm.stream({
-        provider: call.route.provider,
-        model: call.route.model,
-        reasoningEffort: call.route.reasoningEffort,
-        system: call.system,
-        messages: [{ role: 'user', content: call.user }],
-        temperature: 0.9,
-        maxTokens: 1200,
-        signal,
-      })) {
-        if (chunk.type === 'text-delta') text += chunk.text
-        else if (chunk.type === 'finish') break
-      }
-      if (text.trim() === '') throw new Error(`模型 ${call.route.provider}/${call.route.model} 返回空文本`)
       void agent
-      return text
+      const attempt = await callModelOnce(llm, call, signal)
+      if (attempt.text.trim() !== '') return attempt.text
+
+      // 空文本不是"模型没话说"，是**调用没成**。这里不立刻降级：先摘掉
+      // reasoningEffort 重试一次——一个模型若只被声明了 reasoningEfforts
+      // 而调用时又没给出，适配器可能整个请求都被上游拒掉。重试仍空才降级，
+      // 并把现场（chunk 构成 / 结束原因 / 耗时）写进错误信息，而不是只说
+      // "返回空文本"让后来的人无从下手。
+      if (call.route.reasoningEffort !== undefined && call.route.reasoningEffort !== '') {
+        const retry = await callModelOnce(llm, call, signal, { dropReasoningEffort: true })
+        if (retry.text.trim() !== '') return retry.text
+        throw new Error(`模型 ${call.route.provider}/${call.route.model} 两次调用都没有文本（首次 ${attempt.detail}；摘掉 reasoningEffort 后 ${retry.detail}）`)
+      }
+      throw new Error(`模型 ${call.route.provider}/${call.route.model} 没有返回文本（${attempt.detail}）`)
+    }
+  }
+
+  /** 一次模型调用：拼文本，并把"这次调用长什么样"记成可读的 detail。 */
+  const callModelOnce = async (
+    llm: PluginLlm,
+    call: AgentCall,
+    signal: AbortSignal,
+    options?: { dropReasoningEffort?: boolean; provider?: string; model?: string; temperature?: number; maxTokens?: number; system?: string; user?: string },
+  ): Promise<{ text: string; detail: string }> => {
+    const started = Date.now()
+    let text = ''
+    const kinds = new Map<string, number>()
+    let finish = ''
+    let usage = ''
+    for await (const chunk of llm.stream({
+      provider: options?.provider ?? call.route.provider,
+      model: options?.model ?? call.route.model,
+      reasoningEffort: options?.dropReasoningEffort === true ? undefined : call.route.reasoningEffort,
+      system: options?.system ?? call.system,
+      messages: [{ role: 'user', content: options?.user ?? call.user }],
+      temperature: options?.temperature ?? 0.9,
+      maxTokens: options?.maxTokens ?? 1200,
+      signal,
+    })) {
+      kinds.set(chunk.type, (kinds.get(chunk.type) ?? 0) + 1)
+      if (chunk.type === 'text-delta') text += chunk.text
+      else if (chunk.type === 'reasoning-delta') text = text
+      else if (chunk.type === 'usage') usage = JSON.stringify(chunk.usage)
+      else if (chunk.type === 'finish') finish = chunk.reason
+    }
+    const shape = [...kinds.entries()].map(([kind, count]) => `${kind}×${count}`).join(' ')
+    const detail = `耗时 ${Date.now() - started}ms｜chunk: ${shape === '' ? '（一个都没有）' : shape}｜finish=${finish === '' ? '（无）' : finish}${usage === '' ? '' : `｜usage=${usage}`}`
+    return { text, detail }
+  }
+
+  /**
+   * 模型调用自检：拿真实的 provider/model 走一次完整调用，返回逐 chunk 明细。
+   * 存在的理由是"空文本"这类失败**无法从错误信息里诊断**——必须看到 chunk
+   * 构成与结束原因，才能判断是上游拒绝、适配器没吐文本，还是路由根本没生效。
+   */
+  const llmProbe = async (args: { provider?: string; model?: string; reasoningEffort?: string; system?: string; user?: string }) => {
+    const llm = deps.llm()
+    if (llm === undefined) return { ok: false, text: 'ctx.get("llm") 为 undefined（宿主未挂 llm 服务）' }
+    const route = deps.defaultRoute()
+    const provider = args.provider ?? route?.provider ?? ''
+    const model = args.model ?? route?.model ?? ''
+    if (provider === '' || model === '') return { ok: false, text: '没有可用的 provider/model（既未传入，宿主也没有默认模型）' }
+    const lines: string[] = [
+      `provider=${provider} model=${model} reasoningEffort=${args.reasoningEffort ?? route?.reasoningEffort ?? '（无）'}`,
+      `宿主默认路由：${route === undefined ? '（无）' : `${route.provider}/${route.model}${route.reasoningEffort === undefined ? '' : ` @${route.reasoningEffort}`}`}`,
+      `llm.listProviders()：${llm.listProviders().map((p) => `${p.id}(${p.name})`).join(', ')}`,
+    ]
+    const call: AgentCall = {
+      route: { provider, model, reasoningEffort: args.reasoningEffort ?? route?.reasoningEffort },
+      system: args.system ?? '你是一个小镇居民。只回答两个字：收到',
+      user: args.user ?? '现在几点了？',
+    }
+    const controller = new AbortController()
+    try {
+      const attempt = await callModelOnce(llm, call, controller.signal)
+      lines.push(`第一次：${attempt.detail}`)
+      lines.push(`  文本=${JSON.stringify(attempt.text.slice(0, 200))}`)
+      if (attempt.text.trim() === '') {
+        const retry = await callModelOnce(llm, call, controller.signal, { dropReasoningEffort: true })
+        lines.push(`摘掉 reasoningEffort 重试：${retry.detail}`)
+        lines.push(`  文本=${JSON.stringify(retry.text.slice(0, 200))}`)
+      }
+      return { ok: true, text: lines.join('\n') }
+    } catch (error) {
+      lines.push(`抛异常：${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`)
+      if (error instanceof Error && error.stack !== undefined) {
+        lines.push(`stack: ${error.stack.split('\n').slice(0, 6).join(' | ')}`)
+      }
+      return { ok: false, text: lines.join('\n') }
     }
   }
 
@@ -657,6 +732,18 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
             return send(res, 200, { ok: true, data: { roll, world: await world({ workspace, sandboxId, create: true }) } })
           }
 
+          // POST /paranim/llm-probe —— 模型调用自检（逐 chunk 明细）
+          if (method === 'POST' && path === '/llm-probe') {
+            const probe = await llmProbe({
+              provider: typeof body.provider === 'string' ? body.provider : undefined,
+              model: typeof body.model === 'string' ? body.model : undefined,
+              reasoningEffort: typeof body.reasoningEffort === 'string' ? body.reasoningEffort : undefined,
+              system: typeof body.system === 'string' ? body.system : undefined,
+              user: typeof body.user === 'string' ? body.user : undefined,
+            })
+            return send(res, 200, { ok: true, data: probe })
+          }
+
           // GET /paranim/events —— 事件流（可按 since 增量拉）
           if (method === 'GET' && path === '/events') {
             const view = await world({ workspace, sandboxId, create: true })
@@ -684,6 +771,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
       const view = await world({ workspace: args.workspace, sandboxId: args.sandboxId, create: true })
       await deps.runOf(args.workspace).save(view.run)
     },
+    llmProbe,
     resetRun: async (args) => {
       const view = await world({ workspace: args.workspace, sandboxId: args.sandboxId, create: true })
       const fresh = deps.store.newRun(view.sandbox, args.count === undefined ? undefined : { count: args.count })

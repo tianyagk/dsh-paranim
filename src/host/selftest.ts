@@ -395,6 +395,17 @@ ok(autoOff.stepper.running === false, '切回手动后自动循环停止')
 const manualStep = dataOf<{ driven: number; events: WorldEvent[] }>(await call(route, 'POST', '/paranim/step?workspace=/tmp/fake-workspace', {}))
 ok(manualStep.driven > 0, 'POST /step 手动推进一步', `driven=${manualStep.driven}`)
 
+// maxAgents 必须真的被遵守 —— 它曾是一个被路由吞掉、只有默认值生效的参数。
+const oneStep = dataOf<{ driven: number; outcomes: Array<{ agentName: string }> }>(
+  await call(route, 'POST', '/paranim/step?workspace=/tmp/fake-workspace', { maxAgents: 1 }),
+)
+ok(oneStep.driven === 1, 'maxAgents=1 只驱动一个智能体（参数没有被吞掉）', `driven=${oneStep.driven}`)
+ok(oneStep.outcomes.length === 1, '本步 outcomes 也只有一条')
+
+// 步进路由必须先落盘：否则刷新页面会看到旧位置。
+const persistedAfterStep = await runStore.load('smallville')
+ok(persistedAfterStep !== undefined && persistedAfterStep.tick >= oneStep.driven, '步进结果真的落盘了（不是只在内存里）', `disk tick=${persistedAfterStep?.tick}`)
+
 // 需求 6（续）：自动步进真的会自己走
 section('5. 自动步进：计时器真的在推世界')
 const autoAgain = dataOf<WorldView>(await call(route, 'POST', '/paranim/step/config?workspace=/tmp/fake-workspace', { mode: 'auto', intervalMs: 2000 }))
