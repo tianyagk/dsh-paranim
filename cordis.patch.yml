@@ -1,0 +1,22 @@
+# dsh-paranim bundle patch: inserts the dual-face plugin row into the web
+# profile roster. Applied as a profile bundle layer (the `dsh.bundle.patch`
+# manifest field) over the profile composition.
+#
+# The row is a bare plugin by package name: the node half (exports ".") runs in
+# the host process (sandbox JSON store + tick engine + ctx.llm agent routing +
+# D6 adjudication + /paranim/* routes + model tools), and the `dsh.client`
+# declaration in package.json makes the browser half (exports "./client") load
+# in the web GUI, where it registers the 「他化自在天」 betterSidebar tab.
+#
+# The host half serves EVERY session (it is mounted process-wide): the sandbox
+# store and the tick engine belong to the host plane because their consumers —
+# the sidebar tab, the model tools, and the auto-advance stepper — outlive any
+# single agent session. No service is published, so the row needs no isolate
+# realm.
+#
+# Install from the repo root with either:
+#   dsh plugin --profile web add file:./dsh-paranim      (or a link: path)
+# or the bundled helper:   bash scripts/install.sh
+- insert:
+    - id: paranim
+      name: 'dsh-paranim'
