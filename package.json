@@ -33,7 +33,11 @@
     "uninstall:profile": "bash scripts/uninstall.sh",
     "migrate:fields": "node scripts/migrate-drop-fields.mjs",
     "preview:sprites": "node scripts/preview-sprites.mjs",
-    "preview:styles": "node scripts/make-style-preview.mjs"
+    "preview:styles": "node scripts/make-style-preview.mjs",
+    "assets:normalize": "node scripts/normalize-assets.mjs",
+    "assets:snapshot": "node scripts/snapshot-assets.mjs",
+    "assets:inspect": "node scripts/inspect-sheet.mjs",
+    "assets:all": "node scripts/normalize-assets.mjs && node scripts/snapshot-assets.mjs"
   },
   "keywords": [
     "deepseek",

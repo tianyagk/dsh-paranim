@@ -1,0 +1,53 @@
+{
+  "normalizedFrom": "assets/style-preview",
+  "sheets": [
+    {
+      "file": "tiny-town.png",
+      "cols": 12,
+      "rows": 11,
+      "tile": 16,
+      "note": "Kenney Tiny Town · CC0",
+      "source": "tiny-town-tilemap.png"
+    },
+    {
+      "file": "tiny-farm.png",
+      "cols": 12,
+      "rows": 11,
+      "tile": 16,
+      "note": "Kenney Tiny Farm · CC0",
+      "source": "tiny-farm-tilemap.png"
+    },
+    {
+      "file": "tiny-battle.png",
+      "cols": 18,
+      "rows": 11,
+      "tile": 16,
+      "note": "Kenney Tiny Battle · CC0",
+      "source": "tiny-battle-tilemap.png"
+    },
+    {
+      "file": "onebit.png",
+      "cols": 49,
+      "rows": 22,
+      "tile": 16,
+      "note": "Kenney 1-Bit Pack 彩色 · CC0（后备，4 位索引色）",
+      "source": "onebit-colored-packed.png"
+    },
+    {
+      "file": "city.png",
+      "cols": 37,
+      "rows": 28,
+      "tile": 16,
+      "note": "Kenney Roguelike Modern City · CC0",
+      "source": "rogue-city-tilemap.png"
+    },
+    {
+      "file": "characters.png",
+      "cols": 54,
+      "rows": 12,
+      "tile": 16,
+      "note": "Kenney Roguelike Characters · CC0",
+      "source": "roguelike-characters.png"
+    }
+  ]
+}
