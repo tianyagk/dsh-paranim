@@ -1,7 +1,7 @@
 {
   "name": "dsh-paranim",
-  "version": "0.2.1",
-  "description": "dsh-paranim（他化自在天 Paranimmita-vasavatti）: a DeepSeek Harness web plugin that runs an editable multi-agent town sandbox. Sidebar tabs register through ctx.betterSidebar; the host half owns the JSON sandbox store, a tick engine that drives every agent through ctx.llm on a per-agent model route, a D6 attribute adjudication engine (STR/CON/DEX/APP/INT/POW vs difficulty), a material-shaded canvas town map (tiles, roofs, roads, agent bubbles), right-click object state editing, user directives (神谕), and manual / auto-advance world steppers. Ships a recreated Stanford Smallville mirror as the default sandbox.",
+  "version": "0.3.0",
+  "description": "dsh-paranim（他化自在天）: a DeepSeek Harness web plugin that runs an editable multi-agent town sandbox. Sidebar tabs register through ctx.betterSidebar; the host half owns the JSON sandbox store, a tick engine driving every agent through ctx.llm on a per-agent model route, and a D6 attribute adjudication engine (STR/CON/DEX/APP/INT/POW vs difficulty). The map renders from an inline pixel-art sprite table (tiles, buildings, walkers, props) with right-click object state editing, user directives, and manual / auto world steppers. Ships a recreated Stanford Smallville mirror.",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -31,7 +31,8 @@
     "check": "npm run typecheck && npm run test && npm run selftest && npm run build",
     "install:profile": "bash scripts/install.sh",
     "uninstall:profile": "bash scripts/uninstall.sh",
-    "migrate:fields": "node scripts/migrate-drop-fields.mjs"
+    "migrate:fields": "node scripts/migrate-drop-fields.mjs",
+    "preview:sprites": "node scripts/preview-sprites.mjs"
   },
   "keywords": [
     "deepseek",

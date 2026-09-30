@@ -97,22 +97,40 @@ const escapeUpper = (text) =>
   [...text].map((c) => (c.charCodeAt(0) > 127 ? `\\u${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}` : c)).join('')
 
 const REQUIRED_CLIENT_SNIPPETS = [
-  'dsh-paranim',        // 侧边栏 tab 注册 id
-  '他化自在天',          // tab 标题
-  '修改物体状态',        // 需求 5 的右键交互入口（菜单标题）
-  '加状态键',            // 右键菜单里能新增状态槽
-  '手动步进',            // 需求 6 的手动步进
-  '自动步进',            // 需求 6 的自动步进
-  '时间流速',            // 需求 6 的流速设置
-  '世界沙盒',            // 需求 2 的沙盒库
-  '新增智能体',          // 需求 3 的智能体数量自定义
-  '驱动模型',            // 需求 3 的每智能体模型选择
-  '下达指令',            // 需求 3 的指令引导
-  '力量',                // 需求 4 的 STR
-  '意志',                // 需求 4 的 POW
-  '驱动模型',            // 需求 3 的每智能体模型选择
-  '1:1',                 // 地图视图控制（铺满/复位）
-  '铺满',
+  'dsh-paranim',          // 侧边栏 tab 注册 id
+  '他化自在天',            // tab 标题
+  '修改物体状态',          // 需求 5 的右键交互入口（菜单标题）
+  '加状态键',              // 右键菜单里能新增状态槽
+  '手动步进',              // 需求 6 的手动步进
+  '自动步进',              // 需求 6 的自动步进
+  '时间流速',              // 需求 6 的流速设置
+  '世界沙盒',              // 需求 2 的沙盒库
+  '新增智能体',            // 需求 3 的智能体数量自定义
+  '驱动模型',              // 需求 3 的每智能体模型选择
+  '下达指令',              // 需求 3 的指令引导
+  '目标',                  // 需求 3 的 goal 分段
+  '力量',                  // 需求 4 的 STR
+  '意志',                  // 需求 4 的 POW
+  '1:1',                   // 地图视图复位
+  '铺满',                  // 地图视图铺满
+]
+
+/**
+ * 像素素材表必须真的进了产物。
+ *
+ * 它是内联点阵（不是外挂图集），一旦被 esbuild 判定为"未使用"而摘掉，
+ * 地图会静默变成一片空白——那种失败在类型检查里完全看不见，只能对着产物查。
+ */
+const REQUIRED_SPRITE_MARKERS = [
+  'PIXEL_PALETTE',
+  'GROUND_SPRITES',
+  'ROAD_SPRITES',
+  'BUILDING_SPRITES',
+  'WALKER_FRAMES',
+  'PROP_SPRITES',
+  'recolorWalker',
+  'mapPixelSize',
+  'TILE_PX',
 ]
 
 const clientBundle = readFileSync('lib/client.js', 'utf8')
@@ -128,5 +146,13 @@ if (missing.length > 0) {
   console.error('(usually a JSX branch that was never written, or was skipped by a guard)\n')
   process.exit(1)
 }
+const missingSprites = REQUIRED_SPRITE_MARKERS.filter((marker) => !clientBundle.includes(marker))
+if (missingSprites.length > 0) {
+  console.error(`\nBuild check failed: lib/client.js is missing pixel-art markers — ${missingSprites.join(' / ')}`)
+  console.error('(the sprite table was dropped from the bundle; the map would render empty)\n')
+  process.exit(1)
+}
 
-console.log(`built lib/index.js + lib/client.js (v${PA_VERSION}, client snippet check passed: ${REQUIRED_CLIENT_SNIPPETS.length} items)`)
+console.log(
+  `built lib/index.js + lib/client.js (v${PA_VERSION}, UI snippets ${REQUIRED_CLIENT_SNIPPETS.length} ✓, sprite markers ${REQUIRED_SPRITE_MARKERS.length} ✓)`,
+)

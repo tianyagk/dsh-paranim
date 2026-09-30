@@ -18,12 +18,14 @@ import {
   type WorldEvent,
   type WorldObject,
 } from '../shared/model.ts'
-import { buildTileField, renderTown, type TileField, type View } from './town.ts'
+import { TILE_PX, mapPixelSize, renderTown, type View } from './town.ts'
 
 export interface MapCanvasProps {
   sandbox: Sandbox
   agents: SandboxAgent[]
   events: WorldEvent[]
+  /** 世界步数：驱动行走动画的帧选择（同一格不抖）。 */
+  tick: number
   selectedId?: string
   onSelectAgent: (id: string) => void
   /** 提交一次物体改动（宿主会落盘并回写事件流）。 */
@@ -43,7 +45,7 @@ const STATUS_PRESETS = ['正常', '故障', '损坏', '维修中', '锁住', '�
 const BOOL_KEYS = ['open', 'lit', 'running', 'full', 'locked', 'on', 'spinning', 'flowing', 'occupied', 'tuned']
 
 export function MapCanvas(props: MapCanvasProps): React.ReactElement {
-  const { sandbox, agents, events, selectedId, onSelectAgent, onPatchObject, onRemoveObject } = props
+  const { sandbox, agents, events, tick, selectedId, onSelectAgent, onPatchObject, onRemoveObject } = props
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [size, setSize] = useState({ w: 480, h: 320 })
@@ -68,21 +70,6 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     return () => observer.disconnect()
   }, [])
 
-  // 地块底图：只在地标布局真的变了时才重建（140×100 的网格重建不便宜）。
-  const layoutKey = useMemo(
-    () =>
-      sandbox.places
-        .map((p) => `${p.id}:${p.x},${p.y},${p.w ?? 0}x${p.h ?? 0}`)
-        .join('|') + `#${sandbox.map.width}x${sandbox.map.height}`,
-    [sandbox.places, sandbox.map.width, sandbox.map.height],
-  )
-  const tiles = useMemo<TileField>(
-    () => (sandbox.map.tiles === undefined ? buildTileField(sandbox) : { width: sandbox.map.width, height: sandbox.map.height, rows: sandbox.map.tiles }),
-    // layoutKey 是 layout 的指纹，替代 sandbox 对象引用（每次拉取都会是新对象）
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [layoutKey],
-  )
-
   // 气泡：每个角色最近说过的一句话
   const bubbles = useMemo(() => {
     const map = new Map<string, string>()
@@ -95,15 +82,20 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     return map
   }, [events])
 
+  // 视图：把整张地图的**像素尺寸**塞进容器，再乘用户缩放。
+  // 1 倍时整镇可见；放大看细节时精灵按最近邻放大，不会糊。
   const view = useMemo<View>(() => {
-    const scale = Math.min(size.w / sandbox.map.width, size.h / sandbox.map.height) * zoom
-    const s = scale > 0 && Number.isFinite(scale) ? scale : 1
+    const mapPx = mapPixelSize(sandbox)
+    const fit = Math.min(size.w / mapPx.w, size.h / mapPx.h) * zoom
+    const s = fit > 0 && Number.isFinite(fit) ? fit : 0.5
+    const contentW = mapPx.w * s
+    const contentH = mapPx.h * s
     return {
       scale: s,
-      offsetX: (size.w - sandbox.map.width * s) / 2,
-      offsetY: (size.h - sandbox.map.height * s) / 2,
+      offsetX: (size.w - contentW) / 2 + TILE_PX * 3 * s,
+      offsetY: (size.h - contentH) / 2 + TILE_PX * 3 * s,
     }
-  }, [size, sandbox.map.width, sandbox.map.height, zoom])
+  }, [size, sandbox, zoom])
 
   const toWorld = useCallback(
     (px: number, py: number) => ({ x: (px - view.offsetX) / view.scale, y: (py - view.offsetY) / view.scale }),
@@ -122,13 +114,13 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     renderTown(ctx, {
       sandbox,
-      tiles,
       view,
       size,
       agents,
       selectedId,
       hover: { objectId: hover.object?.id, agentId: hover.agentId },
       bubbles,
+      tick,
     })
 
     // 地标名下方补一行小字：所属类别，帮玩家认出"这是什么地方"
@@ -145,13 +137,13 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
         ctx.fillText(label, x, y)
       }
     }
-  }, [sandbox, tiles, view, size, agents, selectedId, hover, bubbles])
+  }, [sandbox, view, size, agents, selectedId, hover, bubbles, tick])
 
   // ── 命中判定 ──────────────────────────────────────────────────────────
   const hitTest = useCallback(
     (px: number, py: number): Hit | null => {
       const world = toWorld(px, py)
-      const radius = Math.max(1.2, 9 / view.scale)
+      const radius = Math.max(1.2, 12 / (view.scale * TILE_PX / 16))
       let best: Hit | null = null
       let bestDistance = Number.POSITIVE_INFINITY
       for (const object of sandbox.objects) {

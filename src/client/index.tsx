@@ -230,6 +230,7 @@ function ParanimApp(props: TabProps): React.ReactElement {
         sandbox,
         agents,
         events: world.run.events,
+        tick: world.run.tick,
         selectedId: selected,
         onSelectAgent: (id: string) => {
           setSelected(id)

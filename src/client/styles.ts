@@ -9,21 +9,27 @@
  */
 const CSS = `
 .pa-root {
-  --pa-bg: var(--dsw-alias-bg-base, #0e1116);
-  --pa-layer: var(--dsw-alias-bg-layer-2, #151922);
-  --pa-layer-3: var(--dsw-alias-bg-layer-3, #1c212c);
-  --pa-layer-4: #232936;
-  --pa-text: var(--dsw-alias-text-primary, #e8ecf4);
-  --pa-text-dim: var(--dsw-alias-text-secondary, #98a2b6);
-  --pa-text-faint: #6b7688;
-  --pa-border: var(--dsw-alias-border-secondary, #2a3140);
-  --pa-border-soft: #222836;
+  /* 工作台：比小镇的草地暗两档，让地图成为画面里最亮的一块——
+     暗色界面最忌"处处一样暗"，靠明度差而不是阴影分层。 */
+  --pa-bg: var(--dsw-alias-bg-base, #0b0e13);
+  --pa-layer: var(--dsw-alias-bg-layer-2, #121722);
+  --pa-layer-3: var(--dsw-alias-bg-layer-3, #1a2130);
+  --pa-layer-4: #222b3d;
+  /* 文字三档亮度，差值拉开：正文 / 次要 / 极淡（时间戳、坐标这类） */
+  --pa-text: var(--dsw-alias-text-primary, #eef2f8);
+  --pa-text-dim: var(--dsw-alias-text-secondary, #a7b2c6);
+  --pa-text-faint: #78849a;
+  --pa-border: var(--dsw-alias-border-secondary, #2c364a);
+  --pa-border-soft: #1f2635;
+  /* 强调色走暖金，与小镇的瓦顶、路灯同源；冷蓝留给"信息"而不是"主行动" */
   --pa-accent: var(--dsw-alias-state-info-primary, #7aa2f7);
-  --pa-accent-2: #ffd479;
-  --pa-danger: var(--dsw-alias-state-error-primary, #f07178);
-  --pa-ok: var(--dsw-alias-state-success-primary, #8bd49c);
-  --pa-warn: var(--dsw-alias-state-warning-primary, #e0af68);
-  --pa-shadow: 0 6px 22px rgba(0,0,0,.42);
+  --pa-accent-2: #ffc861;
+  --pa-gold: #ffc861;
+  --pa-gold-dim: #a8802f;
+  --pa-danger: var(--dsw-alias-state-error-primary, #f0736f);
+  --pa-ok: var(--dsw-alias-state-success-primary, #7fc98b);
+  --pa-warn: var(--dsw-alias-state-warning-primary, #e8b45f);
+  --pa-shadow: 0 8px 26px rgba(0,0,0,.5);
   display: flex;
   flex-direction: column;
   /* 确定高度 + 不溢出：这是"向下无限下坠"的根治条件之一，别删。 */
@@ -52,7 +58,7 @@ const CSS = `
   gap: 6px;
   padding: 7px 10px;
   border-bottom: 1px solid var(--pa-border-soft);
-  background: linear-gradient(180deg, #1a1f2b, #141821);
+  background: linear-gradient(180deg, #18202e, #11161f);
   flex-wrap: wrap;
 }
 .pa-tabs {
@@ -60,7 +66,7 @@ const CSS = `
   gap: 2px;
   padding: 2px;
   border-radius: 8px;
-  background: #10141c;
+  background: #0c1017;
   border: 1px solid var(--pa-border-soft);
 }
 .pa-tab {
@@ -76,9 +82,9 @@ const CSS = `
 }
 .pa-tab:hover { color: var(--pa-text); background: #1b2130; }
 .pa-tab[data-on="true"] {
-  background: linear-gradient(180deg, #2c3548, #232a3a);
+  background: linear-gradient(180deg, #2f3a52, #232a3a);
   color: #fff;
-  box-shadow: inset 0 0 0 1px #38425a;
+  box-shadow: inset 0 0 0 1px #46577a, 0 1px 0 rgba(255,200,97,.16);
 }
 
 /* ── 按钮 / 徽标 / 文本 ───────────────────────────────────────────── */
@@ -97,12 +103,13 @@ const CSS = `
 .pa-btn:active { transform: translateY(1px); }
 .pa-btn[disabled] { opacity: .42; cursor: not-allowed; }
 .pa-btn[data-primary="true"] {
-  background: linear-gradient(180deg, #3d63c9, #3252a8);
-  border-color: #4b74dd;
-  color: #fff;
-  font-weight: 600;
+  background: linear-gradient(180deg, #f0b84a, #d29a2f);
+  border-color: #ffd98a;
+  color: #2b1f06;
+  font-weight: 650;
+  text-shadow: 0 1px 0 rgba(255,255,255,.35);
 }
-.pa-btn[data-primary="true"]:hover { background: linear-gradient(180deg, #4a73dd, #3a5cc0); }
+.pa-btn[data-primary="true"]:hover { background: linear-gradient(180deg, #ffc861, #e0a838); }
 .pa-btn[data-danger="true"] { color: #ffb4b8; border-color: #5a3138; background: linear-gradient(180deg, #2c1f24, #241a1e); }
 .pa-btn[data-danger="true"]:hover { border-color: #8a444c; }
 .pa-btn[data-tiny="true"] { padding: 1px 7px; font-size: 11px; border-radius: 5px; }
@@ -146,7 +153,7 @@ const CSS = `
 .pa-map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
 .pa-mapvignette {
   position: absolute; inset: 0; pointer-events: none;
-  box-shadow: inset 0 0 0 1px #2a3346, inset 0 0 90px rgba(0,0,0,.55);
+  box-shadow: inset 0 0 0 1px #33405a, inset 0 0 110px rgba(0,0,0,.6);
 }
 
 .pa-mapbar {
@@ -217,7 +224,7 @@ const CSS = `
   transition: background .12s ease, border-color .12s ease;
 }
 .pa-item:hover { background: #1a2030; }
-.pa-item[data-on="true"] { background: #1c2334; border-color: #3a4a6b; box-shadow: inset 0 0 0 1px rgba(122,162,247,.18); }
+.pa-item[data-on="true"] { background: #1c2433; border-color: #5b4a24; box-shadow: inset 0 0 0 1px rgba(255,200,97,.16); }
 .pa-item .pa-portrait {
   flex: 0 0 auto;
   width: 24px; height: 24px;
@@ -247,7 +254,7 @@ const CSS = `
   font-size: 13px; font-weight: 600; padding: 1px 4px;
 }
 .pa-attrbar { height: 3px; border-radius: 2px; background: #232a38; overflow: hidden; }
-.pa-attrbar i { display: block; height: 100%; background: linear-gradient(90deg, #4a6fd4, #7aa2f7); }
+.pa-attrbar i { display: block; height: 100%; background: linear-gradient(90deg, #c98f2c, #ffc861); }
 
 /* ── 记忆 / 事件流 ────────────────────────────────────────────────── */
 .pa-mem {
@@ -256,8 +263,8 @@ const CSS = `
   margin: 4px 0;
   color: #b6c0d2;
 }
-.pa-mem[data-kind="thought"] { border-left-color: #6b5cff; color: #a9b3c9; font-style: italic; }
-.pa-mem[data-kind="whisper"] { border-left-color: var(--pa-accent-2); color: #e8dcc0; }
+.pa-mem[data-kind="thought"] { border-left-color: #7b6cf0; color: #b3bdd2; font-style: italic; }
+.pa-mem[data-kind="whisper"] { border-left-color: var(--pa-gold); color: #f0dcae; }
 .pa-mem[data-kind="summary"] { border-left-color: var(--pa-ok); }
 .pa-ev {
   display: flex; gap: 8px;
@@ -268,21 +275,21 @@ const CSS = `
 .pa-ev .pa-tick { color: var(--pa-text-faint); min-width: 36px; font-variant-numeric: tabular-nums; }
 .pa-ev .pa-evbody { flex: 1; min-width: 0; }
 .pa-roll {
-  margin-top: 2px;
-  padding: 2px 6px;
+  margin-top: 3px;
+  padding: 2px 7px;
   border-radius: 5px;
-  background: #201a12;
-  border: 1px solid #4a3d22;
-  color: var(--pa-warn);
+  background: #1e1810;
+  border: 1px solid #4b3d21;
+  color: #e8b45f;
   font-size: 11px;
 }
-.pa-roll[data-ok="true"] { background: #12231a; border-color: #2c5540; color: var(--pa-ok); }
+.pa-roll[data-ok="true"] { background: #101e15; border-color: #2b523c; color: #8fd39c; }
 
 /* ── 底栏 ─────────────────────────────────────────────────────────── */
 .pa-foot {
   flex: 0 0 auto;
   border-top: 1px solid var(--pa-border-soft);
-  background: linear-gradient(180deg, #141821, #10141c);
+  background: linear-gradient(180deg, #11161f, #0d1117);
   display: flex; flex-direction: column; gap: 6px; padding: 7px 10px;
 }
 .pa-foot .pa-line { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
