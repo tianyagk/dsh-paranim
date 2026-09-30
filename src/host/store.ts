@@ -147,6 +147,9 @@ export function normalizeObject(
     interactive: o.interactive === undefined ? true : o.interactive !== false,
     affordances: Array.isArray(o.affordances) ? o.affordances.filter((v) => typeof v === 'string').slice(0, 12) : undefined,
     tags: Array.isArray(o.tags) ? o.tags.filter((v) => typeof v === 'string').slice(0, 12) : undefined,
+    // 屋顶族可以由沙盒显式指定（Smallville 镜像按原版建筑族写好了每处地点）。
+    // 归一化把它丢掉，渲染层就只能回落到"按 tags 推导"，同族地点会全部同色。
+    roofSlot: typeof o.roofSlot === 'string' ? o.roofSlot : undefined,
     lastEditedBy: typeof o.lastEditedBy === 'string' ? o.lastEditedBy : undefined,
     lastEditedAt: o.lastEditedAt === undefined ? undefined : num(o.lastEditedAt, 0),
   }
@@ -209,6 +212,11 @@ export function normalizeSandbox(input: unknown, fallbackId = 'sandbox'): Sandbo
               label: typeof e.label === 'string' ? e.label : undefined,
             }
           })
+      : undefined,
+    // 地块字符画：Smallville 镜像用它承载原版路网（'r' = 泥土路）。
+    // 归一化丢掉它，路网就整张消失——地图又变回"草地上一堆色块"。
+    tiles: Array.isArray(mapRaw.tiles)
+      ? mapRaw.tiles.filter((r) => typeof r === 'string').slice(0, 600).map((r) => String(r).slice(0, 600))
       : undefined,
     // 室内地板区域（house 类沙盒）：少了这条，房间会被画成实心屋顶，家具全被盖住
     interior:

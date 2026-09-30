@@ -348,6 +348,12 @@ export interface WorldObject {
   interactive: boolean
   /** 交互动词提示，如 ['修理','破坏','点灯']。 */
   affordances?: string[]
+  /**
+   * 屋顶配色族（对应 mapStyle.BUILDING 的 roof* 槽位）。
+   * 地标可显式指定；不给则由渲染层按 tags 推导。Smallville 镜像按原版建筑族写好了每处地点，
+   * 这样同一类建筑在地图上是同一个色系——这正是原版地图"一眼能分出住宅区与商业区"的原因。
+   */
+  roofSlot?: string
   /** 修改者与时间，用于复盘「谁在什么时候动了这盏灯」。 */
   lastEditedBy?: string
   lastEditedAt?: number

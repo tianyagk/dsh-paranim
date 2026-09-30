@@ -1,375 +1,907 @@
 {
   "id": "smallville",
   "name": "Smallville · 斯坦福小镇",
-  "desc": "140x100 网格的小镇，25 位居民在咖啡馆、酒馆、超市、学院与各自住所之间过着有日程、有记忆、有社交的日子。",
-  "attribution": "地图分区、地标名、物件名与 25 位居民设定取自 joonspk-research/generative_agents（Stanford Generative Agents, UIST 2023, Apache-2.0）。本文件的 19 个 places 的 x/y/w/h 由原仓库 matrix/maze/arena_maze.csv 的 140x100 网格逐格解析得出，均为原版真实坐标；12 个 props 的坐标取自 matrix/maze/game_object_maze.csv；agents 的 age/innate/learned/currently/lifestyle/living_area 取自 storage/base_the_ville_n25/personas/<Name>/bootstrap_memory/scratch.json。objects（街道家具）的命名思路取自 a16z-infra/ai-town（MIT）的 campfire/windmill/gentlewaterfall/gentlesparkle 精灵命名，坐标为按空地布设（见 README.md 的 unverified 标注）。",
-  "license": "Apache-2.0",
-  "map": {
-    "width": 140,
-    "height": 100,
-    "tile": 32,
-    "ground": "#4a6b3f",
-    "decor": []
-  },
   "places": [
     {
-      "id": "hobbs-cafe",
-      "name": "霍布斯咖啡馆",
+      "id": "place-1",
+      "name": "罗西公寓",
       "kind": "place",
-      "x": 72,
+      "x": 88,
       "y": 19,
-      "w": 12,
-      "h": 8,
-      "color": "#c9843f",
-      "desc": "伊莎贝拉·罗德里格斯开的咖啡馆，小镇的社交心脏，情人节派对定在这里。",
+      "w": 5,
+      "h": 14,
+      "color": "#6b7f9c",
+      "interactive": true,
       "state": {
         "open": true
       },
+      "desc": "数学家乔治·罗西的家，黑板上留着没擦干净的公式。",
+      "tags": [
+        "居住",
+        "独居",
+        "研究"
+      ],
+      "roofSlot": "roofCool"
+    },
+    {
+      "id": "place-2",
+      "name": "戈麦斯公寓",
+      "kind": "place",
+      "x": 95,
+      "y": 19,
+      "w": 5,
+      "h": 14,
+      "color": "#6b7f9c",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "诗人卡洛斯·戈麦斯的家，桌上散落着写坏的稿纸。",
+      "tags": [
+        "居住",
+        "独居",
+        "写作"
+      ],
+      "roofSlot": "roofCool"
+    },
+    {
+      "id": "place-3",
+      "name": "玫瑰与王冠酒馆",
+      "kind": "place",
+      "x": 58,
+      "y": 20,
+      "w": 10,
+      "h": 14,
+      "color": "#6b7f9c",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "亚瑟·伯顿经营了十年的老酒馆，深夜还亮着灯，适合谈心事和听故事。",
+      "tags": [
+        "社交",
+        "饮酒",
+        "夜间"
+      ],
+      "roofSlot": "roofCool"
+    },
+    {
+      "id": "place-4",
+      "name": "霍布斯咖啡馆",
+      "kind": "place",
+      "x": 67,
+      "y": 20,
+      "w": 5,
+      "h": 14,
+      "color": "#6b7f9c",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "伊莎贝拉·罗德里格斯开的咖啡馆，小镇的社交心脏，情人节派对定在这里。",
       "tags": [
         "社交",
         "餐饮",
         "打工",
         "派对"
-      ]
+      ],
+      "roofSlot": "roofCool"
     },
     {
-      "id": "rose-and-crown-pub",
-      "name": "玫瑰与王冠酒馆",
+      "id": "place-5",
+      "name": "伊莎贝拉公寓",
       "kind": "place",
-      "x": 53,
+      "x": 78,
       "y": 20,
-      "w": 10,
-      "h": 7,
-      "color": "#8e4b3a",
-      "desc": "亚瑟·伯顿经营了十年的老酒馆，深夜还亮着灯，适合谈心事和听故事。",
+      "w": 12,
+      "h": 14,
+      "color": "#6b7f9c",
+      "interactive": true,
       "state": {
         "open": true
       },
-      "tags": [
-        "社交",
-        "饮酒",
-        "夜间"
-      ]
-    },
-    {
-      "id": "harvey-oak-supply-store",
-      "name": "哈维橡树五金店",
-      "kind": "place",
-      "x": 57,
-      "y": 42,
-      "w": 14,
-      "h": 12,
-      "color": "#7a6a55",
-      "desc": "卡门·奥尔蒂斯打理的五金杂货铺，什么零碎都能找到。",
-      "state": {
-        "open": true
-      },
-      "tags": [
-        "购物",
-        "工具",
-        "打工"
-      ]
-    },
-    {
-      "id": "johnson-park",
-      "name": "约翰逊公园",
-      "kind": "place",
-      "x": 21,
-      "y": 41,
-      "w": 15,
-      "h": 11,
-      "color": "#5f8f4a",
-      "desc": "镇中心的开阔绿地，山姆·摩尔每天来打理，也是散步和偶遇的地方。",
-      "state": {
-        "open": true
-      },
-      "tags": [
-        "户外",
-        "散步",
-        "偶遇"
-      ]
-    },
-    {
-      "id": "willows-market-pharmacy",
-      "name": "柳树超市与药房",
-      "kind": "place",
-      "x": 75,
-      "y": 42,
-      "w": 19,
-      "h": 12,
-      "color": "#6f8fa8",
-      "desc": "全镇最大的日用品与药品卖场。汤姆·莫雷诺管杂货，约翰·林管药房。",
-      "state": {
-        "open": true
-      },
-      "tags": [
-        "购物",
-        "药品",
-        "打工"
-      ]
-    },
-    {
-      "id": "oak-hill-college",
-      "name": "橡树山学院",
-      "kind": "place",
-      "x": 108,
-      "y": 19,
-      "w": 17,
-      "h": 16,
-      "color": "#9a7bb0",
-      "desc": "镇上的学院，教室、图书馆与走廊连成一片。克劳斯在此写论文，埃迪在此学作曲。",
-      "state": {
-        "open": true
-      },
-      "tags": [
-        "学习",
-        "教学",
-        "图书馆"
-      ]
-    },
-    {
-      "id": "dorm-oak-hill",
-      "name": "橡树山学院宿舍",
-      "kind": "place",
-      "x": 106,
-      "y": 44,
-      "w": 27,
-      "h": 19,
-      "color": "#b08fc4",
-      "desc": "学生宿舍区，带公共休息室、厨房和一片花园。住着克劳斯、玛丽亚、艾莎和沃尔夫冈。",
-      "state": {
-        "open": true
-      },
+      "desc": "咖啡馆主人的住处，就开在店的正上方，早上六点起床下楼开门。",
       "tags": [
         "居住",
-        "学生",
-        "花园"
-      ]
+        "独居"
+      ],
+      "roofSlot": "roofCool"
     },
     {
-      "id": "artists-co-living",
+      "id": "place-6",
       "name": "艺术家合居空间",
       "kind": "place",
-      "x": 15,
-      "y": 17,
-      "w": 28,
-      "h": 18,
-      "color": "#c46a8a",
-      "desc": "五位创作者的共居公寓：阿比盖尔、拉托雅、拉吉夫、弗朗西斯科、海莉，共用一间大客厅和厨房。",
+      "x": 19,
+      "y": 20,
+      "w": 8,
+      "h": 6,
+      "color": "#a8623f",
+      "interactive": true,
       "state": {
         "open": true
       },
+      "desc": "五位创作者的共居公寓：阿比盖尔、拉托雅、拉吉夫、弗朗西斯科、海莉，共用一间大客厅和厨房。",
       "tags": [
         "居住",
         "创作",
         "合居"
-      ]
+      ],
+      "roofSlot": "roofHome"
     },
     {
-      "id": "lin-house",
-      "name": "林家宅",
+      "id": "place-7",
+      "name": "亚瑟·伯顿公寓",
       "kind": "place",
-      "x": 87,
-      "y": 65,
-      "w": 12,
-      "h": 18,
-      "color": "#d08b6a",
-      "desc": "约翰、梅与儿子埃迪的家，客厅常在晚上传出琴声，屋后有一片小菜园。",
+      "x": 29,
+      "y": 20,
+      "w": 8,
+      "h": 6,
+      "color": "#a8623f",
+      "interactive": true,
       "state": {
         "open": true
       },
+      "desc": "酒馆老板的家，吧台后面那些调酒配方就诞生在这里。",
       "tags": [
         "居住",
-        "家庭"
-      ]
+        "独居"
+      ],
+      "roofSlot": "roofHome"
     },
     {
-      "id": "moreno-house",
-      "name": "莫雷诺家",
+      "id": "place-8",
+      "name": "起居室 1",
       "kind": "place",
-      "x": 69,
-      "y": 65,
-      "w": 12,
-      "h": 18,
-      "color": "#c07a5f",
-      "desc": "汤姆与简的家，有一间空着的客房，屋后花园种着藤蔓。",
+      "x": 39,
+      "y": 25,
+      "w": 8,
+      "h": 16,
+      "color": "#a8623f",
+      "interactive": true,
       "state": {
         "open": true
       },
+      "desc": "住宅·按原版栅格外接框还原",
       "tags": [
-        "居住",
-        "家庭"
-      ]
+        "住宅"
+      ],
+      "roofSlot": "roofHome"
     },
     {
-      "id": "moore-house",
-      "name": "摩尔家",
+      "id": "place-9",
+      "name": "橡树山学院",
       "kind": "place",
-      "x": 36,
-      "y": 58,
-      "w": 5,
-      "h": 13,
-      "color": "#a8846a",
-      "desc": "山姆与珍妮弗住了一辈子的房子，墙上挂满珍妮弗的水彩画。",
+      "x": 116,
+      "y": 27,
+      "w": 17,
+      "h": 16,
+      "color": "#6b7f9c",
+      "interactive": true,
       "state": {
         "open": true
       },
+      "desc": "镇上的学院，教室、图书馆与走廊连成一片。克劳斯在此写论文，埃迪在此学作曲。",
       "tags": [
-        "居住",
-        "家庭",
-        "退休"
-      ]
+        "学习",
+        "教学",
+        "图书馆"
+      ],
+      "roofSlot": "roofCool"
     },
     {
-      "id": "smith-house",
+      "id": "place-10",
+      "name": "约翰逊公园",
+      "kind": "place",
+      "x": 19,
+      "y": 30,
+      "w": 8,
+      "h": 6,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "镇中心的开阔绿地，山姆·摩尔每天来打理，也是散步和偶遇的地方。",
+      "tags": [
+        "户外",
+        "散步",
+        "偶遇"
+      ],
+      "roofSlot": "roofHome"
+    },
+    {
+      "id": "place-11",
+      "name": "厨房 1",
+      "kind": "place",
+      "x": 29,
+      "y": 30,
+      "w": 8,
+      "h": 6,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "住宅·按原版栅格外接框还原",
+      "tags": [
+        "住宅"
+      ],
+      "roofSlot": "roofHome"
+    },
+    {
+      "id": "place-12",
+      "name": "橡树山学院宿舍",
+      "kind": "place",
+      "x": 124,
+      "y": 36,
+      "w": 15,
+      "h": 11,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "学生宿舍区，带公共休息室、厨房和一片花园。住着克劳斯、玛丽亚、艾莎和沃尔夫冈。",
+      "tags": [
+        "居住",
+        "学生",
+        "花园"
+      ],
+      "roofSlot": "roofWarm"
+    },
+    {
+      "id": "place-13",
+      "name": "山本宅",
+      "kind": "place",
+      "x": 28,
+      "y": 46,
+      "w": 14,
+      "h": 9,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "百合子·山本的家，屋内一切归置得井井有条，连抽屉里的单据都按日期排好。",
+      "tags": [
+        "居住",
+        "独居"
+      ],
+      "roofSlot": "roofWarm"
+    },
+    {
+      "id": "place-14",
+      "name": "哈维橡树五金店",
+      "kind": "place",
+      "x": 64,
+      "y": 48,
+      "w": 14,
+      "h": 12,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "卡门·奥尔蒂斯打理的五金杂货铺，什么零碎都能找到。",
+      "tags": [
+        "购物",
+        "工具",
+        "打工"
+      ],
+      "roofSlot": "roofWarm"
+    },
+    {
+      "id": "place-15",
+      "name": "柳树超市与药房",
+      "kind": "place",
+      "x": 84,
+      "y": 48,
+      "w": 19,
+      "h": 12,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "全镇最大的日用品与药品卖场。汤姆·莫雷诺管杂货，约翰·林管药房。",
+      "tags": [
+        "购物",
+        "药品",
+        "打工"
+      ],
+      "roofSlot": "roofWarm"
+    },
+    {
+      "id": "place-16",
+      "name": "店面 1",
+      "kind": "place",
+      "x": 129,
+      "y": 46,
+      "w": 7,
+      "h": 5,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "商业·按原版栅格外接框还原",
+      "tags": [
+        "商业"
+      ],
+      "roofSlot": "roofWarm"
+    },
+    {
+      "id": "place-17",
+      "name": "后厨 1",
+      "kind": "place",
+      "x": 121,
+      "y": 50,
+      "w": 8,
+      "h": 9,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "商业·按原版栅格外接框还原",
+      "tags": [
+        "商业"
+      ],
+      "roofSlot": "roofWarm"
+    },
+    {
+      "id": "place-18",
+      "name": "仓库 1",
+      "kind": "place",
+      "x": 109,
+      "y": 51,
+      "w": 6,
+      "h": 4,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "商业·按原版栅格外接框还原",
+      "tags": [
+        "商业"
+      ],
+      "roofSlot": "roofWarm"
+    },
+    {
+      "id": "place-19",
+      "name": "店面 2",
+      "kind": "place",
+      "x": 131,
+      "y": 54,
+      "w": 3,
+      "h": 7,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "商业·按原版栅格外接框还原",
+      "tags": [
+        "商业"
+      ],
+      "roofSlot": "roofWarm"
+    },
+    {
+      "id": "place-20",
+      "name": "后厨 2",
+      "kind": "place",
+      "x": 125,
+      "y": 55,
+      "w": 6,
+      "h": 6,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "商业·按原版栅格外接框还原",
+      "tags": [
+        "商业"
+      ],
+      "roofSlot": "roofWarm"
+    },
+    {
+      "id": "place-21",
+      "name": "仓库 2",
+      "kind": "place",
+      "x": 109,
+      "y": 59,
+      "w": 6,
+      "h": 7,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "商业·按原版栅格外接框还原",
+      "tags": [
+        "商业"
+      ],
+      "roofSlot": "roofWarm"
+    },
+    {
+      "id": "place-22",
+      "name": "店面 3",
+      "kind": "place",
+      "x": 117,
+      "y": 59,
+      "w": 6,
+      "h": 7,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "商业·按原版栅格外接框还原",
+      "tags": [
+        "商业"
+      ],
+      "roofSlot": "roofWarm"
+    },
+    {
+      "id": "place-23",
       "name": "亚当·史密斯宅",
       "kind": "place",
-      "x": 20,
-      "y": 58,
+      "x": 22,
+      "y": 65,
       "w": 5,
-      "h": 13,
-      "color": "#8f8a72",
-      "desc": "哲学家的居所，凌晨四点就亮灯，桌上摊着写了一半的书稿。",
+      "h": 12,
+      "color": "#c9843f",
+      "interactive": true,
       "state": {
         "open": true
       },
+      "desc": "哲学家的居所，凌晨四点就亮灯，桌上摊着写了一半的书稿。",
       "tags": [
         "居住",
         "写作",
         "独居"
-      ]
+      ],
+      "roofSlot": "roofWarm"
     },
     {
-      "id": "yamamoto-house",
-      "name": "山本宅",
+      "id": "place-24",
+      "name": "摩尔家",
       "kind": "place",
-      "x": 28,
-      "y": 58,
+      "x": 30,
+      "y": 65,
       "w": 5,
-      "h": 13,
-      "color": "#7f9a8a",
-      "desc": "百合子·山本的家，屋内一切归置得井井有条，连抽屉里的单据都按日期排好。",
+      "h": 12,
+      "color": "#a8623f",
+      "interactive": true,
       "state": {
         "open": true
       },
+      "desc": "山姆与珍妮弗住了一辈子的房子，墙上挂满珍妮弗的水彩画。",
       "tags": [
         "居住",
-        "独居"
-      ]
+        "家庭",
+        "退休"
+      ],
+      "roofSlot": "roofHome"
     },
     {
-      "id": "taylor-ortiz-house",
+      "id": "place-25",
       "name": "泰勒与奥尔蒂斯之家",
       "kind": "place",
-      "x": 51,
+      "x": 38,
       "y": 65,
-      "w": 12,
-      "h": 18,
-      "color": "#c2a05e",
-      "desc": "塔玛拉·泰勒与卡门·奥尔蒂斯合租的房子，客厅常有未完成的画稿和童书草样。",
+      "w": 5,
+      "h": 12,
+      "color": "#a8623f",
+      "interactive": true,
       "state": {
         "open": true
       },
+      "desc": "塔玛拉·泰勒与卡门·奥尔蒂斯合租的房子，客厅常有未完成的画稿和童书草样。",
       "tags": [
         "居住",
         "合租",
         "创作"
-      ]
+      ],
+      "roofSlot": "roofHome"
     },
     {
-      "id": "burton-apartment",
-      "name": "亚瑟·伯顿公寓",
+      "id": "place-26",
+      "name": "莫雷诺家",
       "kind": "place",
-      "x": 53,
-      "y": 13,
-      "w": 10,
-      "h": 7,
-      "color": "#9c5f4f",
-      "desc": "酒馆老板的家，吧台后面那些调酒配方就诞生在这里。",
+      "x": 54,
+      "y": 68,
+      "w": 7,
+      "h": 6,
+      "color": "#a8623f",
+      "interactive": true,
       "state": {
         "open": true
       },
+      "desc": "汤姆与简的家，有一间空着的客房，屋后花园种着藤蔓。",
       "tags": [
         "居住",
-        "独居"
-      ]
+        "家庭"
+      ],
+      "roofSlot": "roofHome"
     },
     {
-      "id": "park-apartment",
-      "name": "瑞恩·帕克公寓",
+      "id": "place-27",
+      "name": "林家宅",
       "kind": "place",
-      "x": 65,
-      "y": 13,
-      "w": 5,
-      "h": 14,
-      "color": "#6a8fa8",
-      "desc": "软件工程师的住处，凌晨一点还亮着屏幕的光。",
+      "x": 61,
+      "y": 67,
+      "w": 3,
+      "h": 5,
+      "color": "#a8623f",
+      "interactive": true,
       "state": {
         "open": true
       },
+      "desc": "约翰、梅与儿子埃迪的家，客厅常在晚上传出琴声，屋后有一片小菜园。",
       "tags": [
         "居住",
-        "独居",
-        "工作"
-      ]
+        "家庭"
+      ],
+      "roofSlot": "roofHome"
     },
     {
-      "id": "rodriguez-apartment",
-      "name": "伊莎贝拉公寓",
+      "id": "place-28",
+      "name": "卧室 1",
       "kind": "place",
       "x": 72,
-      "y": 13,
-      "w": 12,
+      "y": 68,
+      "w": 7,
       "h": 6,
-      "color": "#d4a04a",
-      "desc": "咖啡馆主人的住处，就开在店的正上方，早上六点起床下楼开门。",
+      "color": "#a8623f",
+      "interactive": true,
       "state": {
         "open": true
       },
+      "desc": "住宅·按原版栅格外接框还原",
       "tags": [
-        "居住",
-        "独居"
-      ]
+        "住宅"
+      ],
+      "roofSlot": "roofHome"
     },
     {
-      "id": "rossi-apartment",
-      "name": "罗西公寓",
+      "id": "place-29",
+      "name": "书房 1",
       "kind": "place",
-      "x": 86,
-      "y": 12,
-      "w": 5,
-      "h": 14,
-      "color": "#7f7aa8",
-      "desc": "数学家乔治·罗西的家，黑板上留着没擦干净的公式。",
+      "x": 79,
+      "y": 67,
+      "w": 3,
+      "h": 5,
+      "color": "#a8623f",
+      "interactive": true,
       "state": {
         "open": true
       },
+      "desc": "住宅·按原版栅格外接框还原",
       "tags": [
-        "居住",
-        "独居",
-        "研究"
-      ]
+        "住宅"
+      ],
+      "roofSlot": "roofHome"
     },
     {
-      "id": "gomez-apartment",
-      "name": "戈麦斯公寓",
+      "id": "place-30",
+      "name": "起居室 2",
+      "kind": "place",
+      "x": 90,
+      "y": 68,
+      "w": 7,
+      "h": 6,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "住宅·按原版栅格外接框还原",
+      "tags": [
+        "住宅"
+      ],
+      "roofSlot": "roofHome"
+    },
+    {
+      "id": "place-31",
+      "name": "厨房 2",
+      "kind": "place",
+      "x": 97,
+      "y": 67,
+      "w": 3,
+      "h": 5,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "住宅·按原版栅格外接框还原",
+      "tags": [
+        "住宅"
+      ],
+      "roofSlot": "roofHome"
+    },
+    {
+      "id": "place-32",
+      "name": "卧室 2",
+      "kind": "place",
+      "x": 53,
+      "y": 74,
+      "w": 5,
+      "h": 3,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "住宅·按原版栅格外接框还原",
+      "tags": [
+        "住宅"
+      ],
+      "roofSlot": "roofHome"
+    },
+    {
+      "id": "place-33",
+      "name": "书房 2",
+      "kind": "place",
+      "x": 60,
+      "y": 74,
+      "w": 6,
+      "h": 3,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "住宅·按原版栅格外接框还原",
+      "tags": [
+        "住宅"
+      ],
+      "roofSlot": "roofHome"
+    },
+    {
+      "id": "place-34",
+      "name": "起居室 3",
+      "kind": "place",
+      "x": 71,
+      "y": 74,
+      "w": 5,
+      "h": 3,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "住宅·按原版栅格外接框还原",
+      "tags": [
+        "住宅"
+      ],
+      "roofSlot": "roofHome"
+    },
+    {
+      "id": "place-35",
+      "name": "厨房 3",
+      "kind": "place",
+      "x": 78,
+      "y": 74,
+      "w": 6,
+      "h": 3,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "住宅·按原版栅格外接框还原",
+      "tags": [
+        "住宅"
+      ],
+      "roofSlot": "roofHome"
+    },
+    {
+      "id": "place-36",
+      "name": "卧室 3",
+      "kind": "place",
+      "x": 89,
+      "y": 74,
+      "w": 5,
+      "h": 3,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "住宅·按原版栅格外接框还原",
+      "tags": [
+        "住宅"
+      ],
+      "roofSlot": "roofHome"
+    },
+    {
+      "id": "place-37",
+      "name": "书房 3",
+      "kind": "place",
+      "x": 96,
+      "y": 74,
+      "w": 6,
+      "h": 3,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "住宅·按原版栅格外接框还原",
+      "tags": [
+        "住宅"
+      ],
+      "roofSlot": "roofHome"
+    },
+    {
+      "id": "place-38",
+      "name": "起居室 4",
+      "kind": "place",
+      "x": 57,
+      "y": 80,
+      "w": 10,
+      "h": 5,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "住宅·按原版栅格外接框还原",
+      "tags": [
+        "住宅"
+      ],
+      "roofSlot": "roofHome"
+    },
+    {
+      "id": "place-39",
+      "name": "厨房 4",
+      "kind": "place",
+      "x": 75,
+      "y": 80,
+      "w": 10,
+      "h": 5,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      },
+      "desc": "住宅·按原版栅格外接框还原",
+      "tags": [
+        "住宅"
+      ],
+      "roofSlot": "roofHome"
+    },
+    {
+      "id": "place-40",
+      "name": "卧室 4",
       "kind": "place",
       "x": 93,
-      "y": 12,
-      "w": 5,
-      "h": 14,
-      "color": "#8a6a9c",
-      "desc": "诗人卡洛斯·戈麦斯的家，桌上散落着写坏的稿纸。",
+      "y": 80,
+      "w": 10,
+      "h": 5,
+      "color": "#a8623f",
+      "interactive": true,
       "state": {
         "open": true
       },
+      "desc": "住宅·按原版栅格外接框还原",
       "tags": [
-        "居住",
-        "独居",
-        "写作"
-      ]
+        "住宅"
+      ],
+      "roofSlot": "roofHome"
     }
   ],
+  "map": {
+    "width": 140,
+    "height": 100,
+    "ground": "#5c8b3a",
+    "tiles": [
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "ggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrrrrrrrrrrrrrrrgggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrgggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrgggggrrgggggrrgggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggrrggggggrgggrrgggggrrggggggggrgggrrgggggrrgggggrrgggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggrrggggggrgggrrgggggrrggggggggrgggrrgggggrrgggggrrgggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrggggggrrggggggrgggrrgggggrrggggggggrgggrrgggggrrgggggrrgggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrggggggrrggggggggggrrgggggrrggggggggggggrrrrggrrrrrggrrrgggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggrrggggrgggrrggggrgggrrggggggggrrggggggrrggggggggggrrrrggrrrrrrrrrggrrrrrrgggggrrgggggrrggggggrrrrrrrrrrrrrrrrrrrrrggggggggggggg",
+      "gggggggggggggrrggggrgggrrggggrgggrrggggggggrrggggggrrrrrrggrrrrrrgggggrrrrrrrrggrrrrrrgggggrrgggggrrggggggrrrrrrrrrrrrrrrrrrrrrggggggggggggg",
+      "gggggggggggggrrggggrgggrrggggrgggrrgggrrrrrrrggggggrrrrrrggrrrrrrgggggrrggggggggggggrrgggggrrgggggrrggggggrrggggggggrrgggggggrrggggggggggggg",
+      "gggggggggggggrrggggrgggrrggggrgggrrggggggggrrggggggrrggggggggggrrgggggrrggggggggggggrrgggggrrgggggrrggggggrrggggggggrrgggggggrrggggggggggggg",
+      "gggggggggggggrrggggggggrrggggggggrrggggggggrrggggggrrggggggggggrrgggggrrggggggggggggrrgggggrrgggggrrggggggrrggggggggrrgggggggrrggggggggggggg",
+      "gggggggggggggrrggggggggrrggggggggrrggggggggrrggggggrrggggggggggrrgggggrrggggggggggggrrgggggrrgggggrrggggggrrggggggggrrgggggggrrggggggggggggg",
+      "gggggggggggggrrrrggrrrrrrrrggrrrrrrrrggrrrrrrggggggrrggggggggggrrgggggrrggggggggggggrrgggggrrgggggrrggggggrrggggggggrrgggggggrrggggggggggggg",
+      "gggggggggggggrrrrggrrrrrrrrggrrrrrrrrggrrrrrrggggggrrggggggggggrrgggggrrggggggggggggrrgggggrrgggggrrggggggrrggggggggrrgggggggrrggggggggggggg",
+      "gggggggggggggrrrrrrrrrrrrrrrrrrrrrrggggggggrrggggggrrggggggggggrrgggggrrggggggggggggrrgggggrrgggggrrggggggrrggggggggrrgggggggrrggggggggggggg",
+      "gggggggggggggrrrrrrrrrrrrrrrrrrrrrrggggggggrrggggggrrggggggggggrrgggggrrggggggggggggrrrrrrrrrrrrrrrrggggggrrggggggggrrgggggggrrggggggggggggg",
+      "gggggggggggggrrggggggggrrggggggggrgggggggggrrggggggrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrggggggrrggggggggrrgggggggrrggggggggggggg",
+      "gggggggggggggrrggggggggrrggggggggrgggggggggrrggggggrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrggggggggggggggggggggrrrrrrrggrrrrggrrrrrrggggggggggggg",
+      "gggggggggggggrrggggrrggrrggggrrggrgggggggggrrgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrrrrrrggrrrrggrrrrrrrrrrrrrgggggg",
+      "gggggggggggggrrggggrrggrrggggrrggrgggggggggrrgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrgggggggggggggggggrrrrrrrrrgggggg",
+      "gggggggggggggrrggggrgggrrggggrgggrgggggggrrrrgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrrrrggggggggggggggrrrggggrrgggggg",
+      "gggggggggggggrrggggrgggrrggggrgggrgggggggrrrrgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrrrrggggggggggggggrrrggggrrgggggg",
+      "gggggggggggggrrrrrrrrrrrrrrrrrrrrrrrgggggrrggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrggggggggggggggrrrggggrrgggggg",
+      "gggggggggggggrrrrrrrrrrrrrrrrrrrrrrrgggggrrggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrggggggggggggggrrrggggrrgggggg",
+      "ggggggggggggggggggggggggggggggggggrrrrrrrrrggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrrrrrrrrrrrrrrrrrrggggrrgggggg",
+      "ggggggggggggggggggggggggggggggggggrrrrrrrrrggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrrrrrrrrrrrrrrrrrgggggrrgggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrgggggggggggggggrrgggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrgggggggggggggggrrgggggg",
+      "ggggggggggggggggggggggrrrrrrrrrrrrgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrgggggggggggggggrrgggggg",
+      "gggggggggggggggggggrrrrrrrrrrrrrrrrrrggggggggggggggggggrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrgggggggggggggggggggrrgggggggggggggggrrgggggg",
+      "gggggggggggggggggggrrrrrggrrrrggrrrrrggggggggggggggggggrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrgggggggggggggggggggrrgggggggggggggrrrrgggggg",
+      "gggggggggggggggggggrrggggggggggggggrrggggggggggggggggggrrgggggrrrrgggggrrrrgggggrrrrggggggggggrrgggggggggggggggggggrrrrrrrrrrrrrrrrrrrrggggg",
+      "gggggggggggggggggggrrggggggggggggggrrrgggggggggggggggggrrggggggggggggggrrrrgggggggggggggggggggrrgggggggggggggggggggrrrrrrrrrrrrrrrrrrrrggggg",
+      "gggggggggggggggggggrrggggggggggggggrrrgggggggggggggggggrrggggggggggggggrrrrgggggggggggggggggggrrgggggggggggggggggggrrrrrrrrrrrgggggggrrggggg",
+      "gggggggggggggggggggrrgggggggggggggggrrgggggggggggggggggrrggggggggggggggrrrrgggggggggggggggggggrrgggggggggggggggggggrrrgggggggrgggggggrrggggg",
+      "gggggggggggggggggggrrgggggggggggggggrrgggggggggggggggggrrggggggggggggggrrrrgggggggggggggggggggrrgggggggggggggggggggrrggggggggrgggggggrrggggg",
+      "gggggggggggggggggggrrgggggggggggggggrrgggggggggggggggggrrggggggggggggggrrrrgggggggggggggggggggrrggggggggrrrrrrrrrrrrrggggggggrgggggggrrggggg",
+      "gggggggggggggggggggrrggggggggggggggrrrgggggggggggggggggrrggggggggggggggrrrrgggggggggggggggggggrrggggggggrrrrrrrrrrrrrggggggggrgggggggrrggggg",
+      "gggggggggggggggggggrrggggggggggggggrrrgggggggggggggggggrrggggggggggggggrrrrgggggggggggggggggggrrggggggggrrggggggrggggggggggggrrrrrrrrrrggggg",
+      "gggggggggggggggggggrrggggggggggggggrrggggggggggggggggggrrggggggggggggggrrrrgggggggggggggggggggrrggggggggrrggggggrgggggggggggrrrrrrrrrrrggggg",
+      "gggggggggggggggggggrrrrrggrrrrggrrrrrggggggggggggggggggrrggggggggggggggrrrrgggggggggggggggggggrrggggggggrrggggggrggggggggrrrrrrrrrrggrrggggg",
+      "gggggggggggggggggggrrrrrrrrrrrrrrrrrrggggggggggggggggggrrggggggggggggggrrrrgggggggggggggggggggrrggggggggrrggggggrggggggggrggrrggrrgggrrggggg",
+      "ggggggggggggggggggggggrrrrrrrrrrrrgggggggggggggggggggggrrggggggggggggggrrrrgggggggggggggggggggrrggggggggrrggrrrrrggggggggrggggggrrgggrrggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrggggggggrrrrrrrrrggggggggrggggggrrgggrrggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrggggggggrrrrrrrrrrrrrrrrrrggggggrrgggrrggggg",
+      "ggggggggggggggggggrrrrrrrrrrrrrrrrrrrrrrrrrgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrggrrggrrggrrggrrggggggrrgggrrggggg",
+      "ggggggggggggggggggrrrrrrrrrrrrrrrrrrrrrrrrrgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrggggggrrggggggrrggggggrrgggrrggggg",
+      "ggggggggggggggggggrrggrrgrrrggrrgrrrggrrgrrgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrggggggrrggggggrrrrrrrrrrrrrrrggggg",
+      "ggggggggggggggggggrrgggggrrrgggggrrrgggggrrgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrggggggrrggggggrrrrrrrrrrrrrrrggggg",
+      "ggggggggggggggggggrrgggggrrrgggggrrrgggggrrgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrggggggrrggggggrrgggggggggggggggggg",
+      "ggggggggggggggggggrrgggggrrrgggggrrrgggggrrgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrggggggrrggggggrrgggggggggggggggggg",
+      "ggggggggggggggggggrrgggggrrrgggggrrrgggggrrgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggrrggggggrrggggggrrgggggggggggggggggg",
+      "ggggggggggggggggggrrgggggrrrgggggrrrgggggrrggggggrrrrrrrrrrrrrrrrggrrrrrrrrrrrrrrrrggrrrrrrrrrrrrrrrrgggrrrrrrrrrrrrrrrrrrgggggggggggggggggg",
+      "ggggggggggggggggggrrgggggrrrgggggrrrgggggrrggggggrrrrrrrrrrrrrrrrggrrrrrrrrrrrrrrrrggrrrrrrrrrrrrrrrrgggrrrrrrrrrrrrrrrrrrgggggggggggggggggg",
+      "ggggggggggggggggggrrgggggrrrgggggrrrgggggrrggggggrrgggggggrrgggrrggrrgggggggrrgggrrggrrgggggggrrgggrrggggggggggggggggggggggggggggggggggggggg",
+      "ggggggggggggggggggrrrrggrrrrrrggrrrrrrggrrrggggggrrgggggggrrgggrrggrrgggggggrrgggrrggrrgggggggrrgggrrggggggggggggggggggggggggggggggggggggggg",
+      "ggggggggggggggggggrrgggggrrrgggggrrrgggggrrggggggrrgggggggrrgggrrggrrgggggggrrgggrrggrrgggggggrrgggrrggggggggggggggggggggggggggggggggggggggg",
+      "ggggggggggggggggggrrgggggrrrgggggrrrgggggrrggggggrrgggggggrrgggrrggrrgggggggrrgggrrggrrgggggggrrgggrrggggggggggggggggggggggggggggggggggggggg",
+      "ggggggggggggggggggrrgggggrrrgggggrrrgggggrrggggggrrggggggggrrggrrggrrggggggggrrggrrggrrggggggggrrggrrggggggggggggggggggggggggggggggggggggggg",
+      "ggggggggggggggggggrrgggggrrrgggggrrrgggggrrggggggrrggggggggrrrrrrggrrggggggggrrrrrrggrrggggggggrrrrrrggggggggggggggggggggggggggggggggggggggg",
+      "ggggggggggggggggggrrrrrrrrrrrrrrrrrrrrrrrrrggggggrrggrrrrrrrrrrrrggrrrrrrrrrrrrrrrrggrrrrrrrrrrrrrrrrggggggggggggggggggggggggggggggggggggggg",
+      "ggggggggggggggggggrrrrrrrrrrrrrrrrrrrrrrrrrggggggrrrrrrrrrrrrrrrrggrrrrrrrrrrrrrrrrggrrrrrrrrrrrrrrrrggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggrrgggggrggggggrrggrrgggggrggggggrrggrrgggggrggggggrrggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggrrgggggrggggggrrggrrgggggrggggggrrggrrgggggrggggggrrggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggrrgggggrggggggrrggrrgggggrggggggrrggrrgggggrggggggrrggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggrrrrrrrrrrrrrrrrggrrrrrrrrrrrrrrrrggrrrrrrrrrrrrrrrrggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggrrrrrrrrrrrrrrrrggrrrrrrrrrrrrrrrrggrrrrrrrrrrrrrrrrggggggggggggggggggggggggggggggggggggggg",
+      "ggggggggggggggggggggggggggggggggggggggggggggggggggrrggggggggggrrggggrrggggggggggrrggggrrggggggggggrrgggggggggggggggggggggggggggggggggggggggg",
+      "ggggggggggggggggggggggggggggggggggggggggggggggggggrrggggggggggrrggggrrggggggggggrrggggrrggggggggggrrgggggggggggggggggggggggggggggggggggggggg",
+      "ggggggggggggggggggggggggggggggggggggggggggggggggggrrggggggggggrrggggrrggggggggggrrggggrrggggggggggrrgggggggggggggggggggggggggggggggggggggggg",
+      "ggggggggggggggggggggggggggggggggggggggggggggggggggrrggggggggggrrggggrrggggggggggrrggggrrggggggggggrrgggggggggggggggggggggggggggggggggggggggg",
+      "ggggggggggggggggggggggggggggggggggggggggggggggggggrrggggggggggrrggggrrggggggggggrrggggrrggggggggggrrgggggggggggggggggggggggggggggggggggggggg",
+      "ggggggggggggggggggggggggggggggggggggggggggggggggggrrrrrrrrrrrrrrggggrrrrrrrrrrrrrrggggrrrrrrrrrrrrrrgggggggggggggggggggggggggggggggggggggggg",
+      "ggggggggggggggggggggggggggggggggggggggggggggggggggrrrrrrrrrrrrrrggggrrrrrrrrrrrrrrggggrrrrrrrrrrrrrrgggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg"
+    ]
+  },
   "objects": [
     {
       "id": "campfire",
@@ -848,160 +1380,7 @@
       "affinity": 25
     }
   ],
-  "props": [
-    {
-      "id": "piano",
-      "name": "钢琴",
-      "kind": "prop",
-      "x": 82,
-      "y": 26,
-      "color": "#3a3a3a",
-      "state": {
-        "status": "正常",
-        "tuned": true
-      },
-      "interactive": true
-    },
-    {
-      "id": "cafe-customer-seating",
-      "name": "咖啡馆客座",
-      "kind": "prop",
-      "x": 74,
-      "y": 23,
-      "color": "#a8763f",
-      "state": {
-        "status": "正常",
-        "occupied": false
-      },
-      "interactive": true
-    },
-    {
-      "id": "behind-cafe-counter",
-      "name": "咖啡馆吧台后（咖啡机所在处）",
-      "kind": "prop",
-      "x": 79,
-      "y": 19,
-      "color": "#8a5a2f",
-      "state": {
-        "status": "正常",
-        "brewing": false
-      },
-      "interactive": true
-    },
-    {
-      "id": "harp",
-      "name": "竖琴",
-      "kind": "prop",
-      "x": 71,
-      "y": 66,
-      "color": "#c9a25f",
-      "state": {
-        "status": "正常"
-      },
-      "interactive": true
-    },
-    {
-      "id": "bar-customer-seating",
-      "name": "酒馆客座",
-      "kind": "prop",
-      "x": 57,
-      "y": 23,
-      "color": "#7a4a34",
-      "state": {
-        "status": "正常",
-        "occupied": false
-      },
-      "interactive": true
-    },
-    {
-      "id": "pool-table",
-      "name": "台球桌",
-      "kind": "prop",
-      "x": 118,
-      "y": 52,
-      "color": "#2f6b4a",
-      "state": {
-        "status": "正常",
-        "racked": true
-      },
-      "interactive": true
-    },
-    {
-      "id": "bookshelf",
-      "name": "书架",
-      "kind": "prop",
-      "x": 122,
-      "y": 23,
-      "color": "#6b5236",
-      "state": {
-        "status": "正常"
-      },
-      "interactive": true
-    },
-    {
-      "id": "library-table",
-      "name": "图书馆长桌",
-      "kind": "prop",
-      "x": 120,
-      "y": 23,
-      "color": "#7d6242",
-      "state": {
-        "status": "正常",
-        "occupied": false
-      },
-      "interactive": true
-    },
-    {
-      "id": "classroom-student-seating",
-      "name": "教室学生座位",
-      "kind": "prop",
-      "x": 113,
-      "y": 23,
-      "color": "#8a7a5c",
-      "state": {
-        "status": "正常",
-        "occupied": false
-      },
-      "interactive": true
-    },
-    {
-      "id": "supply-store-product-shelf",
-      "name": "五金店货架",
-      "kind": "prop",
-      "x": 60,
-      "y": 47,
-      "color": "#8a7550",
-      "state": {
-        "status": "正常",
-        "stocked": true
-      },
-      "interactive": true
-    },
-    {
-      "id": "grocery-store-shelf",
-      "name": "杂货店货架",
-      "kind": "prop",
-      "x": 85,
-      "y": 50,
-      "color": "#9a7a4a",
-      "state": {
-        "status": "正常",
-        "stocked": true
-      },
-      "interactive": true
-    },
-    {
-      "id": "pharmacy-store-shelf",
-      "name": "药房货架",
-      "kind": "prop",
-      "x": 77,
-      "y": 47,
-      "color": "#6a8aa0",
-      "state": {
-        "status": "正常",
-        "stocked": true
-      },
-      "interactive": true
-    }
-  ]
+  "license": "Apache-2.0",
+  "desc": "复刻斯坦福 generative_agents 的 Smallville：地点外接框与路网全部按原版 140×100 栅格还原。",
+  "attribution": "地点外接框与路网解自 joonspk-research/generative_agents 的 arena_maze.csv（Stanford Generative Agents, UIST 2023, Apache-2.0）；居民设定取自 storage/base_the_ville_n25/personas/<Name>/bootstrap_memory/scratch.json；像素图集取自 Kenney（kenney.nl）CC0。"
 }

@@ -223,7 +223,7 @@ ok(dataHome().startsWith(tempHome), '自检数据写在临时 DSH_HOME 内，未
 // 镜像真的被读进来了（而不是悄悄退到了内联兜底），且坐标与出处都没在归一化里被吞掉。
 // 霍布斯咖啡馆的包围盒 (72,19)-(83,26) 来自原版 arena_maze.csv 的逐格解析，
 // 是**外部可核对的**事实——用它做锚点，能同时证明"素材在"和"归一化没走样"。
-let mirrorRaw: { places?: Array<{ id: string; x: number; y: number; w?: number; h?: number }> } | undefined
+let mirrorRaw: { places?: Array<{ id?: string; name?: string; x: number; y: number; w?: number; h?: number }> } | undefined
 try {
   mirrorRaw = JSON.parse(await readFile(join('assets', 'smallville.json'), 'utf8')) as typeof mirrorRaw
 } catch {
@@ -232,8 +232,8 @@ try {
 if (mirrorRaw === undefined) {
   ok(false, '发货镜像 assets/smallville.json 必须存在且可解析', '缺文件时只能走内联兜底')
 } else {
-  const rawCafe = (mirrorRaw.places ?? []).find((p) => p.id === 'hobbs-cafe')
-  const seededCafe = smallville?.places.find((p) => p.id === 'hobbs-cafe')
+  const rawCafe = (mirrorRaw.places ?? []).find((p) => p.name === '霍布斯咖啡馆')
+  const seededCafe = smallville?.places.find((p) => p.name === '霍布斯咖啡馆')
   ok(rawCafe !== undefined && seededCafe !== undefined, '镜像里有霍布斯咖啡馆（原版真实地标）')
   ok(
     seededCafe?.x === rawCafe?.x && seededCafe?.y === rawCafe?.y && seededCafe?.w === rawCafe?.w,
@@ -242,9 +242,19 @@ if (mirrorRaw === undefined) {
   )
   ok(
     (smallville?.places.length ?? 0) === (mirrorRaw.places?.length ?? 0),
-    `19 处地标全部保留（无静默丢弃）`,
+    `地标数量与镜像一致（无静默丢弃）`,
     `${smallville?.places.length} vs ${mirrorRaw.places?.length}`,
   )
+  // 按原版栅格重建后的三条硬指标
+  ok(
+    (smallville?.places.length ?? 0) >= 30,
+    `地点数 ≥30（原版栅格解出 40 处，不只是 19 个地标）`,
+    String(smallville?.places.length),
+  )
+  const roadTiles = (smallville?.map.tiles ?? []).join('').split('').filter((c) => c === 'r').length
+  ok(roadTiles > 800, `路网烘进了 map.tiles（${roadTiles} 格泥土路）`, String(roadTiles))
+  const roofSlots = new Set((smallville?.places ?? []).map((p) => p.roofSlot).filter(Boolean))
+  ok(roofSlots.size >= 3, `屋顶族按原版建筑族分了 ${roofSlots.size} 类（住宅/公寓/商业各有色系）`, [...roofSlots].join(','))
   ok(typeof smallville?.license === 'string' && smallville.license !== '', '镜像带许可声明', String(smallville?.license))
   ok((smallville?.attribution ?? '').includes('generative_agents'), '出处声明里点名了上游仓库', (smallville?.attribution ?? '').slice(0, 40))
 }

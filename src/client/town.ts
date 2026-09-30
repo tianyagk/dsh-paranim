@@ -135,8 +135,11 @@ function drawBuilding(ctx: CanvasRenderingContext2D, view: View, layout: TownLay
   ctx.fillRect(px(b.left), py(b.bottom) + step * 0.55, w * step, Math.max(2, step * 0.45))
 
   const wallRef = pickSlot(BUILDING, 'wall', hash2(b.left, b.top, 71))
+  // 屋顶族优先取数据里的 roofSlot（沙盒可以显式指定，例如 Smallville 镜像按原版
+  // 建筑族写好了每处地点的屋顶配色）；没给才回落到按 tags 推导。
+  const roofKey = b.roofSlot
   const roofRef =
-    pickSlot(BUILDING, b.roofSlot, hash2(b.left, b.top, 73)) ?? pickSlot(BUILDING, 'roofWarm', 0)
+    pickSlot(BUILDING, roofKey, hash2(b.left, b.top, 73)) ?? pickSlot(BUILDING, 'roofWarm', 0)
 
   for (let y = b.top; y <= b.bottom; y += 1) {
     for (let x = b.left; x <= b.right; x += 1) {
