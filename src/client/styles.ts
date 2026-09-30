@@ -18,8 +18,14 @@ const CSS = `
   --pa-warn: var(--dsw-alias-state-warning-primary, #e0af68);
   display: flex;
   flex-direction: column;
+  /* 页签宿主给的是"有确定高度的块级容器"，所以这里的 100% 必须是*确定*高度：
+     只要有一层缺了 height/min-height，flex 就退化成内容高度，页面会越撑越长
+     （表现为"向下无限下坠"）。 */
   height: 100%;
+  max-height: 100%;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
   background: var(--pa-bg);
   color: var(--pa-text);
   font-size: 12px;
@@ -28,6 +34,8 @@ const CSS = `
 .pa-root * { box-sizing: border-box; }
 .pa-head {
   display: flex;
+  /* 不参与收缩：顶栏被挤成 0 高会让底下的 flex 计算反复变化。 */
+  flex: 0 0 auto;
   align-items: center;
   gap: 6px;
   padding: 6px 8px;
@@ -65,10 +73,29 @@ const CSS = `
 .pa-spacer { flex: 1; }
 .pa-dim { color: var(--pa-text-dim); }
 .pa-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.pa-body { flex: 1; min-height: 0; display: flex; }
+.pa-body { flex: 1 1 auto; min-height: 0; display: flex; overflow: hidden; }
 .pa-col { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
-.pa-mapwrap { flex: 1.35; border-right: 1px solid var(--pa-border); position: relative; min-width: 240px; }
-.pa-map { width: 100%; height: 100%; display: block; cursor: crosshair; }
+.pa-mapwrap {
+  flex: 1.35 1 0;
+  /* min-height: 0 —— 没有它，flex 项的自动最小尺寸就是内容高度，而画布的高度
+     又是按容器量出来的：容器被内容撑高 → 量到更大的高度 → 画布更高 → …… 无限增长。
+     这一行是"向下无限下坠"的根治点，不是装饰。 */
+  min-height: 0;
+  min-width: 240px;
+  border-right: 1px solid var(--pa-border);
+  position: relative;
+  overflow: hidden;
+}
+.pa-map {
+  /* 绝对定位铺满：画布的尺寸只由容器决定，永远不会反过来影响容器高度
+     （那正是 ResizeObserver + 内容高度互相喂养的回路）。 */
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: crosshair;
+}
 .pa-mapbar {
   position: absolute; left: 6px; top: 6px; display: flex; gap: 4px; align-items: center;
   background: color-mix(in srgb, var(--pa-layer) 88%, transparent);
@@ -91,11 +118,11 @@ const CSS = `
   flex: 1; min-width: 0; background: var(--pa-layer); color: var(--pa-text);
   border: 1px solid var(--pa-border); border-radius: 4px; padding: 2px 5px; font-size: 11px;
 }
-.pa-side { flex: 1; min-width: 260px; display: flex; flex-direction: column; min-height: 0; }
-.pa-sec { border-bottom: 1px solid var(--pa-border); padding: 7px 8px; }
+.pa-side { flex: 1 1 0; min-width: 260px; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.pa-sec { border-bottom: 1px solid var(--pa-border); padding: 7px 8px; min-height: 0; }
 .pa-sec:last-child { border-bottom: none; }
 .pa-sec h4 { margin: 0 0 5px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
-.pa-scroll { overflow: auto; }
+.pa-scroll { overflow: auto; min-height: 0; overscroll-behavior: contain; }
 .pa-list { margin: 0; padding: 0; list-style: none; }
 .pa-item {
   display: flex; gap: 6px; align-items: flex-start; padding: 4px 6px; border-radius: 5px;
@@ -128,6 +155,7 @@ const CSS = `
 .pa-roll { color: var(--pa-warn); }
 .pa-roll[data-ok="true"] { color: var(--pa-ok); }
 .pa-foot {
+  flex: 0 0 auto;
   border-top: 1px solid var(--pa-border); background: var(--pa-layer);
   display: flex; flex-direction: column; gap: 5px; padding: 6px 8px;
 }

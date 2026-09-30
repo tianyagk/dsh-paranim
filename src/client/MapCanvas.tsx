@@ -50,7 +50,15 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
   useEffect(() => {
     const wrap = wrapRef.current
     if (wrap === null) return
-    const update = (): void => setSize({ w: wrap.clientWidth, h: wrap.clientHeight })
+    // 只在尺寸真的变了才 setState。ResizeObserver 的回调与 React 渲染是两条
+    // 独立的回路，哪怕画布已经改成绝对定位（不再反过来影响容器），
+    // 无条件的 setState 仍会在每次回调里生成新对象 → 触发重渲染 → 再次回调。
+    // 相等就返回同一个引用，React 会跳过这次更新。
+    const update = (): void => {
+      const w = Math.max(1, Math.round(wrap.clientWidth))
+      const h = Math.max(1, Math.round(wrap.clientHeight))
+      setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
+    }
     update()
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(update)
@@ -256,7 +264,8 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     React.createElement('canvas', {
       ref: canvasRef,
       className: 'pa-map',
-      style: { width: size.w, height: size.h },
+      // width/height 交给 CSS 的 inset:0；内联尺寸会参与布局，正是回路的一环。
+      'aria-label': '小镇地图：左键点智能体，右键点地标或物件改状态',
       onClick,
       onMove,
       onMouseLeave: () => setHover({}),

@@ -712,7 +712,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
             return send(res, 200, { ok: true, data: await world({ workspace, sandboxId, create: true }) })
           }
 
-          // POST /paranim/directive —— 神谕（需求 3 的指令引导）
+          // POST /paranim/directive —— 下达指令（需求 3 的指令引导）
           if (method === 'POST' && path === '/directive') {
             const view = await world({ workspace, sandboxId, create: true })
             const directive = issueDirective(view.run, String(body.agentId ?? ''), String(body.text ?? ''))

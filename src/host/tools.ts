@@ -221,13 +221,13 @@ export function makeTools(deps: ToolDeps): {
     },
   })
 
-  // ── 3) 神谕：指令引导某个智能体 ─────────────────────────────────────────
+  // ── 3) 指令：引导某个智能体去做什么 ─────────────────────────────────────
   defs.push({
     name: `${PREFIX}direct`,
     description:
-      '给某个智能体下一道「神谕」：它会在下一步把这条指令当成脑海里必须立刻执行的声音，' +
+      '给某个智能体下一条指令：它会在下一步把这条指令当成必须立刻执行的吩咐，' +
       '优先级高于自己的计划，并留下记忆。用于用户通过指令引导智能体在世界中行动。' +
-      'Triggers: 让某人去做什么, 引导智能体, 命令 NPC, 神谕, 指使小镇里的角色.',
+      'Triggers: 让某人去做什么, 引导智能体, 命令 NPC, 给智能体下指令, 指使小镇里的角色.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -249,7 +249,7 @@ export function makeTools(deps: ToolDeps): {
       await deps.routes.persistRun({ workspace, sandboxId: view.sandbox.id })
       log('directive issued', directive.agentId, directive.text)
       return {
-        text: `已把神谕交给 ${view.run.agents.find((a) => a.id === args.agentId)?.name ?? args.agentId}：「${directive.text}」\n它会在下一次步进时执行。用 paranim_step 推进世界即可看到结果。`,
+        text: `已把指令交给 ${view.run.agents.find((a) => a.id === args.agentId)?.name ?? args.agentId}：「${directive.text}」\n它会在下一次步进时执行。用 paranim_step 推进世界即可看到结果。`,
       }
     },
   })
@@ -694,7 +694,7 @@ export function makeTools(deps: ToolDeps): {
                   '',
                   `- \`${PREFIX}world\` 看现状（地标/物件状态、智能体六维与记忆、事件流）`,
                   `- \`${PREFIX}step\` 推进世界（每个智能体自己决定行动，先掷骰再叙事）`,
-                  `- \`${PREFIX}direct\` 下神谕：用一句话引导某个智能体去做什么`,
+                  `- \`${PREFIX}direct\` 下达指令：用一句话引导某个智能体去做什么`,
                   `- \`${PREFIX}object\` 改物体状态（如把路灯改成「故障」、新增/移除物件）`,
                   `- \`${PREFIX}agent\` 增改智能体（外貌/性格/来历/六维/驱动模型/计划），或让它离场`,
                   `- \`${PREFIX}sandbox\` 管理沙盒（列表/载入/另存/新建/把运行态导回设定）`,

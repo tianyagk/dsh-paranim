@@ -380,7 +380,7 @@ ok(addData.sandbox.agents.some((a) => a.name === '测试居民'), '新智能体�
 const clamped = normalizeAttrs({ str: 99, dex: -3 })
 ok(clamped.str === 20 && clamped.dex === 1, '越界属性被夹紧而不是原样落盘')
 
-// 需求 3：神谕
+// 需求 3：指令引导
 const directRes = await call(route, 'POST', '/paranim/directive?workspace=/tmp/fake-workspace', {
   agentId: added?.id ?? 'abigail',
   text: '去咖啡馆把昨天夜里的事问清楚。',
@@ -388,12 +388,12 @@ const directRes = await call(route, 'POST', '/paranim/directive?workspace=/tmp/f
 ok(directRes.status === 200, 'POST /directive 返回 200', `status=${directRes.status}`)
 const directData = dataOf<{ directive: { id: string; consumed: boolean }; world: WorldView }>(directRes)
 ok(directData.directive.consumed === false, '指令初始为未消费')
-ok(directData.world.run.events.some((e) => e.kind === 'directive' && e.text.includes('神谕')), '神谕进了事件流')
+ok(directData.world.run.events.some((e) => e.kind === 'directive' && e.text.includes('指令')), '指令进了事件流')
 llm.mode = 'move'
 const step5 = await routes.step({ workspace: '/tmp/fake-workspace' })
 const afterDirect = await routes.world({ workspace: '/tmp/fake-workspace', create: true })
-ok(afterDirect.run.directives.every((d) => d.consumed), '推进一步后神谕被消费（不会永远粘着）')
-ok(afterDirect.run.agents.some((a) => a.memory.some((m) => m.kind === 'whisper')), '神谕作为「脑海里的声音」进了记忆')
+ok(afterDirect.run.directives.every((d) => d.consumed), '推进一步后指令被消费（不会永远粘着）')
+ok(afterDirect.run.agents.some((a) => a.memory.some((m) => m.kind === 'whisper')), '指令作为「有人对你说」进了记忆')
 void step5
 
 // 需求 6：步进控制
@@ -514,7 +514,7 @@ ok(
   registered.every((d) => d.parameters !== undefined && d.parameters.type === 'object'),
   '每个工具的 parameters 都是对象根 schema',
 )
-ok(names.includes('paranim_step') && names.includes('paranim_direct') && names.includes('paranim_object') && names.includes('paranim_agent') && names.includes('paranim_sandbox') && names.includes('paranim_world') && names.includes('paranim_models'), '七个工具覆盖：看/步进/神谕/物件/智能体/沙盒/模型', names.join(','))
+ok(names.includes('paranim_step') && names.includes('paranim_direct') && names.includes('paranim_object') && names.includes('paranim_agent') && names.includes('paranim_sandbox') && names.includes('paranim_world') && names.includes('paranim_models'), '七个工具覆盖：看/步进/指令/物件/智能体/沙盒/模型', names.join(','))
 
 const worldTool = registered.find((d) => d.name === 'paranim_world')
 const worldToolOut = (await worldTool!.execute({ view: 'agents' }, {})) as { text: string }

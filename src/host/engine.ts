@@ -166,7 +166,7 @@ export function buildObservation(sandbox: Sandbox, run: RunState, agent: RunAgen
     '',
     '【附近的人】',
     otherLines.length === 0 ? '- 此刻没有别人在附近' : otherLines.join('\n'),
-    directiveLines.length === 0 ? '' : '\n【你必须立刻执行的神谕（优先级最高）】\n' + directiveLines.join('\n'),
+    directiveLines.length === 0 ? '' : '\n【上级刚给你的指令（你必须立刻执行，优先级最高）】\n' + directiveLines.join('\n'),
   ]
     .filter((line) => line !== '')
     .join('\n')
@@ -337,7 +337,7 @@ export async function draftAction(
   }
 }
 
-/** 把一次动作结算进世界：位置、记忆、神谕消费。返回它产生的事件。 */
+/** 把一次动作结算进世界：位置、记忆、指令消费。返回它产生的事件。 */
 function settle(deps: EngineDeps, agent: RunAgent, action: AgentAction, ts: number): WorldEvent[] {
   const { sandbox, run } = deps
   const resolved = resolveAction(action, {
@@ -355,12 +355,12 @@ function settle(deps: EngineDeps, agent: RunAgent, action: AgentAction, ts: numb
   if (agent.plan.length > 0) agent.plan = agent.plan.slice(1)
   for (const entry of resolved.memory) remember(agent, entry)
 
-  // 消费掉本步用过的神谕：已消费的指令不再是"立刻执行"，但留在记忆里。
+  // 消费掉本步用过的指令：已消费的指令不再是"立刻执行"，但留在记忆里。
   const used = run.directives.filter((d) => d.agentId === agent.id && !d.consumed)
   for (const directive of used) {
     directive.consumed = true
     directive.consumedAtTick = run.tick
-    remember(agent, { tick: run.tick, kind: 'whisper', text: `脑海里的声音说：${directive.text}`, ts })
+    remember(agent, { tick: run.tick, kind: 'whisper', text: `有人对你说：${directive.text}`, ts })
   }
 
   const events = resolved.events
@@ -403,7 +403,7 @@ export async function runTick(deps: EngineDeps): Promise<TickResult> {
   return { tick: run.tick, events, outcomes, driven: drafted.length }
 }
 
-// ── 用户指令（需求 3 的神谕）─────────────────────────────────────────────
+// ── 用户指令（需求 3 的「指令引导」）──────────────────────────────────────
 
 export function issueDirective(run: RunState, agentId: string, text: string): Directive {
   const agent = run.agents.find((a) => a.id === agentId)
@@ -418,15 +418,15 @@ export function issueDirective(run: RunState, agentId: string, text: string): Di
     createdAt: Date.now(),
   }
   run.directives.push(directive)
-  // 神谕同时也进公共事件流：用户希望看到自己下过什么，也能在复盘里对上因果。
+  // 指令同时也进公共事件流：用户希望看到自己下过什么，也能在复盘里对上因果。
   run.events.push({
     id: shortId('ev'),
     tick: run.tick,
     ts: directive.createdAt,
     kind: 'directive',
     actor: 'gm',
-    actorName: '神谕',
-    text: `【神谕】对${agent.name}：${clean}`,
+    actorName: '指令',
+    text: `【指令】对${agent.name}：${clean}`,
     targetAgentId: agentId,
   })
   if (run.events.length > 3000) run.events = run.events.slice(-3000)

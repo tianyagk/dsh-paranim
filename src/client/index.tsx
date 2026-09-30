@@ -5,7 +5,7 @@
  * 自带的 8 个 tab 走同一套 API）。页签里是：
  *   · 小镇地图（左键看智能体 / **右键改物体状态**）
  *   · 沙盒库（载入 / 另存 / 新建 / 重置回出厂镜像）
- *   · 智能体编排（数量、外貌、性格、六维、驱动模型、计划、神谕）
+ *   · 智能体编排（数量、外貌、性格、六维、驱动模型、计划、指令）
  *   · 事件流（每条判定带骰面与难度）
  *   · 步进控制（手动步进 / 自动步进 + 时间流速）
  *
@@ -210,7 +210,7 @@ function ParanimApp(props: TabProps): React.ReactElement {
         { className: 'pa-tabs' },
         ...[
           { key: 'world' as PageKey, label: '世界', title: '地图与事件流' },
-          { key: 'agents' as PageKey, label: '智能体', title: '编排智能体：外貌/性格/六维/驱动模型/神谕' },
+          { key: 'agents' as PageKey, label: '智能体', title: '编排智能体：外貌/性格/六维/驱动模型/指令' },
           { key: 'sandbox' as PageKey, label: '世界沙盒', title: '载入 / 另存 / 新建 / 重置沙盒' },
           { key: 'events' as PageKey, label: '事件流', title: '每一件事与每一次判定' },
         ].map((tab) =>
@@ -279,7 +279,7 @@ function ParanimApp(props: TabProps): React.ReactElement {
               : React.createElement(EventsPage, { world, selected }),
       ),
     ),
-    // ── 底栏：步进控制 + 神谕 + 状态 ────────────────────────────────────
+    // ── 底栏：步进控制 + 指令 + 状态 ────────────────────────────────────
     React.createElement(
       'div',
       { className: 'pa-foot' },
@@ -339,7 +339,7 @@ function ParanimApp(props: TabProps): React.ReactElement {
       React.createElement(
         'div',
         { className: 'pa-line' },
-        React.createElement('span', { className: 'pa-dim' }, `神谕 → ${agent?.name ?? '（先选一个智能体）'}`),
+        React.createElement('span', { className: 'pa-dim' }, `指令 → ${agent?.name ?? '（先选一个智能体）'}`),
         React.createElement('input', {
           type: 'text',
           placeholder: '用一句话指引它，例如：去咖啡馆找阿比盖尔打听昨天夜里的事',
@@ -348,11 +348,11 @@ function ParanimApp(props: TabProps): React.ReactElement {
           onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
             if (event.key !== 'Enter' || directive.trim() === '' || agent === undefined) return
             const text = directive.trim()
-            void run('神谕', async () => {
+            void run('指令', async () => {
               const result = await api.directive(agent.id, text)
               applyWorld(result.world)
               setDirective('')
-              flash(`神谕已下达：${text}`)
+              flash(`指令已下达：${text}`)
             })
           },
         }),
@@ -364,15 +364,15 @@ function ParanimApp(props: TabProps): React.ReactElement {
             onClick: () => {
               if (agent === undefined) return
               const text = directive.trim()
-              void run('神谕', async () => {
+              void run('指令', async () => {
                 const result = await api.directive(agent.id, text)
                 applyWorld(result.world)
                 setDirective('')
-                flash(`神谕已下达：${text}`)
+                flash(`指令已下达：${text}`)
               })
             },
           },
-          '下达神谕',
+          '下达指令',
         ),
         React.createElement('span', { className: 'pa-spacer' }),
         busy === '' ? null : React.createElement('span', { className: 'pa-dim' }, `${busy}…`),
@@ -671,8 +671,8 @@ function AgentEditor(props: {
     modelsNote === '' ? null : React.createElement('div', { className: 'pa-dim', style: { marginTop: 3 } }, modelsNote),
     React.createElement('div', { className: 'pa-dim', style: { marginTop: 3 } }, '可用模型来自 DSH 当前已注册的 provider（`paranim_models` 工具同样能查）。'),
 
-    // 外观与性格（需求 3）
-    React.createElement('h4', { style: { marginTop: 10 } }, '外貌与性格'),
+    // 身份 / 外貌 / 性格（需求 3）
+    React.createElement('h4', { style: { marginTop: 10 } }, '身份与外貌'),
     React.createElement(
       'div',
       { className: 'pa-form' },
@@ -681,14 +681,31 @@ function AgentEditor(props: {
       field('外貌', draft.appearance, (v) => setDraft((p) => ({ ...p, appearance: v }))),
       field('性格', draft.persona, (v) => setDraft((p) => ({ ...p, persona: v })), true),
       field('来历', draft.backstory, (v) => setDraft((p) => ({ ...p, backstory: v })), true),
+    ),
+
+    // 内在驱力（需求 3）：想要 / 害怕 / 瞒着。这三项单独成段，不混在"外观字段"里。
+    React.createElement('h4', { style: { marginTop: 10 } }, '内在驱力'),
+    React.createElement(
+      'div',
+      { className: 'pa-form' },
       field('想要', draft.goal, (v) => setDraft((p) => ({ ...p, goal: v }))),
-      field('害怕', draft.fear, (v) => setDraft((p) => ({ ...p, fear: v }))),
-      field('瞒着', draft.secret, (v) => setDraft((p) => ({ ...p, secret: v }))),
+      field('恐惧', draft.fear, (v) => setDraft((p) => ({ ...p, fear: v }))),
+      field('隐瞒', draft.secret, (v) => setDraft((p) => ({ ...p, secret: v }))),
+    ),
+    React.createElement('div', { className: 'pa-dim', style: { marginTop: 3 } },
+      '「恐惧」决定它遇到风险时的退让，「隐瞒」只写进它的提示词、不会出现在事件流里——但会左右它的选择。'),
+    React.createElement('div', { className: 'pa-dim', style: { marginTop: 3 } },
+      '（沙盒模板里没有这三项的角色会显示为空；填上即生效，保存会同时写回沙盒与当前推演。）'),
+
+    // 日程与随身
+    React.createElement('h4', { style: { marginTop: 10 } }, '日程与随身'),
+    React.createElement(
+      'div',
+      { className: 'pa-form' },
       field('计划', draft.plan, (v) => setDraft((p) => ({ ...p, plan: v })), true),
       field('随身', draft.inventory, (v) => setDraft((p) => ({ ...p, inventory: v }))),
     ),
     React.createElement('div', { className: 'pa-dim', style: { marginTop: 3 } }, '计划：每行一条，智能体每走一步消耗一条。'),
-    React.createElement('div', { className: 'pa-dim' }, '「瞒着」只写进它的提示词，不会出现在事件流里——但会左右它的选择。'),
 
     React.createElement(
       'div',
@@ -712,7 +729,7 @@ function AgentEditor(props: {
     React.createElement('div', { className: 'pa-scroll', style: { maxHeight: 150 } },
       ...agent.memory.slice(-24).map((entry, index) =>
         React.createElement('div', { className: 'pa-mem', key: `${entry.tick}-${index}` },
-          `[第 ${entry.tick} 步]${entry.kind === 'thought' ? '（心里）' : entry.kind === 'whisper' ? '（神谕）' : entry.kind === 'summary' ? '（来历）' : ''} ${entry.text}`),
+          `[第 ${entry.tick} 步]${entry.kind === 'thought' ? '（心里）' : entry.kind === 'whisper' ? '（指令）' : entry.kind === 'summary' ? '（来历）' : ''} ${entry.text}`),
       ),
     ),
     React.createElement('div', { className: 'pa-dim', style: { marginTop: 6 } },
