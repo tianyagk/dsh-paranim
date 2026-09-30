@@ -34,6 +34,20 @@ import {
 } from '../shared/model.ts'
 import { createApi, type ParanimApi, type SandboxSummary, type WorldView } from './api.ts'
 import { MapCanvas } from './MapCanvas.tsx'
+import {
+  DEFAULT_FEED_MODE,
+  DEFAULT_THEME,
+  FEED_MODE_LABEL,
+  THEMES,
+  TONE_ICON,
+  TONE_LABEL,
+  segmentsOf,
+  themeById,
+  themeCss,
+  toneOf,
+  type FeedMode,
+  type ThemeId,
+} from './theme.ts'
 import { ensureCss } from './styles.ts'
 
 /** 注册进 betterSidebar 的描述符（结构面，见 dsh-better-sidebar 的 TabDescriptor）。 */
@@ -117,6 +131,49 @@ function ParanimApp(props: TabProps): React.ReactElement {
   const [error, setError] = useState<string>('')
   const [notice, setNotice] = useState<string>('')
   const [directive, setDirective] = useState<string>('')
+
+  // 主题与消息模式：本地偏好，存 localStorage。
+  // 为什么不做成宿主设置：这是**纯外观**选择，与沙盒/运行态无关，写进服务端
+  // 会让它在换工作区时跟着"漂"；而且外观选项需要在切主题的瞬间就生效。
+  const [themeId, setThemeId] = useState<ThemeId>(() => {
+    try {
+      const saved = window.localStorage.getItem('dsh-paranim.theme')
+      return (THEMES.some((t) => t.id === saved) ? saved : DEFAULT_THEME) as ThemeId
+    } catch {
+      return DEFAULT_THEME
+    }
+  })
+  const [feedMode, setFeedMode] = useState<FeedMode>(() => {
+    try {
+      const saved = window.localStorage.getItem('dsh-paranim.feedMode')
+      return (saved === 'card' || saved === 'line' || saved === 'chat' ? saved : DEFAULT_FEED_MODE) as FeedMode
+    } catch {
+      return DEFAULT_FEED_MODE
+    }
+  })
+
+  // 主题注入：把变量表写进 <style>，切主题只是换一份变量表，组件不动。
+  useEffect(() => {
+    const theme = themeById(themeId)
+    const el = document.createElement('style')
+    el.setAttribute('data-paranim', 'theme')
+    el.textContent = themeCss(theme)
+    document.head.append(el)
+    try {
+      window.localStorage.setItem('dsh-paranim.theme', themeId)
+    } catch {
+      /* 隐私模式下写不了，忽略 */
+    }
+    return () => el.remove()
+  }, [themeId])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('dsh-paranim.feedMode', feedMode)
+    } catch {
+      /* 同上 */
+    }
+  }, [feedMode])
 
   const applyWorld = useCallback((next: WorldView) => {
     setWorld(next)
@@ -252,7 +309,7 @@ function ParanimApp(props: TabProps): React.ReactElement {
         'div',
         { className: 'pa-side pa-col' },
         page === 'world'
-          ? React.createElement(WorldPage, { world, onSelect: (id) => { setSelected(id); setPage('agents') } })
+          ? React.createElement(WorldPage, { world, feedMode, onSelect: (id) => { setSelected(id); setPage('agents') } })
           : page === 'agents'
             ? React.createElement(AgentsPage, {
                 world,
@@ -277,7 +334,7 @@ function ParanimApp(props: TabProps): React.ReactElement {
                   setSandboxes,
                   flash,
                 })
-              : React.createElement(EventsPage, { world, selected }),
+              : React.createElement(EventsPage, { world, selected, feedMode }),
       ),
     ),
     // ── 底栏：步进控制 + 指令 + 状态 ────────────────────────────────────
@@ -378,6 +435,46 @@ function ParanimApp(props: TabProps): React.ReactElement {
         React.createElement('span', { className: 'pa-spacer' }),
         // 版本标记：客户端包在插件装载时就被读进内存，改了源码必须重启 dsh 才会换新版。
         // 没有这个标记，"重启了但他看的是旧包"只能靠猜——它就写在那行最右边。
+        // 主题与消息模式：放在底栏而不是设置页——调外观时要立刻看到结果。
+        React.createElement(
+          'div',
+          { className: 'pa-picker', title: '主题风格：只换配色，不动布局' },
+          React.createElement('span', { className: 'pa-dim' }, '主题'),
+          React.createElement(
+            'div',
+            { className: 'pa-swatches' },
+            ...THEMES.map((t) =>
+              React.createElement(
+                'button',
+                {
+                  key: t.id,
+                  className: 'pa-swatch',
+                  'data-on': t.id === themeId,
+                  title: `${t.name} — ${t.hint}`,
+                  onClick: () => setThemeId(t.id),
+                  style: { background: t.vars.bg, borderColor: t.id === themeId ? t.vars.gold : undefined },
+                },
+                React.createElement('i', { style: { background: t.vars.gold } }),
+              ),
+            ),
+          ),
+        ),
+        React.createElement(
+          'div',
+          { className: 'pa-picker', title: '消息栏渲染方式：卡片 / 日志 / 对白' },
+          React.createElement('span', { className: 'pa-dim' }, '消息'),
+          React.createElement(
+            'div',
+            { className: 'pa-seg' },
+            ...(['card', 'line', 'chat'] as FeedMode[]).map((m) =>
+              React.createElement(
+                'button',
+                { key: m, 'data-on': m === feedMode, onClick: () => setFeedMode(m) },
+                FEED_MODE_LABEL[m],
+              ),
+            ),
+          ),
+        ),
         React.createElement('span', {
           className: 'pa-dim pa-mono',
           title: '客户端包版本（改了源码需重启 dsh 才会换新版）',
@@ -392,8 +489,8 @@ function ParanimApp(props: TabProps): React.ReactElement {
 
 // ── 页 1：世界（地图说明 + 近期事件 + 世界状态）────────────────────────────
 
-function WorldPage(props: { world: WorldView; onSelect: (id: string) => void }): React.ReactElement {
-  const { world, onSelect } = props
+function WorldPage(props: { world: WorldView; feedMode: FeedMode; onSelect: (id: string) => void }): React.ReactElement {
+  const { world, feedMode, onSelect } = props
   const recent = world.run.events.slice(-40).reverse()
   return React.createElement(
     'div',
@@ -444,7 +541,11 @@ function WorldPage(props: { world: WorldView; onSelect: (id: string) => void }):
       'div',
       { className: 'pa-sec pa-col', style: { flex: 1, minHeight: 0 } },
       React.createElement('h4', null, '最近发生的事'),
-      React.createElement('div', { className: 'pa-scroll', style: { flex: 1 } }, ...recent.map((event) => React.createElement(EventRow, { key: event.id, event }))),
+      React.createElement(
+        'div',
+        { className: 'pa-scroll pa-feed', 'data-mode': feedMode, style: { flex: 1 } },
+        ...recent.map((event) => React.createElement(EventRow, { key: event.id, event, mode: feedMode })),
+      ),
     ),
   )
 }
@@ -903,8 +1004,8 @@ function quickActions(object: { state: Record<string, StateValue> }, apply: (sta
 
 // ── 页 4：事件流 ─────────────────────────────────────────────────────────
 
-function EventsPage(props: { world: WorldView; selected?: string }): React.ReactElement {
-  const { world, selected } = props
+function EventsPage(props: { world: WorldView; selected?: string; feedMode: FeedMode }): React.ReactElement {
+  const { world, selected, feedMode } = props
   const [only, setOnly] = useState<string>(selected ?? '')
   const [onlyRolls, setOnlyRolls] = useState(false)
   const events = world.run.events
@@ -936,8 +1037,8 @@ function EventsPage(props: { world: WorldView; selected?: string }): React.React
         ),
       ),
     ),
-    React.createElement('div', { className: 'pa-scroll', style: { flex: 1, padding: '4px 8px' } },
-      ...events.map((event) => React.createElement(EventRow, { key: event.id, event })),
+    React.createElement('div', { className: 'pa-scroll pa-feed', 'data-mode': feedMode, style: { flex: 1, padding: '6px 10px' } },
+      ...events.map((event) => React.createElement(EventRow, { key: event.id, event, mode: feedMode })),
     ),
     React.createElement(
       'div',
@@ -952,33 +1053,66 @@ function EventsPage(props: { world: WorldView; selected?: string }): React.React
   )
 }
 
-function EventRow(props: { event: WorldEvent }): React.ReactElement {
-  const { event } = props
+/**
+ * 一条事件。三种渲染模式共用同一份数据，差别只在"长什么样"——
+ * 语义→颜色的映射在 theme.ts 的 toneOf/segmentsOf 里，渲染层不出现任何具体颜色。
+ */
+function EventRow(props: { event: WorldEvent; mode: FeedMode }): React.ReactElement {
+  const { event, mode } = props
+  const tone = toneOf(event)
+  const segments = segmentsOf(event)
+  const parts = segments.map((seg, i) =>
+    seg.kind === 'plain'
+      ? React.createElement('span', { key: i }, seg.text)
+      : React.createElement('span', { key: i, className: `pa-seg-${seg.kind}` }, seg.text),
+  )
+
+  const head = React.createElement(
+    'div',
+    { className: 'pa-evhead' },
+    React.createElement('span', { className: 'pa-evkind' }, `${TONE_ICON[tone]} ${TONE_LABEL[tone]}`),
+    React.createElement('span', { className: 'pa-evtime pa-mono' }, `#${event.tick}`),
+  )
+
+  const body = React.createElement('span', { className: 'pa-evbody' }, ...parts)
+
+  const roll =
+    event.roll === undefined
+      ? null
+      : React.createElement(
+          'div',
+          { className: 'pa-roll pa-mono' },
+          React.createElement('b', null, `D6=${event.roll.roll}`),
+          event.roll.decisive === true ? ' 恒定' : '',
+          ` + ${event.roll.attr ?? ''} ${event.roll.attrValue ?? ''} = ${event.roll.total ?? ''}`,
+          ` vs ${event.roll.difficulty ?? ''} → ${event.roll.ok === true ? '成功' : '失败'}`,
+          event.roll.opponent === undefined
+            ? ''
+            : ` ｜对手 ${event.roll.opponent} 掷 ${event.roll.opponentRoll ?? ''} → ${event.roll.opponentTotal ?? ''}`,
+        )
+
+  if (mode === 'line') {
+    return React.createElement(
+      'div',
+      { className: 'pa-ev', 'data-tone': tone },
+      React.createElement('span', { className: 'pa-evkind pa-mono' }, `#${event.tick}`),
+      body,
+      event.roll === undefined ? null : roll,
+    )
+  }
+  if (mode === 'chat') {
+    return React.createElement(
+      'div',
+      { className: 'pa-ev', 'data-tone': tone },
+      React.createElement('div', { className: 'pa-evkind' }, `${TONE_ICON[tone]} ${TONE_LABEL[tone]}`),
+      React.createElement('div', null, body, roll),
+    )
+  }
   return React.createElement(
     'div',
-    { className: 'pa-ev' },
-    React.createElement('span', { className: 'pa-tick pa-mono' }, `#${event.tick}`),
-    React.createElement(
-      'span',
-      { className: 'pa-evbody' },
-      React.createElement('span', null, `${kindIcon(event.kind)} ${event.text}`),
-      event.roll === undefined
-        ? null
-        : React.createElement('div', { className: 'pa-roll pa-mono', 'data-ok': event.roll.ok === true }, `${event.roll.text}${event.roll.decisive === true ? '［恒定成败］' : ''}${event.roll.opponent === undefined ? '' : `（对手 ${event.roll.opponent} 掷 ${event.roll.opponentRoll} → ${event.roll.opponentTotal}）`}`),
-    ),
+    { className: 'pa-ev', 'data-tone': tone },
+    head,
+    body,
+    roll,
   )
-}
-
-function kindIcon(kind: WorldEvent['kind']): string {
-  switch (kind) {
-    case 'move': return '🚶'
-    case 'say': return '💬'
-    case 'act': return '🎯'
-    case 'mutate': return '🔧'
-    case 'roll': return '🎲'
-    case 'spawn': return '🌟'
-    case 'despawn': return '👋'
-    case 'directive': return '📣'
-    default: return '·'
-  }
 }
