@@ -13,7 +13,7 @@
  * `assets/smallville.json` 随插件发货，是只读镜像；首次启动时复制一份到
  * sandboxes/ 作为**可编辑的**初始沙盒（builtin 标记保留，用来提示出处）。
  */
-import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, stat as fsStat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -372,6 +372,7 @@ async function readMirrorAssets(): Promise<unknown[]> {
 
 export class SandboxStore {
   private cache: Sandbox[] | null = null
+  private cacheFingerprint = ''
   private mirrors: Sandbox[] | null = null
 
   /**
@@ -427,8 +428,19 @@ export class SandboxStore {
     return out
   }
 
+  /**
+   * 列出沙盒。
+   *
+   * 缓存**必须跟着目录指纹走**，不能只靠 `force`：沙盒是明文文件，玩家会被明确告知
+   * "可以直接手改"，而手改的常见形式就是丢一个新 .json 进目录，或者在编辑器里改完保存。
+   * 上一版缓存一旦建好就不再失效，路由又不带 force，于是**新丢进去的沙盒永远不出现**
+   * （表现为"我明明放进去了，界面里没有"）——这正是本轮实测撞上的。
+   */
   async list(force = false): Promise<Sandbox[]> {
-    if (this.cache !== null && !force) return this.cache
+    if (this.cache !== null && !force) {
+      const fingerprint = await this.directoryFingerprint()
+      if (fingerprint === this.cacheFingerprint) return this.cache
+    }
     await this.ensureSeed()
     const names = await readdir(sandboxDir()).catch(() => [] as string[])
     const out: Sandbox[] = []
@@ -440,7 +452,20 @@ export class SandboxStore {
     }
     out.sort((a, b) => (a.builtin === b.builtin ? a.name.localeCompare(b.name, 'zh') : a.builtin ? -1 : 1))
     this.cache = out
+    this.cacheFingerprint = await this.directoryFingerprint()
     return out
+  }
+
+  /** 目录指纹：文件名 + mtimeMs + 大小。任何增删改都会让缓存失效。 */
+  private async directoryFingerprint(): Promise<string> {
+    const names = await readdir(sandboxDir()).catch(() => [] as string[])
+    const parts: string[] = []
+    for (const name of names.sort()) {
+      if (!name.endsWith('.json')) continue
+      const info = await fsStat(join(sandboxDir(), name)).catch(() => undefined)
+      parts.push(info === undefined ? `${name}:?` : `${name}:${info.mtimeMs}:${info.size}`)
+    }
+    return parts.join('|')
   }
 
   async get(id: string): Promise<Sandbox | undefined> {

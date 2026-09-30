@@ -304,7 +304,7 @@ function moodText(agent: RunAgent): string {
 }
 
 /** 把一步的心情增量应用上去（没有增量就保持不变）。 */
-function applyMood(agent: RunAgent, action: AgentAction, ts: number): void {
+function applyMood(agent: RunAgent, action: AgentAction, tick: number, ts: number): void {
   const delta = action.moodDelta ?? 0
   if (delta === 0 && action.moodLabel === undefined) return
   const before = normalizeMood(agent.mood ?? MOOD_DEFAULT)
@@ -313,7 +313,9 @@ function applyMood(agent: RunAgent, action: AgentAction, ts: number): void {
   agent.mood = { value, label }
   if (value !== before.value) {
     remember(agent, {
-      tick: 0,
+      // tick 必须是**当时**的世界步数：写死 0 会让这条记忆显示成"第 0 步的事"，
+      // 越往后越离谱（本地跑了 6 步后它显示"6 步前"，而它其实是刚发生的）。
+      tick,
       kind: 'event',
       text: `心情从「${before.label} ${before.value}/${MOOD_MAX}」变成「${label} ${value}/${MOOD_MAX}」。`,
       ts,
@@ -400,7 +402,7 @@ function settle(deps: EngineDeps, agent: RunAgent, action: AgentAction, ts: numb
   agent.stepsTaken += 1
   if (agent.plan.length > 0) agent.plan = agent.plan.slice(1)
   for (const entry of resolved.memory) remember(agent, entry)
-  applyMood(agent, action, ts)
+  applyMood(agent, action, run.tick, ts)
 
   // 消费掉本步用过的指令：已消费的指令不再是"立刻执行"，但留在记忆里。
   const used = run.directives.filter((d) => d.agentId === agent.id && !d.consumed)

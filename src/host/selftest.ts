@@ -183,6 +183,20 @@ const store = new SandboxStore()
 await store.ensureSeed()
 const sandboxes = await store.list(true)
 ok(sandboxes.length >= 1, '沙盒库至少有一个沙盒', `实际 ${sandboxes.length}`)
+// 手写一个新沙盒文件后，list() 必须能发现它。
+// 这条断言存在的理由：缓存曾经一旦建好就不再失效，而路由读 list() 时又不带 force，
+// 于是"玩家自己丢进 sandboxes/ 的沙盒永远不出现"——本轮实测撞上的就是这个。
+{
+  const { writeFile: writeFileAsync } = await import('node:fs/promises')
+  const extra = { v: 1, id: 'handwritten', name: '手写沙盒', desc: '', map: { width: 40, height: 30, ground: '#5c8b3a' }, places: [], objects: [], relations: [], agents: [] }
+  await writeFileAsync(join(sandboxDir(), 'handwritten.json'), `${JSON.stringify(extra, null, 2)}\n`, 'utf8')
+  const seen = await store.list()
+  ok(seen.some((s) => s.id === 'handwritten'), '手写进 sandboxes/ 的沙盒能被 list() 发现（缓存跟着目录指纹失效）')
+  await store.remove('handwritten')
+  const after = await store.list()
+  ok(!after.some((s) => s.id === 'handwritten'), '删掉文件后 list() 也不再返回它')
+}
+
 const house = sandboxes.find((s) => s.id === 'house')
 ok(house !== undefined, '第二个发货镜像 house 已种入（多镜像逐个检查，不是"目录非空就跳过"）')
 ok(house !== undefined && house.map.width === 32 && house.map.height === 24, `house 尺寸 32×24`, `${house?.map.width}×${house?.map.height}`)
@@ -460,6 +474,25 @@ const clearedMood = dataOf<WorldView>(await call(route, 'POST', '/paranim/agent?
   patch: { mood: { value: 2 } },
 }))
 ok(clearedMood.run.agents.find((a) => a.id === addedNullModel?.id)?.mood?.label !== '亢奋', '只给指数时，词按指数自动取（不会留着上一次的词）')
+
+// 心情变化的记忆必须记在**当时那一步**上。写死 tick 0 会让它显示成"第 0 步的事"，
+// 越往后越离谱——本地连跑 6 步后它显示"6 步前"，而它其实是刚发生的。
+{
+  const mid = await routes.world({ workspace: '/tmp/fake-workspace', create: true })
+  const target = mid.run.agents[0]
+  await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
+    op: 'patch', agentId: target.id, patch: { mood: { value: 5, label: '平静' } },
+  })
+  const before = (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).run.tick
+  await routes.step({ workspace: '/tmp/fake-workspace' })
+  const after = await routes.world({ workspace: '/tmp/fake-workspace', create: true })
+  const moodNote = after.run.agents[0].memory.filter((m) => m.text.includes('心情从')).slice(-1)[0]
+  ok(
+    moodNote === undefined || moodNote.tick >= before,
+    '心情变化的记忆记在当步（不是写死的第 0 步）',
+    `before=${before} note.tick=${moodNote?.tick}`,
+  )
+}
 
 // 心情要能跨落盘往返
 const moodRound = await routes.world({ workspace: '/tmp/fake-workspace', create: true })
