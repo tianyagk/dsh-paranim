@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { ATTR_IDS, normalizeAttrs, type RunState, type Sandbox, type WorldEvent } from '../shared/model.ts'
-import { remember, runTick, issueDirective, listModelChoices, type AgentCall } from './engine.ts'
+import { remember, runTick, issueDirective, listModelChoices } from './engine.ts'
 import { makeRoutes, type ParanimRoutes, type WorldView } from './routes.ts'
 import { RunStore, SandboxStore, StepStore, dataHome, sandboxDir } from './store.ts'
 import { makeTools } from './tools.ts'
@@ -322,6 +322,8 @@ const badType = await call(route, 'POST', '/paranim/step', undefined, { 'content
 ok(badType.status === 415, '非 JSON Content-Type 被拒（415）', `status=${badType.status}`)
 const unknown = await call(route, 'GET', '/paranim/nope?workspace=/tmp/fake-workspace')
 ok(unknown.status === 404, '未知路由返回 404', `status=${unknown.status}`)
+const removedEvents = await call(route, 'GET', '/paranim/events?workspace=/tmp/fake-workspace')
+ok(removedEvents.status === 404, '已删除的 /events 返回 404（界面从 world 快照取事件流，不必再有一条增量接口）', `status=${removedEvents.status}`)
 
 const sandboxesRes = await call(route, 'GET', '/paranim/sandboxes?workspace=/tmp/fake-workspace')
 ok(sandboxesRes.status === 200, 'GET /sandboxes 返回 200')
@@ -469,13 +471,28 @@ ok(reset.run.agents.every((a) => a.memory.length === 1), '重置后每个智能�
 const resetAll = dataOf<WorldView>(await call(route, 'POST', '/paranim/reset?workspace=/tmp/fake-workspace', {}))
 ok(resetAll.run.agents.length === resetAll.sandbox.agents.length, '不带 count 时全量入场')
 
-const rollRes = dataOf<{ roll: { text: string; roll: number } }>(await call(route, 'POST', '/paranim/roll?workspace=/tmp/fake-workspace', {
+// /paranim/roll 此前只有实现没有覆盖。它现在是"不推进世界也能掷一次"的唯一入口，
+// 所以补上正面 + 两种错误口径的断言（错误口径同样是契约，不能只有 happy path）。
+const rollOk = dataOf<{ roll: { text: string; roll: number; attr: string; difficulty: number } }>(
+  await call(route, 'POST', '/paranim/roll?workspace=/tmp/fake-workspace', {
+    agentId: resetAll.run.agents[0].id,
+    attr: 'pow',
+    difficulty: 13,
+    action: '抵抗恐惧',
+  }),
+)
+ok(
+  Number.isInteger(rollOk.roll.roll) && rollOk.roll.roll >= 1 && rollOk.roll.roll <= 6,
+  `直接掷骰可用：D6=${rollOk.roll.roll}`,
+)
+ok(rollOk.roll.attr === 'pow' && rollOk.roll.difficulty === 13, '骰面之外的参数被如实回传（前端才敢显示）')
+const rollBadAgent = await call(route, 'POST', '/paranim/roll?workspace=/tmp/fake-workspace', { agentId: '不存在的 id', attr: 'pow' })
+ok(rollBadAgent.status === 404, '未知智能体返回 404（不是 500）', `status=${rollBadAgent.status}`)
+const rollBadAttr = await call(route, 'POST', '/paranim/roll?workspace=/tmp/fake-workspace', {
   agentId: resetAll.run.agents[0].id,
-  attr: 'pow',
-  difficulty: 13,
-  action: '抵抗恐惧',
-}))
-ok(typeof rollRes.roll.text === 'string' && rollRes.roll.roll >= 1 && rollRes.roll.roll <= 6, `界面直接掷骰可用：${rollRes.roll.text}`)
+  attr: '不存在的属性',
+})
+ok(rollBadAttr.status === 400, '未知属性返回 400（请求有问题，不是服务端故障）', `status=${rollBadAttr.status}`)
 
 // 删除受保护
 const builtinDelete = await call(route, 'POST', '/paranim/sandbox?workspace=/tmp/fake-workspace', { action: 'remove', id: 'smallville' })

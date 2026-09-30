@@ -378,12 +378,14 @@ const CSS = `
 .pa-picker .pa-dim { font-size: 11px; }
 .pa-swatches { display: flex; gap: 3px; }
 .pa-swatch {
-  width: 22px; height: 16px; border-radius: 4px; cursor: pointer;
-  border: 1px solid var(--pa-border); padding: 0;
-  position: relative;
+  display: inline-flex; align-items: center; gap: 3px;
+  height: 18px; padding: 0 5px 0 4px; border-radius: 5px; cursor: pointer;
+  border: 1px solid var(--pa-border);
+  font-size: 10px; font-family: inherit;
 }
+.pa-swatch b { font-weight: 500; }
 .pa-swatch[data-on="true"] { border-color: var(--pa-gold); box-shadow: 0 0 0 1px var(--pa-gold); }
-.pa-swatch i { position: absolute; inset: 2px; border-radius: 2px; }
+.pa-swatch i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
 .pa-seg { display: flex; border: 1px solid var(--pa-border); border-radius: 6px; overflow: hidden; }
 .pa-seg button {
   border: none; background: transparent; color: var(--pa-textDim);

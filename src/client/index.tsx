@@ -273,9 +273,9 @@ function ParanimApp(props: TabProps): React.ReactElement {
           React.createElement('button', { key: tab.key, className: 'pa-tab', 'data-on': page === tab.key, title: tab.title, onClick: () => setPage(tab.key) }, tab.label),
         ),
       ),
-      React.createElement('span', { className: 'pa-chip' }, `第 ${world.run.tick} 步`),
-      React.createElement('span', { className: 'pa-chip' }, `${agents.length} 智能体`),
-      React.createElement('span', { className: 'pa-chip' }, sandbox.name),
+      // 顶栏只留"随时想知道的那一个数"。沙盒名/地图尺寸/地标物件数都在「世界」页，
+      // 顶栏再放一遍是把同一件事说两次，还挤掉了标签本身的空间。
+      React.createElement('span', { className: 'pa-chip' }, `第 ${world.run.tick} 步 · ${agents.length} 人`),
       React.createElement('span', { className: 'pa-spacer' }),
       React.createElement('button', { className: 'pa-btn', onClick: () => void refresh() }, '刷新'),
     ),
@@ -452,9 +452,11 @@ function ParanimApp(props: TabProps): React.ReactElement {
                   'data-on': t.id === themeId,
                   title: `${t.name} — ${t.hint}`,
                   onClick: () => setThemeId(t.id),
-                  style: { background: t.vars.bg, borderColor: t.id === themeId ? t.vars.gold : undefined },
+                  style: { background: t.vars.bg },
                 },
+                // 色点 + 短名：只给一个色块看不出哪套是哪套，"点一下试试"不是可发现性。
                 React.createElement('i', { style: { background: t.vars.gold } }),
+                React.createElement('b', { style: { color: t.vars.text } }, t.name.slice(0, 2)),
               ),
             ),
           ),
@@ -770,8 +772,11 @@ function AgentEditor(props: {
         ? React.createElement('option', { value: draft.model }, `${draft.model}（不在当前目录）`)
         : null,
     ),
-    modelsNote === '' ? null : React.createElement('div', { className: 'pa-dim', style: { marginTop: 3 } }, modelsNote),
-    React.createElement('div', { className: 'pa-dim', style: { marginTop: 3 } }, '可用模型来自 DSH 当前已注册的 provider（`paranim_models` 工具同样能查）。'),
+    React.createElement(
+      'div',
+      { className: 'pa-dim', style: { marginTop: 3 }, title: '模型清单来自 DSH 当前已注册的 provider；paranim_models 工具同样能查。' },
+      modelsNote === '' ? '留空＝跟随宿主默认模型' : modelsNote,
+    ),
 
     // 身份 / 外貌 / 性格（需求 3）
     React.createElement('h4', { style: { marginTop: 10 } }, '身份与外貌'),
@@ -795,8 +800,11 @@ function AgentEditor(props: {
       { className: 'pa-form' },
       field('想要', draft.goal, (v) => setDraft((p) => ({ ...p, goal: v }))),
     ),
-    React.createElement('div', { className: 'pa-dim', style: { marginTop: 3 } },
-      '「想要」是它做事的动机。有所忌惮或有所隐瞒，写进「性格」或「来历」即可——那两个字段模型同样读得到，但不必每个角色都填。'),
+    React.createElement(
+      'div',
+      { className: 'pa-dim', style: { marginTop: 3 }, title: '「性格」「来历」「想要」都会进模型提示词；忌惮或隐瞒写进前两者即可，不必单设字段。' },
+      '驱动它做事的动机。',
+    ),
 
     // 日程与随身
     React.createElement('h4', { style: { marginTop: 10 } }, '日程与随身'),
@@ -806,7 +814,7 @@ function AgentEditor(props: {
       field('计划', draft.plan, (v) => setDraft((p) => ({ ...p, plan: v })), true),
       field('随身', draft.inventory, (v) => setDraft((p) => ({ ...p, inventory: v }))),
     ),
-    React.createElement('div', { className: 'pa-dim', style: { marginTop: 3 } }, '计划：每行一条，智能体每走一步消耗一条。'),
+    React.createElement('div', { className: 'pa-dim', style: { marginTop: 3 } }, '每行一条，每走一步消耗一条。'),
 
     React.createElement(
       'div',

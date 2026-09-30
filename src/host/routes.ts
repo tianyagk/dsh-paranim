@@ -21,6 +21,7 @@ import {
   type SandboxAgent,
   type SandboxSaveBody,
   type StateValue,
+  type AgentModelRoute,
   type StepConfig,
   type WorldObject,
 } from '../shared/model.ts'
@@ -28,8 +29,15 @@ import { findObject } from '../shared/rules.ts'
 import { isTrustedApiRequest } from './fence.ts'
 import { messageOf, type LlmMessage, type PluginLlm, type PluginWebRoute } from './context.ts'
 import { log } from './context.ts'
-import { issueDirective, listModelChoices, runTick, type AgentCall, type TickResult } from './engine.ts'
+import { issueDirective, listModelChoices, runTick, type TickResult } from './engine.ts'
 import { RunStore, SandboxStore, StepStore, normalizeObject, normalizeSandbox } from './store.ts'
+
+/** 一次模型调用的描述（与 engine.ts 内部同名结构对齐：路由 + 系统提示 + 用户观察）。 */
+interface LlmCall {
+  route: AgentModelRoute
+  system: string
+  user: string
+}
 
 const MAX_BODY = 512 * 1024
 
@@ -111,7 +119,7 @@ interface Stepper {
 
 const steppers = new Map<string, Stepper>()
 
-export function stepperKey(workspace: string | undefined, sandboxId: string): string {
+function stepperKey(workspace: string | undefined, sandboxId: string): string {
   return `${(workspace ?? '').trim()}#${sandboxId}`
 }
 
@@ -124,13 +132,8 @@ function stopStepper(key: string): void {
   found.inFlight = false
 }
 
-export function stopAllSteppers(): void {
+function stopAllSteppers(): void {
   for (const key of [...steppers.keys()]) stopStepper(key)
-}
-
-/** 插件卸载时把计时器一并清掉（fiber disposal 的收尾）。 */
-export function disposeAllSteppers(): void {
-  stopAllSteppers()
 }
 
 export interface ParanimRoutes {
@@ -252,7 +255,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
 
   /** 从 llm 服务造一个调用器；llm 缺失时返回一个总是抛错的实现，让引擎走兜底。 */
   const makeCaller = (llm: PluginLlm | undefined) => {
-    return async (agent: { id: string; name: string }, call: AgentCall, signal: AbortSignal): Promise<string> => {
+    return async (agent: { id: string; name: string }, call: LlmCall, signal: AbortSignal): Promise<string> => {
       if (llm === undefined) throw new Error('宿主 llm 服务不可用')
       void agent
       const attempt = await callModelOnce(llm, call, signal)
@@ -275,7 +278,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
   /** 一次模型调用：拼文本，并把"这次调用长什么样"记成可读的 detail。 */
   const callModelOnce = async (
     llm: PluginLlm,
-    call: AgentCall,
+    call: LlmCall,
     signal: AbortSignal,
     options?: {
       dropReasoningEffort?: boolean
@@ -335,7 +338,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
       `宿主默认路由：${route === undefined ? '（无）' : `${route.provider}/${route.model}${route.reasoningEffort === undefined ? '' : ` @${route.reasoningEffort}`}`}`,
       `llm.listProviders()：${llm.listProviders().map((p) => `${p.id}(${p.name})`).join(', ')}`,
     ]
-    const call: AgentCall = {
+    const call: LlmCall = {
       route: { provider, model, reasoningEffort: args.reasoningEffort ?? route?.reasoningEffort },
       system: args.system ?? '你是一个小镇居民。只回答两个字：收到',
       user: args.user ?? '现在几点了？',
@@ -366,7 +369,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
   /** 跑一种调用形状，把结果压成几行（异常也在内部收口）。 */
   const oneProbe = async (
     llm: PluginLlm,
-    call: AgentCall,
+    call: LlmCall,
     signal: AbortSignal,
     variant?: {
       messages?: LlmMessage[]
@@ -795,15 +798,6 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
               user: typeof body.user === 'string' ? body.user : undefined,
             })
             return send(res, 200, { ok: true, data: probe })
-          }
-
-          // GET /paranim/events —— 事件流（可按 since 增量拉）
-          if (method === 'GET' && path === '/events') {
-            const view = await world({ workspace, sandboxId, create: true })
-            const since = Number(url.searchParams.get('since') ?? '0')
-            const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit') ?? '200')))
-            const events = view.run.events.filter((e) => (Number.isFinite(since) ? e.tick > since : true)).slice(-limit)
-            return send(res, 200, { ok: true, data: { tick: view.run.tick, events } })
           }
 
           throw new HttpError(`未知路由 ${method} /paranim${path}`, 404)

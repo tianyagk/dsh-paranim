@@ -43,7 +43,7 @@ import { log } from './context.ts'
 const MEMORY_KEEP = 24
 const MEMORY_CHARS = 6000
 
-export interface AgentCall {
+interface AgentCall {
   /** 该智能体的模型路由（null = 由调用方给出的兜底路由）。 */
   route: AgentModelRoute
   /** 系统提示。 */
@@ -70,7 +70,7 @@ export interface EngineDeps {
   defaultRoute?: AgentModelRoute
 }
 
-export interface TickOutcome {
+interface TickOutcome {
   agentId: string
   agentName: string
   ok: boolean
@@ -105,7 +105,7 @@ function memoryLine(entry: MemoryEntry, currentTick: number): string {
 }
 
 /** 组装一个智能体此刻看到的世界。 */
-export function buildObservation(sandbox: Sandbox, run: RunState, agent: RunAgent): string {
+function buildObservation(sandbox: Sandbox, run: RunState, agent: RunAgent): string {
   const place = placeAt(sandbox, agent.x, agent.y)
   const nearbyObjects = [...sandbox.objects, ...sandbox.places]
     .map((o) => ({ o, d: distance(agent.x, agent.y, o.x, o.y) }))
@@ -171,7 +171,7 @@ export function buildObservation(sandbox: Sandbox, run: RunState, agent: RunAgen
 }
 
 /** 系统提示：把动作契约讲清楚，一次讲透，避免模型每步重新猜格式。 */
-export function systemPromptFor(agent: RunAgent): string {
+function systemPromptFor(agent: RunAgent): string {
   return [
     `你正在扮演一座小镇里的居民「${agent.name}」。你是一个有欲望、有秘密、会犯错的普通人，不是一个乐于助人的助手。`,
     '你只做你此刻想做的事。不要旁白，不要总结，不要替别人说话，不要询问用户。',
@@ -206,7 +206,7 @@ export function systemPromptFor(agent: RunAgent): string {
  * 自己是谁、跟谁有过什么——行为会退化成"对每个路人重新自我介绍"。摘要把来历
  * 压成一行常量，窗口才敢开小。
  */
-export function pruneMemory(agent: RunAgent): void {
+function pruneMemory(agent: RunAgent): void {
   if (agent.memory.length <= MEMORY_KEEP) return
   const summaries = agent.memory.filter((m) => m.kind === 'summary')
   const keepSummary = summaries.slice(-1)
@@ -232,7 +232,7 @@ export function remember(agent: RunAgent, entry: MemoryEntry): void {
 // 小镇仍然会在走、在说话、在开关灯，而不是冻结——需求 6 的"手动步进"必须永远
 // 有反馈，否则界面会像是坏了。
 
-export function fallbackAction(sandbox: Sandbox, run: RunState, agent: RunAgent): AgentAction {
+function fallbackAction(sandbox: Sandbox, run: RunState, agent: RunAgent): AgentAction {
   const planStep = agent.plan[0]
   if (planStep !== undefined) {
     const hit = [...sandbox.places, ...sandbox.objects].find((o) => planStep.includes(o.name))
@@ -291,7 +291,7 @@ function timeoutSignal(ms: number, parent?: AbortSignal): { signal: AbortSignal;
 }
 
 /** 一次取材的结果：动作 + 它是怎么来的（复盘要能区分模型与降级）。 */
-export interface Draft {
+interface Draft {
   action: AgentAction
   source: 'model' | 'fallback'
   detail: string

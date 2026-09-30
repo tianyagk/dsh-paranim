@@ -6,8 +6,8 @@
  *     否则会出现"点了这盏灯、改到那棵树"。
  *  2. 命中——右键找最近的物件、左键找最近的智能体。
  *  3. 尺寸——画布由 CSS 绝对定位铺满容器，本组件**不写任何影响父容器尺寸的
- *     属性**（那正是此前"向下无限下坠"的回路），ResizeObserver 回调也只在尺寸
- *     真的变化时才更新 state。
+ *     属性（否则容器尺寸与画布尺寸会互相喂养），ResizeObserver 回调也只在
+ *     尺寸真的变化时才更新 state。
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {

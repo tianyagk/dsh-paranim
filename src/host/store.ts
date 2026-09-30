@@ -543,7 +543,3 @@ export class StepStore {
   }
 }
 
-/** 供 UI 用的属性摘要（避免把六个字段重复写两遍）。 */
-export function attrPairs(attrs: Attrs): Array<{ id: (typeof ATTR_IDS)[number]; value: number }> {
-  return ATTR_IDS.map((id) => ({ id, value: clampAttr(attrs[id]) }))
-}

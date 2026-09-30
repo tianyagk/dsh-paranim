@@ -1,8 +1,6 @@
 /**
- * 像素图集加载器：把内嵌的 base64 图集解码成可绘制对象，并提供按「列/行」取图的接口。
- *
- * 与上一版的区别：上一版所有素材是**代码里画的点阵**（字符矩阵），这一版是
- * **真实图集**（Kenney CC0，见 `sheetData.ts` 与 `assets/pack/README.md`）。
+ * 像素图集加载器：把内嵌的 base64 图集（Kenney CC0）解码成可绘制对象，
+ * 并提供按「列/行」取图的接口。素材来源见 `assets/pack/README.md`。
  *
  * 三条设计约束：
  *  1. **异步但只等一次**：图集解码是异步的（Image.onload / createImageBitmap），
@@ -154,23 +152,6 @@ export function drawGroundTile(
   if (sx < 0 || sy < 0 || sx + tile > s.width || sy + tile > s.height) return
   ctx.imageSmoothingEnabled = false
   ctx.drawImage(s.image, sx, sy, tile, tile, Math.round(x), Math.round(y), Math.ceil(size), Math.ceil(size))
-}
-
-/**
- * 从图集里取一格的**原始像素**（用于按角色换色之类的处理）。
- * 只在需要逐像素改色的地方用；普通绘制走 GPU 路径，不要在这里逐帧取像素。
- */
-export function tilePixels(ref: TileRef): ImageData | undefined {
-  const s = sheet(ref.sheet)
-  if (s === undefined) return undefined
-  const canvas = document.createElement('canvas')
-  canvas.width = s.tile
-  canvas.height = s.tile
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (ctx === null) return undefined
-  ctx.imageSmoothingEnabled = false
-  ctx.drawImage(s.image, ref.col * s.tile, ref.row * s.tile, s.tile, s.tile, 0, 0, s.tile, s.tile)
-  return ctx.getImageData(0, 0, s.tile, s.tile)
 }
 
 /** 一张图集的网格信息（给"对照表"界面用）。 */

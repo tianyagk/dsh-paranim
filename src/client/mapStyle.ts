@@ -10,12 +10,6 @@
  *  - 像 `roofWarm` 只给 1 个，因为它本来就是"暖瓦这套"；
  *  - 候选为空数组表示"这个槽位暂时没有素材"，渲染层会**跳过**而不是画错格子。
  *
- * 素材分工（已确认的方案）：
- *  · tiny-town / tiny-farm / tiny-battle —— 主素材
- *  · city —— 镇上物件与设施的补充
- *  · onebit —— **后备**：上面缺的标记 / 状态 / 事件符号
- *  · characters —— 角色（4 向）
- *
  * ⚠️ 下面的序号是**初版估计值**，请用 `npm run assets:inspect <图集>` 核对后直接改。
  * 设计上允许"先跑起来再调"：候选为空只会少画东西，不会画错东西。
  */
@@ -116,10 +110,7 @@ export const CHARACTER: SlotTable = {
   fallback: refs('characters', [[0, 0]]),
 }
 
-/** 角色图集的变体行：不同行是不同的角色配色 / 性别 / 职业。 */
-export const CHARACTER_ROWS = 12
 
-export const ALL_SLOTS: SlotTable = { ...GROUND, ...BUILDING, ...PROPS, ...SYMBOLS, ...CHARACTER }
 
 /** 随机取一个候选（确定性：由调用方给的 0..1 决定，保证同一格每次重绘一致）。 */
 export function pickSlot(table: SlotTable, slot: string, n: number): TileRef | undefined {
@@ -128,26 +119,3 @@ export function pickSlot(table: SlotTable, slot: string, n: number): TileRef | u
   return list[Math.min(list.length - 1, Math.floor(n * list.length))]
 }
 
-/** 这个槽位有没有素材（界面用它提示"这个种类还没配图"）。 */
-export function hasSlot(table: SlotTable, slot: string): boolean {
-  const list = table[slot]
-  return list !== undefined && list.length > 0
-}
-
-/** 全部槽位的清单（给"素材对照"界面用）。 */
-export function slotInventory(): Array<{ group: string; slot: string; cells: number; sheets: string[] }> {
-  const groups: Array<[string, SlotTable]> = [
-    ['地面', GROUND],
-    ['建筑', BUILDING],
-    ['物件', PROPS],
-    ['符号', SYMBOLS],
-    ['角色', CHARACTER],
-  ]
-  const out: Array<{ group: string; slot: string; cells: number; sheets: string[] }> = []
-  for (const [group, table] of groups) {
-    for (const [slot, list] of Object.entries(table)) {
-      out.push({ group, slot, cells: list.length, sheets: [...new Set(list.map((r) => r.sheet))] })
-    }
-  }
-  return out
-}

@@ -4,15 +4,7 @@
  * 所有调用都带上 `workspace` + `sessionId`：宿主用它们决定运行态分桶
  * （不同工作区各跑各的小镇，互不串味）。
  */
-import type {
-  Directive,
-  ModelChoice,
-  ModelsResponse,
-  RunState,
-  Sandbox,
-  StepConfig,
-  WorldEvent,
-} from '../shared/model.ts'
+import type { Directive, ModelChoice, ModelsResponse, RunState, Sandbox, StepConfig, WorldEvent } from '../shared/model.ts'
 
 export class ApiError extends Error {
   status: number
@@ -107,16 +99,6 @@ export function createApi(scopeRef: () => Scope) {
     sandboxes: (): Promise<{ sandboxes: SandboxSummary[]; currentId: string }> =>
       get<{ sandboxes: SandboxSummary[]; currentId: string }>('/sandboxes'),
     models: (): Promise<ModelsResponse> => get<ModelsResponse>('/models'),
-    events: (since: number, limit = 200): Promise<{ tick: number; events: WorldEvent[] }> => {
-      const current = scopeRef()
-      const params = new URLSearchParams()
-      if (current.workspace !== undefined) params.set('workspace', current.workspace)
-      if (current.sessionId !== undefined) params.set('sessionId', current.sessionId)
-      if (current.sandboxId !== undefined) params.set('sandboxId', current.sandboxId)
-      params.set('since', String(since))
-      params.set('limit', String(limit))
-      return request<{ tick: number; events: WorldEvent[] }>(`/paranim/events?${params.toString()}`)
-    },
     step: (options?: { maxAgents?: number }): Promise<{ tick: number; driven: number; outcomes: Array<{ agentName: string; source: string; detail: string }>; events: WorldEvent[]; world: WorldView }> =>
       post('/step', { maxAgents: options?.maxAgents }),
     stepConfig: (patch: Partial<StepConfig>): Promise<WorldView> => post('/step/config', patch),
@@ -127,8 +109,6 @@ export function createApi(scopeRef: () => Scope) {
       post('/directive', { agentId, text }),
     sandbox: (body: Record<string, unknown>): Promise<WorldView> => post('/sandbox', body),
     reset: (count?: number): Promise<WorldView> => post('/reset', count === undefined ? {} : { count }),
-    roll: (agentId: string, attr: string, difficulty: number, action: string): Promise<{ roll: { text: string }; world: WorldView }> =>
-      post('/roll', { agentId, attr, difficulty, action }),
   }
 }
 

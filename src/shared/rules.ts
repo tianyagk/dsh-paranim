@@ -86,7 +86,7 @@ export function findObject(sandbox: Sandbox, id: string | undefined): WorldObjec
   return sandbox.places.find((p) => p.id === id) ?? sandbox.objects.find((o) => o.id === id)
 }
 
-export function findAgent(run: RunState, id: string | undefined): RunAgent | undefined {
+function findAgent(run: RunState, id: string | undefined): RunAgent | undefined {
   if (id === undefined || id === '') return undefined
   return run.agents.find((a) => a.id === id)
 }
@@ -109,12 +109,12 @@ export function moveDifficulty(dist: number): { step: (typeof DIFFICULTY_LADDER)
 }
 
 /** 依据动作里的难度档位解析目标数；缺省用常规。 */
-export function difficultyFromAction(action: AgentAction): number {
+function difficultyFromAction(action: AgentAction): number {
   if (action.difficultyId === undefined || action.difficultyId === '') return DEFAULT_DIFFICULTY
   return difficultyOf(action.difficultyId).value
 }
 
-export interface ActionContext {
+interface ActionContext {
   sandbox: Sandbox
   run: RunState
   agent: RunAgent
@@ -128,7 +128,7 @@ export interface ActionContext {
   operator?: 'agent' | 'gm'
 }
 
-export interface ActionOutcome {
+interface ActionOutcome {
   /** 进入公共事件流的条目。 */
   events: WorldEvent[]
   /** 该智能体的私有记忆。 */

@@ -314,13 +314,6 @@ export function normalizeAttrs(input: Partial<Attrs> | undefined | null): Attrs 
   }
 }
 
-/** 六项之和，用于「这个人总体多强」的粗略比较。 */
-export function attrSum(attrs: Attrs): number {
-  let sum = 0
-  for (const id of ATTR_IDS) sum += attrs[id]
-  return sum
-}
-
 // ── 沙盒 schema（需求 2）─────────────────────────────────────────────────
 
 export type ObjectKind = 'place' | 'prop' | 'fixture' | 'vehicle' | 'plant' | 'sign' | 'other'
@@ -520,11 +513,6 @@ export interface RunAgent extends SandboxAgent {
   stepsTaken: number
 }
 
-export interface RunAgentSummary {
-  /** 整体状态的一句话（由引擎按属性与处境生成）。 */
-  mood: string
-}
-
 export interface RunState {
   sandboxId: string
   tick: number
@@ -592,7 +580,7 @@ export type AgentActionKind =
   | 'flee'
   | 'wait'
 
-export const ACTION_KINDS: readonly AgentActionKind[] = [
+const ACTION_KINDS: readonly AgentActionKind[] = [
   'move',
   'say',
   'observe',
@@ -671,65 +659,6 @@ export interface ModelsResponse {
   error?: string
   /** 目录来源：live（llm 服务）/ fallback（默认模型单条）。 */
   source: 'live' | 'fallback'
-}
-
-export interface WorldResponse {
-  sandbox: Sandbox
-  run: RunState
-  step: StepConfig
-  /** 运行中的智能体数（= run.agents.length，单独给出便于 UI 少算）。 */
-  agentCount: number
-}
-
-export interface SandboxListResponse {
-  sandboxes: Array<Pick<Sandbox, 'id' | 'name' | 'desc' | 'builtin' | 'attribution' | 'license' | 'updatedAt'> & {
-    places: number
-    objects: number
-    agents: number
-  }>
-  currentId: string
-}
-
-export interface StepResponse {
-  ok: boolean
-  tick: number
-  /** 本步新产生的事件。 */
-  events: WorldEvent[]
-  /** 本步实际被驱动的智能体数。 */
-  driven: number
-  /** 每个智能体的驱动结果（含未驱动的原因）。 */
-  outcomes: Array<{ agentId: string; agentName: string; ok: boolean; detail: string }>
-  error?: string
-}
-
-export interface DirectiveBody {
-  agentId: string
-  text: string
-}
-
-export interface ObjectPatchBody {
-  objectId: string
-  /** 要覆盖的状态键值（值为 null 表示删除该键）。 */
-  state?: Record<string, StateValue | null>
-  /** 改名 / 改坐标 / 改交互性 / 改描述。 */
-  name?: string
-  desc?: string
-  x?: number
-  y?: number
-  interactive?: boolean
-  color?: string
-  /** 谁改的（写进 lastEditedBy，玩家默认 '玩家'）。 */
-  by?: string
-}
-
-export interface AgentPatchBody {
-  agentId?: string
-  /** 新增时必填的模板字段。 */
-  agent?: Partial<SandboxAgent> & { name?: string }
-  /** 更新时按 id 覆盖字段。 */
-  patch?: Partial<SandboxAgent>
-  /** 从运行中移除（true = 离场）。 */
-  remove?: boolean
 }
 
 export interface SandboxSaveBody {
