@@ -277,7 +277,19 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
     llm: PluginLlm,
     call: AgentCall,
     signal: AbortSignal,
-    options?: { dropReasoningEffort?: boolean; provider?: string; model?: string; temperature?: number; maxTokens?: number; system?: string; user?: string },
+    options?: {
+      dropReasoningEffort?: boolean
+      provider?: string
+      model?: string
+      temperature?: number
+      maxTokens?: number
+      system?: string
+      user?: string
+      /** 覆盖 messages（探针用来对比"system 单独给"与"折进 messages"两种形状）。 */
+      messages?: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+      /** 完全不传 temperature（探针用：某些兼容层对 temperature 敏感）。 */
+      noTemperature?: boolean
+    },
   ): Promise<{ text: string; detail: string }> => {
     const started = Date.now()
     let text = ''
@@ -289,8 +301,9 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
       model: options?.model ?? call.route.model,
       reasoningEffort: options?.dropReasoningEffort === true ? undefined : call.route.reasoningEffort,
       system: options?.system ?? call.system,
-      messages: [{ role: 'user', content: options?.user ?? call.user }],
-      temperature: options?.temperature ?? 0.9,
+      messages: options?.messages ?? [{ role: 'user', content: options?.user ?? call.user }],
+      // 「不传」而不是「传 0」：省缺与显式 0 在适配器里是两条路。
+      temperature: options?.noTemperature === true ? undefined : (options?.temperature ?? 0.9),
       maxTokens: options?.maxTokens ?? 1200,
       signal,
     })) {
@@ -328,22 +341,65 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
       user: args.user ?? '现在几点了？',
     }
     const controller = new AbortController()
+    lines.push('')
+    lines.push('【A】system= 单独给、messages 只有 user（插件当前的调用形状）')
+    lines.push(await oneProbe(llm, call, controller.signal))
+    lines.push('')
+    lines.push('【B】system 折进 messages[0]（role=system），messages 走 user（agent-loop 的形状）')
+    lines.push(
+      await oneProbe(llm, call, controller.signal, {
+        messages: [
+          { role: 'system', content: call.system },
+          { role: 'user', content: call.user },
+        ],
+      }),
+    )
+    lines.push('')
+    lines.push('【C】最小调用：不传 system、不传 reasoningEffort、temperature 省略')
+    lines.push(
+      await oneProbe(llm, call, controller.signal, {
+        dropReasoningEffort: true,
+        messages: [{ role: 'user', content: '只回答两个字：收到' }],
+        noTemperature: true,
+      }),
+    )
+    return { ok: true, text: lines.join('\n') }
+  }
+
+  /** 跑一种调用形状，把结果压成几行（异常也在内部收口）。 */
+  const oneProbe = async (
+    llm: PluginLlm,
+    call: AgentCall,
+    signal: AbortSignal,
+    variant?: {
+      messages?: AgentCall['route'] extends never ? never : Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+      dropReasoningEffort?: boolean
+      noTemperature?: boolean
+    },
+  ): Promise<string> => {
     try {
-      const attempt = await callModelOnce(llm, call, controller.signal)
-      lines.push(`第一次：${attempt.detail}`)
-      lines.push(`  文本=${JSON.stringify(attempt.text.slice(0, 200))}`)
+      const attempt = await callModelOnce(llm, call, signal, {
+        dropReasoningEffort: variant?.dropReasoningEffort,
+        messages: variant?.messages,
+        noTemperature: variant?.noTemperature,
+      })
+      const rows = [`  ${attempt.detail}`, `  文本=${JSON.stringify(attempt.text.slice(0, 160))}`]
       if (attempt.text.trim() === '') {
-        const retry = await callModelOnce(llm, call, controller.signal, { dropReasoningEffort: true })
-        lines.push(`摘掉 reasoningEffort 重试：${retry.detail}`)
-        lines.push(`  文本=${JSON.stringify(retry.text.slice(0, 200))}`)
+        const retry = await callModelOnce(llm, call, signal, {
+          dropReasoningEffort: true,
+          messages: variant?.messages,
+          noTemperature: variant?.noTemperature,
+        })
+        rows.push(`  摘掉 reasoningEffort 重试：${retry.detail}`)
+        rows.push(`    文本=${JSON.stringify(retry.text.slice(0, 160))}`)
       }
-      return { ok: true, text: lines.join('\n') }
+      return rows.join('\n')
     } catch (error) {
-      lines.push(`抛异常：${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`)
+      const rows = [`  抛异常：${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`]
       if (error instanceof Error && error.stack !== undefined) {
-        lines.push(`stack: ${error.stack.split('\n').slice(0, 6).join(' | ')}`)
+        rows.push(`  stack: ${error.stack.split('\n').slice(0, 6).join(' | ')}`)
       }
-      return { ok: false, text: lines.join('\n') }
+      return rows.join('\n')
     }
   }
 
