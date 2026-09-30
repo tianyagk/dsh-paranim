@@ -375,6 +375,12 @@ function ParanimApp(props: TabProps): React.ReactElement {
           '下达指令',
         ),
         React.createElement('span', { className: 'pa-spacer' }),
+        // 版本标记：客户端包在插件装载时就被读进内存，改了源码必须重启 dsh 才会换新版。
+        // 没有这个标记，"重启了但他看的是旧包"只能靠猜——它就写在那行最右边。
+        React.createElement('span', {
+          className: 'pa-dim pa-mono',
+          title: '客户端包版本（改了源码需重启 dsh 才会换新版）',
+        }, `v${__PA_VERSION__}`),
         busy === '' ? null : React.createElement('span', { className: 'pa-dim' }, `${busy}…`),
         notice === '' ? null : React.createElement('span', { className: 'pa-notice pa-ok' }, notice),
         error === '' ? null : React.createElement('span', { className: 'pa-err' }, error),
