@@ -12,7 +12,10 @@ import {
   ATTR_LABEL,
   DIFFICULTY_LADDER,
   OBJECT_KIND_LABEL,
+  MOOD_DEFAULT,
+  MOOD_MAX,
   normalizeAttrs,
+  normalizeMood,
   shortId,
   toStateValue,
   type Sandbox,
@@ -152,6 +155,10 @@ export function makeTools(deps: ToolDeps): {
           if (agent.appearance !== '') lines.push(`    外貌：${agent.appearance}`)
           if (agent.persona !== '') lines.push(`    性格：${agent.persona}`)
           if (agent.goal !== '') lines.push(`    想要的：${agent.goal}`)
+          const mood = normalizeMood(agent.mood ?? MOOD_DEFAULT)
+          lines.push(`    心情：${mood.label} ${mood.value}/${MOOD_MAX}`)
+          const lastThought = [...agent.memory].reverse().find((m) => m.kind === 'thought')
+          if (lastThought !== undefined) lines.push(`    此刻在想：${lastThought.text}`)
           if (agent.plan.length > 0) lines.push(`    计划：${agent.plan.join(' → ')}`)
           if (agent.inventory.length > 0) lines.push(`    随身：${agent.inventory.join('、')}`)
           const memory = agent.memory.filter((m) => m.kind !== 'summary').slice(-5)
@@ -416,6 +423,8 @@ export function makeTools(deps: ToolDeps): {
         app: { type: 'number' },
         int: { type: 'number' },
         pow: { type: 'number' },
+        mood: { type: 'number', description: '心情指数 0–10（同时给出 moodLabel 更准）' },
+        moodLabel: { type: 'string', description: '心情的词，如 开心 / 烦躁 / 疲惫' },
         model: { type: 'string', description: '驱动模型，格式 provider/model（用 paranim_models 查）；留空表示跟随宿主默认' },
         plan: { type: 'array', items: { type: 'string' } },
         inventory: { type: 'array', items: { type: 'string' } },
@@ -516,6 +525,14 @@ export function makeTools(deps: ToolDeps): {
       }
       if (typeof args.x === 'number' && Number.isFinite(args.x)) { agent.x = Math.round(args.x); changed.push(`x=${agent.x}`) }
       if (typeof args.y === 'number' && Number.isFinite(args.y)) { agent.y = Math.round(args.y); changed.push(`y=${agent.y}`) }
+      if (typeof args.mood === 'number' || typeof args.moodLabel === 'string') {
+        const next = normalizeMood({
+          value: typeof args.mood === 'number' ? args.mood : (agent.mood ?? MOOD_DEFAULT).value,
+          label: typeof args.moodLabel === 'string' ? args.moodLabel : (agent.mood ?? MOOD_DEFAULT).label,
+        })
+        changed.push(`心情 ${next.label} ${next.value}/${MOOD_MAX}`)
+        agent.mood = next
+      }
       if (Object.keys(attrs).length > 0) {
         const next = normalizeAttrs({ ...agent.attrs, ...attrs })
         changed.push(ATTR_IDS.map((k) => `${ATTR_LABEL[k]}${agent.attrs[k]}→${next[k]}`).join(' '))

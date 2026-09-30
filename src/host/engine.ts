@@ -14,6 +14,11 @@ import {
   ACTION_LABEL,
   ATTR_EN,
   DIFFICULTY_LADDER,
+  MOOD_DEFAULT,
+  MOOD_MAX,
+  clampMood,
+  moodLabel,
+  normalizeMood,
   shortId,
   type AgentAction,
   type AgentModelRoute,
@@ -147,6 +152,8 @@ function buildObservation(sandbox: Sandbox, run: RunState, agent: RunAgent): str
     `外貌：${agent.appearance === '' ? '（未描述）' : agent.appearance}`,
     `性格：${agent.persona === '' ? '（未描述）' : agent.persona}`,
     `你想要的：${agent.goal === '' ? '（未设定）' : agent.goal}`,
+    `你现在的心情：${moodText(agent)}`,
+    `你此刻在想：${currentThoughtOf(agent) ?? '（脑子里空空的）'}`,
     `你的六维（1D6 + 属性 ≥ 难度即成功）：${ATTR_EN.str} ${agent.attrs.str}｜${ATTR_EN.con} ${agent.attrs.con}｜${ATTR_EN.dex} ${agent.attrs.dex}｜${ATTR_EN.app} ${agent.attrs.app}｜${ATTR_EN.int} ${agent.attrs.int}｜${ATTR_EN.pow} ${agent.attrs.pow}`,
     '',
     `【你在哪】${place?.name ?? `空旷处 (${agent.x},${agent.y})`}，坐标 (${agent.x},${agent.y})`,
@@ -186,13 +193,16 @@ function systemPromptFor(agent: RunAgent): string {
     '  "targetAgentId": "对话/对抗/攻击的对象 id",',
     '  "attr": "kind=check/opposed/attack 时用哪一项属性：str|con|dex|app|int|pow",',
     '  "difficultyId": "kind=check 时的难度："',
-    '  "mutations": [{ "objectId": "物体 id", "key": "状态键", "value": "新值" }]',
+    '  "mutations": [{ "objectId": "物体 id", "key": "状态键", "value": "新值" }],',
+    '  "moodDelta": "这一步的心情变化，-2..+2 的整数（比如被人冷落填 -1，事情办成了填 +1）",',
+    '  "moodLabel": "变化后的心情词，一个词，例如 开心 / 烦躁 / 疲惫 / 兴奋"',
     '}',
     '',
     `difficultyId 可选值（越难越需要运气）：${DIFFICULTY_LADDER.map((d) => `${d.id}(${d.label} ${d.value})`).join('，')}`,
     'mutations 是**显式**的状态改动：你想把某盏灯改成"故障"、把某扇门锁上、把告示张贴出去，都写在这里。',
     '改动必须发生在你 4 格之内的物体上，并且会先掷一次 DEX 判定；够不着或判定失败，改动不会生效。',
     '没有把握的事就走 kind="check" 让骰子决定，不要自己宣布成败。',
+    '心情只给**增量**（不是你希望它变成多少）：环境、别人的态度、骰运都有权重。没有变化就不填。',
     '叙述要具体到动作与感官（谁、在哪、做什么、发出什么响），不要抽象成情绪总结。',
   ].join('\n')
 }
@@ -273,6 +283,44 @@ function fallbackAction(sandbox: Sandbox, run: RunState, agent: RunAgent): Agent
 
 // ── 一步的驱动 ───────────────────────────────────────────────────────────
 
+/**
+ * 当前想法 = 最近一条"心里想的"记忆。
+ *
+ * 不另设字段存它：`thought` 每一步都写进 memory，再存一份就等于同一件事有两个
+ * 真相来源，迟早对不上。派生出来的东西永远与记忆一致。
+ */
+function currentThoughtOf(agent: RunAgent): string | undefined {
+  for (let i = agent.memory.length - 1; i >= 0; i -= 1) {
+    const entry = agent.memory[i]
+    if (entry.kind === 'thought' && entry.text.trim() !== '') return entry.text
+  }
+  return undefined
+}
+
+/** 心情的一行文本，例如「开心 6/10」。 */
+function moodText(agent: RunAgent): string {
+  const mood = normalizeMood(agent.mood ?? MOOD_DEFAULT)
+  return `${mood.label} ${mood.value}/${MOOD_MAX}`
+}
+
+/** 把一步的心情增量应用上去（没有增量就保持不变）。 */
+function applyMood(agent: RunAgent, action: AgentAction, ts: number): void {
+  const delta = action.moodDelta ?? 0
+  if (delta === 0 && action.moodLabel === undefined) return
+  const before = normalizeMood(agent.mood ?? MOOD_DEFAULT)
+  const value = clampMood(before.value + delta)
+  const label = action.moodLabel ?? (value === before.value ? before.label : moodLabel(value))
+  agent.mood = { value, label }
+  if (value !== before.value) {
+    remember(agent, {
+      tick: 0,
+      kind: 'event',
+      text: `心情从「${before.label} ${before.value}/${MOOD_MAX}」变成「${label} ${value}/${MOOD_MAX}」。`,
+      ts,
+    })
+  }
+}
+
 function timeoutSignal(ms: number, parent?: AbortSignal): { signal: AbortSignal; clear: () => void } {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(new Error(`模型调用超时（${ms}ms）`)), ms)
@@ -352,6 +400,7 @@ function settle(deps: EngineDeps, agent: RunAgent, action: AgentAction, ts: numb
   agent.stepsTaken += 1
   if (agent.plan.length > 0) agent.plan = agent.plan.slice(1)
   for (const entry of resolved.memory) remember(agent, entry)
+  applyMood(agent, action, ts)
 
   // 消费掉本步用过的指令：已消费的指令不再是"立刻执行"，但留在记忆里。
   const used = run.directives.filter((d) => d.agentId === agent.id && !d.consumed)

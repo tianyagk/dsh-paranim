@@ -12,7 +12,7 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
-import { ATTR_IDS, normalizeAttrs, type RunState, type Sandbox, type WorldEvent } from '../shared/model.ts'
+import { ATTR_IDS, normalizeAttrs, shortId, type RunState, type Sandbox, type WorldEvent } from '../shared/model.ts'
 import { remember, runTick, issueDirective, listModelChoices } from './engine.ts'
 import { makeRoutes, type ParanimRoutes, type WorldView } from './routes.ts'
 import { RunStore, SandboxStore, StepStore, dataHome, sandboxDir } from './store.ts'
@@ -395,6 +395,67 @@ ok(added?.model?.model === 'fake-large', '自定义驱动模型被采纳', JSON.
 ok(addData.sandbox.agents.some((a) => a.name === '测试居民'), '新智能体同时写回沙盒模板（下次开局仍在）')
 const clamped = normalizeAttrs({ str: 99, dex: -3 })
 ok(clamped.str === 20 && clamped.dex === 1, '越界属性被夹紧而不是原样落盘')
+
+// ── 回归：`model: null` 是合法输入（"跟随宿主默认模型"），不是错误 ────────────
+// 客户端的新增按钮就发 null，而服务端原先只判了 undefined —— null 走到
+// modelRaw.provider 上抛 TypeError，接口 500，界面上表现为"按钮没反应"。
+const nullModel = await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
+  op: 'add',
+  agent: { name: `空模型居民-${Date.now().toString(36)}`, concept: '测试', attrs: { str: 5, con: 5, dex: 5, app: 5, int: 5, pow: 5 }, model: null },
+})
+ok(
+  nullModel.status === 200,
+  'model:null 的新增请求返回 200（不是 500：原先只判了 undefined，null 会抛 TypeError）',
+  `status=${nullModel.status} ${String((nullModel.body as { error?: string } | null)?.error ?? '')}`,
+)
+// 同一毫秒内连续生成 id 必须互不相同。这条断言存在的理由：曾经 `shortId('a').slice(2,8)`
+// 取到的是时间戳前缀而不是随机部分，连重试 32 次都得到同一个 id —— 接口报 409，
+// 界面上表现为"第二次点新增没反应"。
+const burst = Array.from({ length: 200 }, () => shortId('burst'))
+ok(new Set(burst).size === 200, 'shortId 连续 200 次互不相同（唯一性不依赖时间戳）', `唯一 ${new Set(burst).size}/200`)
+const addTwiceA = await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
+  op: 'add', agent: { name: `连点A-${Date.now().toString(36)}`, concept: '测试', attrs: { str: 5, con: 5, dex: 5, app: 5, int: 5, pow: 5 }, model: null },
+})
+const addTwiceB = await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
+  op: 'add', agent: { name: `连点B-${Date.now().toString(36)}`, concept: '测试', attrs: { str: 5, con: 5, dex: 5, app: 5, int: 5, pow: 5 }, model: null },
+})
+ok(addTwiceA.status === 200 && addTwiceB.status === 200, '连续两次"新增智能体"都成功（不是第二次 409）', `${addTwiceA.status}/${addTwiceB.status}`)
+const dupExplicit = await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
+  op: 'add', agent: { id: 'shenyan', name: '撞名者', concept: '测试', attrs: { str: 5, con: 5, dex: 5, app: 5, int: 5, pow: 5 } },
+})
+ok(dupExplicit.status === 409, '显式指定已存在的 id 仍报 409（冲突是调用方自己的意图问题）', `status=${dupExplicit.status}`)
+
+const nullModelWorld = dataOf<WorldView>(nullModel)
+const addedNullModel = nullModelWorld.run.agents.find((a) => a.name.startsWith('空模型居民-'))
+ok(addedNullModel !== undefined, 'null 模型的智能体真的进入了世界')
+ok(addedNullModel?.model === null || addedNullModel?.model === undefined, 'null 模型被存成"跟随宿主默认"，而不是被丢掉或被编一个')
+
+// ── 心情与当前想法 ────────────────────────────────────────────────────────
+ok(typeof addedNullModel?.mood?.value === 'number', '新增的智能体带默认心情（不是空一块）')
+ok(
+  (addedNullModel?.mood?.value ?? -1) >= 0 && (addedNullModel?.mood?.value ?? 99) <= 10,
+  '心情指数在 0–10',
+)
+const moodPatch = dataOf<WorldView>(await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
+  op: 'patch',
+  agentId: addedNullModel?.id ?? '',
+  patch: { mood: { value: 99, label: '亢奋' } },
+}))
+const patched = moodPatch.run.agents.find((a) => a.id === addedNullModel?.id)
+ok(patched?.mood?.value === 10, '越界的心情指数被夹紧到 10（不是原样落盘）', String(patched?.mood?.value))
+ok(patched?.mood?.label === '亢奋', '心情的词被保留')
+const clearedMood = dataOf<WorldView>(await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
+  op: 'patch',
+  agentId: addedNullModel?.id ?? '',
+  patch: { mood: { value: 2 } },
+}))
+ok(clearedMood.run.agents.find((a) => a.id === addedNullModel?.id)?.mood?.label !== '亢奋', '只给指数时，词按指数自动取（不会留着上一次的词）')
+
+// 心情要能跨落盘往返
+const moodRound = await routes.world({ workspace: '/tmp/fake-workspace', create: true })
+await runStore.save(moodRound.run)
+const moodReloaded = await runStore.load(moodRound.sandbox.id)
+ok(moodReloaded?.agents.find((a) => a.id === addedNullModel?.id)?.mood?.value === 2, '心情能落盘并读回（归一化没把它丢掉）')
 
 // 需求 3：指令引导
 const directRes = await call(route, 'POST', '/paranim/directive?workspace=/tmp/fake-workspace', {

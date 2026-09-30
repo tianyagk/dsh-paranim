@@ -353,6 +353,44 @@ export interface WorldObject {
   lastEditedAt?: number
 }
 
+/** 心情：指数 + 标签。指数 0–10，越高越好。 */
+export interface Mood {
+  /** 0–10。 */
+  value: number
+  /** 一个词，例如「开心」「烦躁」「疲惫」。 */
+  label: string
+}
+
+export const MOOD_MIN = 0
+export const MOOD_MAX = 10
+/** 新角色的默认心情：不上不下，留给第一步去改变。 */
+export const MOOD_DEFAULT: Mood = { value: 6, label: '平静' }
+
+/** 夹紧到 0–10 的整数。 */
+export function clampMood(value: unknown, fallback = MOOD_DEFAULT.value): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(MOOD_MAX, Math.max(MOOD_MIN, Math.round(n)))
+}
+
+/** 归一一条心情；缺标签时按指数给一个。 */
+export function normalizeMood(input: unknown): Mood {
+  const raw = (input ?? {}) as Record<string, unknown>
+  const value = clampMood(raw.value)
+  const label = typeof raw.label === 'string' && raw.label.trim() !== '' ? raw.label.trim().slice(0, 8) : moodLabel(value)
+  return { value, label }
+}
+
+/** 指数 → 默认词（模型没给词时用它）。 */
+export function moodLabel(value: number): string {
+  if (value >= 9) return '兴奋'
+  if (value >= 7) return '开心'
+  if (value >= 5) return '平静'
+  if (value >= 3) return '烦躁'
+  if (value >= 1) return '生气'
+  return '崩溃'
+}
+
 export interface AgentModelRoute {
   provider: string
   model: string
@@ -379,6 +417,11 @@ export interface SandboxAgent {
   persona: string
   backstory: string
   goal: string
+  /**
+   * 心情：0–10 的指数 + 一个词。**由模型在动作里顺带给出**（见 AgentAction.moodDelta），
+   * 不是引擎从属性推导的——心情是对"刚才那件事"的反应，只有当事者知道该是什么。
+   */
+  mood?: Mood
   x: number
   y: number
   /** 六维属性（需求 4）。 */
@@ -640,6 +683,14 @@ export interface AgentAction {
   mutations?: Array<{ objectId: string; key: string; value: StateValue }>
   /** 移动失败时的备用停留理由，避免空步。 */
   note?: string
+  /**
+   * 这一步的心情变化：-2..+2（越界会被夹到该范围）。
+   * 只给增量而不给绝对值，是为了让"环境 + 骰运"始终有权重——模型不能凭一句话
+   * 把心情从崩溃直接改到兴奋。
+   */
+  moodDelta?: number
+  /** 心情的词（不给就按指数自动取词）。 */
+  moodLabel?: string
 }
 
 // ── 路由契约 ─────────────────────────────────────────────────────────────
@@ -675,10 +726,19 @@ export interface SandboxSaveBody {
 // ── 工具函数 ─────────────────────────────────────────────────────────────
 
 /** 生成短 id（无需加密强度，只要在同一沙盒内不撞）。 */
+/** 随机令牌：base36、定长。id 用它的**随机**部分，不用时间戳。 */
+export function randomToken(length = 8): string {
+  let out = ''
+  while (out.length < length) out += Math.random().toString(36).slice(2)
+  return out.slice(0, length)
+}
+
 export function shortId(prefix: string): string {
-  const base = Date.now().toString(36)
-  const rand = Math.random().toString(36).slice(2, 7)
-  return `${prefix}-${base}${rand}`
+  // 时间戳只作前缀，便于肉眼排序；**唯一性完全靠随机部分**。
+  // 这条曾经踩过：调用方写 `shortId('a').slice(2, 8)` 想取 6 位，实际取到的是
+  // 时间戳的前 6 位（`a-muo9w5ok...` 的 `muo9w5`）——随机部分全被切掉，
+  // 于是同一毫秒内生成的 id 完全相同（连重试 32 次都是同一个）。
+  return `${prefix}-${Date.now().toString(36)}${randomToken(8)}`
 }
 
 /** 把任意输入读成一个状态值（拒绝对象/函数，避免脏数据进 JSON）。 */

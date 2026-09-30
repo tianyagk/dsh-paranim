@@ -620,6 +620,14 @@ export function coerceAction(raw: unknown): AgentAction {
     difficultyId: typeof obj.difficultyId === 'string' ? obj.difficultyId : typeof obj.difficulty === 'string' ? obj.difficulty : undefined,
     mutations: mutations.length === 0 ? undefined : mutations,
     note: typeof obj.note === 'string' ? obj.note : undefined,
+    // 心情增量只收 -2..+2：模型给的越界值夹紧而不是丢弃（丢一步的心情变化
+    // 会让状态看起来"卡住"，夹紧至少符合它的意图方向）。
+    moodDelta: (() => {
+      const n = Number(obj.moodDelta ?? obj.mood ?? NaN)
+      if (!Number.isFinite(n)) return undefined
+      return Math.max(-2, Math.min(2, Math.round(n)))
+    })(),
+    moodLabel: typeof obj.moodLabel === 'string' && obj.moodLabel.trim() !== '' ? obj.moodLabel.trim().slice(0, 8) : undefined,
   }
 }
 

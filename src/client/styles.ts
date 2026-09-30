@@ -344,6 +344,26 @@ const CSS = `
 
 .pa-evhead .pa-evtime { color: var(--pa-feedMeta); font-size: 10.5px; margin-left: auto; }
 
+/* 当前想法：列表里一行、编辑器里一块。用引号式左边条与前文区分。 */
+.pa-thought {
+  margin-top: 3px;
+  padding-left: 7px;
+  border-left: 2px solid var(--pa-border);
+  color: var(--pa-textDim);
+  font-size: 11.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pa-thoughtblock {
+  display: grid; grid-template-columns: 62px 1fr; gap: 4px 8px;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--pa-border);
+  border-radius: 7px;
+  background: var(--pa-layer);
+  font-size: 12px;
+}
+.pa-thoughtblock .pa-dim { font-size: 11.5px; }
+
 /* ── 底栏 ─────────────────────────────────────────────────────────── */
 .pa-foot {
   flex: 0 0 auto;

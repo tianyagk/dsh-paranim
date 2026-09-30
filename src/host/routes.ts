@@ -13,8 +13,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import {
   clampStepConfig,
   isAttrId,
+  MOOD_DEFAULT,
   normalizeAttrs,
+  normalizeMood,
   resolveCheck,
+  randomToken,
   shortId,
   toStateValue,
   type Sandbox,
@@ -652,9 +655,25 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
 
             if (op === 'add') {
               const raw = (body.agent ?? {}) as Record<string, unknown>
-              const template = normalizeAgentFromBody(raw, view.sandbox)
-              if (view.run.agents.some((a) => a.id === template.id)) {
-                throw new HttpError(`智能体 id ${template.id} 已存在`, 409)
+              // 自动生成的 id 必须**自己避让**，而不是撞上就报 409：
+              // 调用方没有指定 id（界面的新增按钮就是这样），用一个随机短 id 撞上已有
+              // 角色时报错，等于"点新增偶尔会失败、只闪一下底栏错误"。
+              // 调用方**显式**指定了 id 才该报冲突——那时冲突是它自己的意图问题。
+              const explicitId = typeof raw.id === 'string' && raw.id.trim() !== ''
+              let template = normalizeAgentFromBody(raw, view.sandbox)
+              if (explicitId) {
+                if (view.run.agents.some((a) => a.id === template.id)) {
+                  throw new HttpError(`智能体 id ${template.id} 已存在`, 409)
+                }
+              } else {
+                let guard = 0
+                while (view.run.agents.some((a) => a.id === template.id) && guard < 32) {
+                  template = normalizeAgentFromBody({ ...raw, id: undefined }, view.sandbox)
+                  guard += 1
+                }
+                if (view.run.agents.some((a) => a.id === template.id)) {
+                  throw new HttpError('无法为该智能体生成唯一 id（连续 32 次碰撞，请显式指定 id）', 500)
+                }
               }
               if (view.run.agents.length >= 64) throw new HttpError('一局最多 64 个智能体', 400)
               const agent = {
@@ -693,6 +712,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
             if (patch.attrs !== null && typeof patch.attrs === 'object') {
               agent.attrs = normalizeAttrs({ ...agent.attrs, ...(patch.attrs as Record<string, number>) })
             }
+            if (patch.mood !== undefined && patch.mood !== null) agent.mood = normalizeMood(patch.mood)
             if (patch.model !== undefined) {
               if (patch.model === null) agent.model = null
               else {
@@ -834,11 +854,15 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
 /** 从请求体里收一个智能体模板（新增用），补齐属性与坐标。 */
 function normalizeAgentFromBody(raw: Record<string, unknown>, sandbox: Sandbox): SandboxAgent {
   const name = typeof raw.name === 'string' && raw.name.trim() !== '' ? raw.name.trim() : '无名居民'
-  const id = typeof raw.id === 'string' && /^[a-zA-Z0-9._-]{1,40}$/.test(raw.id) ? raw.id : `agent-${shortId('a').slice(2, 8)}`
+  const id = typeof raw.id === 'string' && /^[a-zA-Z0-9._-]{1,40}$/.test(raw.id) ? raw.id : `agent-${randomToken(6)}`
   const attrs = normalizeAttrs(raw.attrs as Record<string, number> | undefined)
-  const modelRaw = raw.model as Record<string, unknown> | undefined
-  const provider = modelRaw === undefined ? '' : String(modelRaw.provider ?? '')
-  const model = modelRaw === undefined ? '' : String(modelRaw.model ?? '')
+  // `model: null` 是**合法输入**，含义是"跟随宿主默认模型"（客户端的新增按钮就是这么发的）。
+  // 这里原先只判了 undefined，null 会走到 modelRaw.provider 上抛 TypeError —— 接口 500，
+  // 而界面上表现为"按钮没反应"（错误只闪在底栏）。null 与 undefined 在这里语义相同。
+  const modelRaw = raw.model
+  const modelObj = modelRaw !== null && typeof modelRaw === 'object' ? (modelRaw as Record<string, unknown>) : undefined
+  const provider = modelObj === undefined ? '' : String(modelObj.provider ?? '')
+  const model = modelObj === undefined ? '' : String(modelObj.model ?? '')
   return {
     id,
     name,
@@ -847,10 +871,11 @@ function normalizeAgentFromBody(raw: Record<string, unknown>, sandbox: Sandbox):
     persona: typeof raw.persona === 'string' ? raw.persona : '',
     backstory: typeof raw.backstory === 'string' ? raw.backstory : '',
     goal: typeof raw.goal === 'string' ? raw.goal : '',
+    mood: normalizeMood((raw as { mood?: unknown }).mood ?? MOOD_DEFAULT),
     x: Number.isFinite(Number(raw.x)) ? Math.max(0, Math.min(sandbox.map.width, Math.round(Number(raw.x)))) : Math.round(sandbox.map.width / 2),
     y: Number.isFinite(Number(raw.y)) ? Math.max(0, Math.min(sandbox.map.height, Math.round(Number(raw.y)))) : Math.round(sandbox.map.height / 2),
     attrs,
-    model: provider === '' || model === '' ? null : { provider, model, reasoningEffort: typeof modelRaw?.reasoningEffort === 'string' ? modelRaw.reasoningEffort : undefined },
+    model: provider === '' || model === '' ? null : { provider, model, reasoningEffort: typeof modelObj?.reasoningEffort === 'string' ? modelObj.reasoningEffort : undefined },
     plan: Array.isArray(raw.plan) ? raw.plan.filter((v): v is string => typeof v === 'string').slice(0, 24) : [],
     inventory: Array.isArray(raw.inventory) ? raw.inventory.filter((v): v is string => typeof v === 'string').slice(0, 24) : [],
     color: typeof raw.color === 'string' ? raw.color : '#7aa2f7',

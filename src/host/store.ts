@@ -23,7 +23,9 @@ import {
   DEFAULT_STEP_CONFIG,
   clampAttr,
   clampStepConfig,
+  MOOD_DEFAULT,
   normalizeAttrs,
+  normalizeMood,
   shortId,
   type Attrs,
   type Directive,
@@ -170,6 +172,8 @@ function normalizeAgentTemplate(input: unknown, mapW: number, mapH: number, inde
     persona: str(a.persona),
     backstory: str(a.backstory),
     goal: str(a.goal),
+    // 心情缺省用 MOOD_DEFAULT：新角色不该是"没有心情"，否则界面上会空一块
+    mood: normalizeMood(a.mood ?? MOOD_DEFAULT),
     x: Math.max(0, Math.min(mapW, Math.round(num(a.x, mapW / 2)))),
     y: Math.max(0, Math.min(mapH, Math.round(num(a.y, mapH / 2)))),
     attrs,

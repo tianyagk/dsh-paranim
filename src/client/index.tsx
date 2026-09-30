@@ -23,7 +23,9 @@ import {
   HUMAN_MIN,
   OBJECT_KIND_LABEL,
   STEP_INTERVAL_MAX,
+  MOOD_MAX,
   STEP_INTERVAL_MIN,
+  moodLabel,
   normalizeAttrs,
   type AttrId,
   type ModelChoice,
@@ -108,6 +110,29 @@ export function apply(ctx: {
 }
 
 type PageKey = 'world' | 'agents' | 'sandbox' | 'events'
+
+/**
+ * 当前想法：取最近一条"心里想的"记忆。
+ * 与引擎同口径，且**派生而不新增字段**——thought 每步都写进 memory，再存一份
+ * 就等于同一件事有两个真相来源，迟早对不上。
+ */
+function currentThought(agent: RunAgent): string | undefined {
+  for (let i = agent.memory.length - 1; i >= 0; i -= 1) {
+    const entry = agent.memory[i]
+    if (entry.kind === 'thought' && entry.text.trim() !== '') return entry.text
+  }
+  return undefined
+}
+
+/** 心情徽标：0–10，低于 4 偏红、7 以上偏绿。 */
+function MoodChip(props: { mood?: { value: number; label: string } }): React.ReactElement | null {
+  if (props.mood === undefined) return null
+  const { value, label } = props.mood
+  const tone = value >= 7 ? 'ok' : value < 4 ? 'danger' : undefined
+  return React.createElement('span', { className: 'pa-chip', 'data-tone': tone, title: `心情指数 ${value}/10` }, `${label} ${value}/10`)
+}
+
+
 
 // ── 应用外壳 ──────────────────────────────────────────────────────────────
 
@@ -629,8 +654,12 @@ function AgentsPage(props: AgentsPageProps): React.ReactElement {
               { className: 'pa-main' },
               React.createElement('b', null, a.name),
               React.createElement('span', { className: 'pa-chip' }, a.concept),
+              React.createElement(MoodChip, { mood: a.mood }),
               a.origin === 'user' ? React.createElement('span', { className: 'pa-chip', 'data-tone': 'ok' }, '你加的') : null,
               React.createElement('div', { className: 'pa-dim' }, `@${a.x},${a.y}｜${a.model?.model ?? '默认模型'}`),
+              currentThought(a) === undefined
+                ? null
+                : React.createElement('div', { className: 'pa-thought', title: currentThought(a) }, `💭 ${currentThought(a)}`),
             ),
           ),
         ),
@@ -652,6 +681,22 @@ function AgentsPage(props: AgentsPageProps): React.ReactElement {
   )
 }
 
+interface AgentDraft {
+  name: string
+  concept: string
+  appearance: string
+  persona: string
+  backstory: string
+  goal: string
+  attrs: { str: number; con: number; dex: number; app: number; int: number; pow: number }
+  model: string
+  plan: string
+  inventory: string
+  mood: { value: number; label: string }
+  /** 用户是否手改过心情的词（决定指数变化时要不要跟着自动换词）。 */
+  moodManual: boolean
+}
+
 function AgentEditor(props: {
   world: WorldView
   agent: RunAgent
@@ -663,7 +708,9 @@ function AgentEditor(props: {
   flash: (text: string) => void
 }): React.ReactElement {
   const { world, agent, models, modelsNote, api, run, applyWorld, flash } = props
-  const [draft, setDraft] = useState(() => ({
+  // 草稿的重置逻辑只写一处：useState 初值与"撤销改动"按钮共用它。
+  // 此前是两份内联对象字面量，加一个字段就得记得改两处（本次加 mood 时就漏了一处）。
+  const draftReset = (): AgentDraft => ({
     name: agent.name,
     concept: agent.concept,
     appearance: agent.appearance,
@@ -674,19 +721,11 @@ function AgentEditor(props: {
     model: agent.model === undefined || agent.model === null ? '' : `${agent.model.provider}/${agent.model.model}`,
     plan: agent.plan.join('\n'),
     inventory: agent.inventory.join('、'),
-  }))
-  const dirty = JSON.stringify(draft) !== JSON.stringify({
-    name: agent.name,
-    concept: agent.concept,
-    appearance: agent.appearance,
-    persona: agent.persona,
-    backstory: agent.backstory,
-    goal: agent.goal,
-    attrs: agent.attrs,
-    model: agent.model === undefined || agent.model === null ? '' : `${agent.model.provider}/${agent.model.model}`,
-    plan: agent.plan.join('\n'),
-    inventory: agent.inventory.join('、'),
+    mood: { ...(agent.mood ?? { value: 6, label: '平静' }) },
+    moodManual: false,
   })
+  const [draft, setDraft] = useState<AgentDraft>(draftReset)
+  const dirty = JSON.stringify(draft) !== JSON.stringify(draftReset())
 
   const save = (): void => {
     void run('保存智能体', async () => {
@@ -701,6 +740,7 @@ function AgentEditor(props: {
           backstory: draft.backstory,
           goal: draft.goal,
           attrs: draft.attrs,
+          mood: draft.mood,
           plan: draft.plan.split('\n').map((s) => s.trim()).filter((s) => s !== ''),
           inventory: draft.inventory.split(/[、,]/).map((s) => s.trim()).filter((s) => s !== ''),
           model: draft.model === '' ? null : (() => {
@@ -730,7 +770,18 @@ function AgentEditor(props: {
     'div',
     { className: 'pa-sec pa-scroll', style: { flex: 1, minHeight: 0 } },
     React.createElement('h4', null, `${agent.portrait} ${agent.name}`, React.createElement('span', { className: 'pa-chip' }, agent.concept), React.createElement('span', { className: 'pa-chip' }, agent.origin === 'user' ? '你加的' : '沙盒自带')),
-    React.createElement('div', { className: 'pa-dim' }, `@${agent.x},${agent.y}${at === undefined ? '' : `（${at.name}附近）`}｜已走 ${agent.stepsTaken} 步｜入场于第 ${agent.spawnTick} 步`),
+    React.createElement(
+      'div',
+      { className: 'pa-line', style: { marginTop: 4 } },
+      React.createElement(MoodChip, { mood: agent.mood }),
+      React.createElement('span', { className: 'pa-dim' }, `@${agent.x},${agent.y}${at === undefined ? '' : `（${at.name}附近）`}｜已走 ${agent.stepsTaken} 步｜入场于第 ${agent.spawnTick} 步`),
+    ),
+    React.createElement(
+      'div',
+      { className: 'pa-thoughtblock' },
+      React.createElement('span', { className: 'pa-dim' }, '当前想法'),
+      React.createElement('div', null, currentThought(agent) ?? '（还没有想法——先推进一步）'),
+    ),
 
     // 六维（需求 4）
     React.createElement('h4', { style: { marginTop: 8 } }, '六维属性', React.createElement('span', { className: 'pa-dim' }, `（常人 ${HUMAN_MIN}-${HUMAN_MAX}）`)),
@@ -806,6 +857,33 @@ function AgentEditor(props: {
       '驱动它做事的动机。',
     ),
 
+    // 心情：指数可手改，词可留空按指数自动取
+    React.createElement('h4', { style: { marginTop: 10 } }, '心情'),
+    React.createElement(
+      'div',
+      { className: 'pa-form' },
+      React.createElement('label', null, '指数'),
+      React.createElement(
+        'div',
+        { className: 'pa-line' },
+        React.createElement('input', {
+          type: 'range',
+          min: 0,
+          max: 10,
+          step: 1,
+          value: draft.mood.value,
+          style: { flex: 1, accentColor: 'var(--pa-gold)' },
+          onChange: (event: React.ChangeEvent<HTMLInputElement>) =>
+            setDraft((prev) => {
+              const value = Number(event.target.value)
+              return { ...prev, mood: { value, label: prev.moodManual ? prev.mood.label : moodLabel(value) } }
+            }),
+        }),
+        React.createElement('span', { className: 'pa-mono' }, `${draft.mood.value}/10`),
+      ),
+      field('这个词', draft.mood.label, (v) => setDraft((p) => ({ ...p, mood: { ...p.mood, label: v }, moodManual: true }))),
+    ),
+
     // 日程与随身
     React.createElement('h4', { style: { marginTop: 10 } }, '日程与随身'),
     React.createElement(
@@ -820,11 +898,7 @@ function AgentEditor(props: {
       'div',
       { className: 'pa-line', style: { marginTop: 8 } },
       React.createElement('button', { className: 'pa-btn', 'data-primary': 'true', disabled: !dirty, onClick: save }, dirty ? '保存设定' : '已保存'),
-      React.createElement(
-        'button',
-        { className: 'pa-btn', onClick: () => setDraft({ name: agent.name, concept: agent.concept, appearance: agent.appearance, persona: agent.persona, backstory: agent.backstory, goal: agent.goal, attrs: { ...agent.attrs }, model: agent.model === null || agent.model === undefined ? '' : `${agent.model.provider}/${agent.model.model}`, plan: agent.plan.join('\n'), inventory: agent.inventory.join('、') }) },
-        '撤销改动',
-      ),
+      React.createElement('button', { className: 'pa-btn', onClick: () => setDraft(draftReset()) }, '撤销改动'),
       React.createElement('span', { className: 'pa-spacer' }),
       React.createElement(
         'button',
