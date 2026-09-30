@@ -26,7 +26,7 @@ import {
 } from '../shared/model.ts'
 import { findObject } from '../shared/rules.ts'
 import { isTrustedApiRequest } from './fence.ts'
-import type { PluginLlm, PluginWebRoute } from './context.ts'
+import { messageOf, type LlmMessage, type PluginLlm, type PluginWebRoute } from './context.ts'
 import { log } from './context.ts'
 import { issueDirective, listModelChoices, runTick, type AgentCall, type TickResult } from './engine.ts'
 import { RunStore, SandboxStore, StepStore, normalizeObject, normalizeSandbox } from './store.ts'
@@ -286,7 +286,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
       system?: string
       user?: string
       /** 覆盖 messages（探针用来对比"system 单独给"与"折进 messages"两种形状）。 */
-      messages?: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+      messages?: LlmMessage[]
       /** 完全不传 temperature（探针用：某些兼容层对 temperature 敏感）。 */
       noTemperature?: boolean
     },
@@ -301,7 +301,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
       model: options?.model ?? call.route.model,
       reasoningEffort: options?.dropReasoningEffort === true ? undefined : call.route.reasoningEffort,
       system: options?.system ?? call.system,
-      messages: options?.messages ?? [{ role: 'user', content: options?.user ?? call.user }],
+      messages: options?.messages ?? [messageOf('user', options?.user ?? call.user)],
       // 「不传」而不是「传 0」：省缺与显式 0 在适配器里是两条路。
       temperature: options?.noTemperature === true ? undefined : (options?.temperature ?? 0.9),
       maxTokens: options?.maxTokens ?? 1200,
@@ -348,10 +348,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
     lines.push('【B】system 折进 messages[0]（role=system），messages 走 user（agent-loop 的形状）')
     lines.push(
       await oneProbe(llm, call, controller.signal, {
-        messages: [
-          { role: 'system', content: call.system },
-          { role: 'user', content: call.user },
-        ],
+        messages: [messageOf('system', call.system), messageOf('user', call.user)],
       }),
     )
     lines.push('')
@@ -359,7 +356,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
     lines.push(
       await oneProbe(llm, call, controller.signal, {
         dropReasoningEffort: true,
-        messages: [{ role: 'user', content: '只回答两个字：收到' }],
+        messages: [messageOf('user', '只回答两个字：收到')],
         noTemperature: true,
       }),
     )
@@ -372,7 +369,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
     call: AgentCall,
     signal: AbortSignal,
     variant?: {
-      messages?: AgentCall['route'] extends never ? never : Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+      messages?: LlmMessage[]
       dropReasoningEffort?: boolean
       noTemperature?: boolean
     },

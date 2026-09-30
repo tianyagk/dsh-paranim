@@ -37,7 +37,7 @@ import {
   resolveAction,
   type Rng,
 } from '../shared/rules.ts'
-import type { LlmGenerateOptions, PluginLlm } from './context.ts'
+import type { PluginLlm } from './context.ts'
 import { log } from './context.ts'
 
 const MEMORY_KEEP = 24
@@ -434,34 +434,6 @@ export function issueDirective(run: RunState, agentId: string, text: string): Di
 }
 
 // ── 模型调用器 ───────────────────────────────────────────────────────────
-
-/**
- * 用宿主 llm 服务打开一次流式调用，把文本拼起来。
- * `reasoning-delta` 被丢掉（那是模型的内心独白，不属于这个世界），只收 text。
- */
-export function makeModelCaller(llm: PluginLlm, defaults: () => AgentModelRoute | undefined) {
-  return async (agent: RunAgent, call: AgentCall, signal: AbortSignal): Promise<string> => {
-    const route = call.route ?? defaults()
-    if (route === undefined) throw new Error('没有可用的模型路由')
-    const options: LlmGenerateOptions = {
-      provider: route.provider,
-      model: route.model,
-      reasoningEffort: route.reasoningEffort,
-      system: call.system,
-      messages: [{ role: 'user', content: call.user }],
-      temperature: 0.9,
-      maxTokens: 1200,
-      signal,
-    }
-    let text = ''
-    for await (const chunk of llm.stream(options)) {
-      if (chunk.type === 'text-delta') text += chunk.text
-      else if (chunk.type === 'finish') break
-    }
-    if (text.trim() === '') throw new Error(`模型 ${route.provider}/${route.model} 返回空文本`)
-    return text
-  }
-}
 
 /** 列举可用模型（provider × model），供界面选「驱动模型」。 */
 export async function listModelChoices(

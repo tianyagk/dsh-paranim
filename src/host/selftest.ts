@@ -49,6 +49,12 @@ interface FakeLlm extends PluginLlm {
   mode: 'move' | 'talk' | 'broken-json' | 'throw' | 'mutate'
 }
 
+/** 从一条消息的内容块里取出文本（与适配器的 flattenText 同口径）。 */
+function textOf(message: { content: Array<{ type: string; text?: string }> } | undefined): string {
+  if (message === undefined) return ''
+  return message.content.filter((block) => block.type === 'text').map((block) => block.text ?? '').join('')
+}
+
 function makeFakeLlm(): FakeLlm {
   const fake: FakeLlm = {
     calls: [],
@@ -67,7 +73,22 @@ function makeFakeLlm(): FakeLlm {
       ]
     },
     stream(options) {
-      fake.calls.push({ agent: '', system: options.system ?? '', user: options.messages[0]?.content ?? '' })
+      // 形状断言：content 必须是内容块数组。此前它是裸字符串，适配器按
+      // `content.filter(block => block.type === 'text')` 抽文本，抽到空串后
+      // 请求照发、上游几十毫秒回空——现场只留下一句"返回空文本"。
+      // 这条断言让同类错误在离线自检里就炸掉，而不是等到真机上降级。
+      const first = options.messages[0]
+      if (first !== undefined) {
+        if (!Array.isArray(first.content)) {
+          throw new Error('messages[].content 必须是内容块数组（裸字符串会被适配器压成空文本）')
+        }
+        for (const block of first.content) {
+          if (block === null || typeof block !== 'object' || block.type !== 'text' || typeof block.text !== 'string') {
+            throw new Error('messages[].content 的每个块都必须是 { type: "text", text }')
+          }
+        }
+      }
+      fake.calls.push({ agent: '', system: options.system ?? '', user: textOf(first) })
       const mode = fake.mode
       async function* gen() {
         if (mode === 'throw') throw new Error('模型连接失败（自检注入）')
@@ -77,7 +98,7 @@ function makeFakeLlm(): FakeLlm {
           return
         }
         // 从观察里读出自己是哪个智能体与可选目的地，给出一个**真实可执行**的动作
-        const user = options.messages[0]?.content ?? ''
+        const user = textOf(options.messages[0])
         const selfMatch = user.match(/id=([a-zA-Z0-9._-]+)/)
         const who = selfMatch === null ? 'unknown' : selfMatch[1]
         const places = [...user.matchAll(/- ([^（]+)（id=([a-zA-Z0-9._-]+)，place/g)].map((m) => ({ name: m[1].trim(), id: m[2] }))

@@ -43,9 +43,29 @@ export interface LlmModelInfo {
   inputModalities?: readonly string[]
 }
 
+/** 一条文本内容块——`GenerateOptions.messages` 里 content 的元素形状。 */
+export interface LlmTextBlock {
+  type: 'text'
+  text: string
+}
+
+/**
+ * 一条会话消息。
+ *
+ * **content 必须是内容块数组，不能是裸字符串**：适配器用
+ * `message.content.filter(block => block.type === 'text')` 抽文本，裸字符串上的
+ * `.filter` 取不到任何 block，文本被静默压成空串 —— 请求照发，上游收到一条
+ * 空 user 消息，几十毫秒就回一个空结果。这个错误在类型上本该被拦住，但
+ * 结构化接口很容易被"看着像"的对象蒙过去，所以自检里也钉了一条形状断言。
+ */
 export interface LlmMessage {
   role: 'system' | 'user' | 'assistant'
-  content: string
+  content: LlmTextBlock[]
+}
+
+/** 把一段文本包成合法的消息。 */
+export function messageOf(role: 'system' | 'user' | 'assistant', text: string): LlmMessage {
+  return { role, content: [{ type: 'text', text }] }
 }
 
 export type LlmStreamChunk =
