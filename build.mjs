@@ -122,15 +122,18 @@ const REQUIRED_CLIENT_SNIPPETS = [
  * 地图会静默变成一片空白——那种失败在类型检查里完全看不见，只能对着产物查。
  */
 const REQUIRED_SPRITE_MARKERS = [
-  'PIXEL_PALETTE',
-  'GROUND_SPRITES',
-  'ROAD_SPRITES',
-  'BUILDING_SPRITES',
-  'WALKER_FRAMES',
-  'PROP_SPRITES',
-  'recolorWalker',
-  'mapPixelSize',
-  'TILE_PX',
+  // 图集快照（base64 内嵌）与取图接口：被 tree-shaking 摘掉会静默变成空白地图
+  'SHEETS',
+  'data:image/png;base64,',
+  'loadSheets',
+  'drawTile',
+  'drawGroundTile',
+  // 语义槽位表：地面/建筑/物件/符号/角色
+  'GROUND',
+  'BUILDING',
+  'PROPS',
+  'SYMBOLS',
+  'CHARACTER',
 ]
 
 const clientBundle = readFileSync('lib/client.js', 'utf8')

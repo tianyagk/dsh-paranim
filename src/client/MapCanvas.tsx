@@ -19,6 +19,7 @@ import {
   type WorldObject,
 } from '../shared/model.ts'
 import { TILE_PX, mapPixelSize, renderTown, type View } from './town.ts'
+import { allSheetsReady, loadSheets } from './tiles.ts'
 
 export interface MapCanvasProps {
   sandbox: Sandbox
@@ -82,6 +83,20 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     return map
   }, [events])
 
+  // 图集解码：异步，只在挂载时做一次。未就绪时先不画，避免闪一帧空地图。
+  const [sheetsReady, setSheetsReady] = useState(() => allSheetsReady())
+  useEffect(() => {
+    if (sheetsReady) return
+    let alive = true
+    void loadSheets().then((result) => {
+      if (alive) setSheetsReady(result.ok || allSheetsReady())
+    })
+    return () => {
+      alive = false
+    }
+  }, [sheetsReady])
+
+  // 地块底图：只在地标布局真的变了时才重建
   // 视图：把整张地图的**像素尺寸**塞进容器，再乘用户缩放。
   // 1 倍时整镇可见；放大看细节时精灵按最近邻放大，不会糊。
   const view = useMemo<View>(() => {
@@ -112,6 +127,15 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     const ctx = canvas.getContext('2d')
     if (ctx === null) return
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    if (!sheetsReady) {
+      ctx.fillStyle = '#12161d'
+      ctx.fillRect(0, 0, size.w, size.h)
+      ctx.fillStyle = '#78849a'
+      ctx.font = '12px system-ui, "PingFang SC", sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('正在解码像素素材…', size.w / 2, size.h / 2)
+      return
+    }
     renderTown(ctx, {
       sandbox,
       view,
@@ -137,7 +161,7 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
         ctx.fillText(label, x, y)
       }
     }
-  }, [sandbox, view, size, agents, selectedId, hover, bubbles, tick])
+  }, [sandbox, view, size, agents, selectedId, hover, bubbles, tick, sheetsReady])
 
   // ── 命中判定 ──────────────────────────────────────────────────────────
   const hitTest = useCallback(
