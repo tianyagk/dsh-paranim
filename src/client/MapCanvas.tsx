@@ -1,20 +1,29 @@
 /**
- * 小镇地图画布 + 右键菜单（需求 5）。
+ * 小镇画布 + 右键菜单（需求 5）。
  *
- * 画布不做正交投影变换，只用"等比缩放 + 居中平移"：沙盒坐标是 1:1 的逻辑格，
- * 保存的坐标与看到的像素一一对应，才不会出现"我明明点了那盏灯，却改了旁边那棵
- * 树"这种事。缩放只影响观看，不影响命中判定。
- *
- * 右键菜单是需求 5 的落点：**右键街边的路灯 → 把状态改成「故障」**。菜单里每个
- * 状态槽都按它当前的类型给控件（布尔给开关、字符串给输入 + 常见取值、数字给数字
- * 框），而不是把所有东西都塞进一个文本框——那样改 `lit` 要手打 true，很容易写错。
+ * 渲染交给 `town.ts`（材质化地块 / 建筑 / 道路 / 角色），这里只负责三件事：
+ *  1. 视图——等比缩放 + 居中平移。沙盒坐标是 1:1 的逻辑格，不引入投影变换，
+ *     否则会出现"点了这盏灯、改到那棵树"。
+ *  2. 命中——右键找最近的物件、左键找最近的智能体。
+ *  3. 尺寸——画布由 CSS 绝对定位铺满容器，本组件**不写任何影响父容器尺寸的
+ *     属性**（那正是此前"向下无限下坠"的回路），ResizeObserver 回调也只在尺寸
+ *     真的变化时才更新 state。
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { OBJECT_KIND_LABEL, type Sandbox, type StateValue, type WorldObject } from '../shared/model.ts'
+import {
+  OBJECT_KIND_LABEL,
+  type Sandbox,
+  type SandboxAgent,
+  type StateValue,
+  type WorldEvent,
+  type WorldObject,
+} from '../shared/model.ts'
+import { buildTileField, renderTown, type TileField, type View } from './town.ts'
 
 export interface MapCanvasProps {
   sandbox: Sandbox
-  agents: Array<{ id: string; name: string; x: number; y: number; color: string; portrait: string; concept: string }>
+  agents: SandboxAgent[]
+  events: WorldEvent[]
   selectedId?: string
   onSelectAgent: (id: string) => void
   /** 提交一次物体改动（宿主会落盘并回写事件流）。 */
@@ -31,14 +40,10 @@ interface Hit {
 
 /** 状态槽的常见取值：给下拉而不是让用户手打。 */
 const STATUS_PRESETS = ['正常', '故障', '损坏', '维修中', '锁住', '被人动过']
-const BOOL_KEYS = ['open', 'lit', 'running', 'full', 'locked', 'on']
-
-function sameSize(a: WorldObject): { w: number; h: number } {
-  return { w: a.w ?? 1, h: a.h ?? 1 }
-}
+const BOOL_KEYS = ['open', 'lit', 'running', 'full', 'locked', 'on', 'spinning', 'flowing', 'occupied', 'tuned']
 
 export function MapCanvas(props: MapCanvasProps): React.ReactElement {
-  const { sandbox, agents, selectedId, onSelectAgent, onPatchObject, onRemoveObject } = props
+  const { sandbox, agents, events, selectedId, onSelectAgent, onPatchObject, onRemoveObject } = props
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [size, setSize] = useState({ w: 480, h: 320 })
@@ -46,14 +51,11 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
   const [hit, setHit] = useState<Hit | null>(null)
   const [hover, setHover] = useState<{ object?: WorldObject; agentId?: string }>({})
 
-  // 画布尺寸跟随容器（ResizeObserver 在真实浏览器里总是有的；老浏览器退化为固定尺寸）。
+  // 容器尺寸。只在真的变了才 setState：ResizeObserver 回调与 React 渲染是两条
+  // 独立回路，无条件 setState 会互相喂养。
   useEffect(() => {
     const wrap = wrapRef.current
     if (wrap === null) return
-    // 只在尺寸真的变了才 setState。ResizeObserver 的回调与 React 渲染是两条
-    // 独立的回路，哪怕画布已经改成绝对定位（不再反过来影响容器），
-    // 无条件的 setState 仍会在每次回调里生成新对象 → 触发重渲染 → 再次回调。
-    // 相等就返回同一个引用，React 会跳过这次更新。
     const update = (): void => {
       const w = Math.max(1, Math.round(wrap.clientWidth))
       const h = Math.max(1, Math.round(wrap.clientHeight))
@@ -66,9 +68,36 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     return () => observer.disconnect()
   }, [])
 
-  const view = useMemo(() => {
+  // 地块底图：只在地标布局真的变了时才重建（140×100 的网格重建不便宜）。
+  const layoutKey = useMemo(
+    () =>
+      sandbox.places
+        .map((p) => `${p.id}:${p.x},${p.y},${p.w ?? 0}x${p.h ?? 0}`)
+        .join('|') + `#${sandbox.map.width}x${sandbox.map.height}`,
+    [sandbox.places, sandbox.map.width, sandbox.map.height],
+  )
+  const tiles = useMemo<TileField>(
+    () => (sandbox.map.tiles === undefined ? buildTileField(sandbox) : { width: sandbox.map.width, height: sandbox.map.height, rows: sandbox.map.tiles }),
+    // layoutKey 是 layout 的指纹，替代 sandbox 对象引用（每次拉取都会是新对象）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [layoutKey],
+  )
+
+  // 气泡：每个角色最近说过的一句话
+  const bubbles = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const event of events) {
+      if (event.kind !== 'say') continue
+      const match = event.text.match(/「(.+?)」/)
+      const who = event.actor
+      if (match !== null && !map.has(who)) map.set(who, match[1])
+    }
+    return map
+  }, [events])
+
+  const view = useMemo<View>(() => {
     const scale = Math.min(size.w / sandbox.map.width, size.h / sandbox.map.height) * zoom
-    const s = scale > 0 ? scale : 1
+    const s = scale > 0 && Number.isFinite(scale) ? scale : 1
     return {
       scale: s,
       offsetX: (size.w - sandbox.map.width * s) / 2,
@@ -76,16 +105,8 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     }
   }, [size, sandbox.map.width, sandbox.map.height, zoom])
 
-  const toPx = useCallback((x: number, y: number) => ({
-    px: view.offsetX + x * view.scale,
-    py: view.offsetY + y * view.scale,
-  }), [view])
-
   const toWorld = useCallback(
-    (px: number, py: number) => ({
-      x: (px - view.offsetX) / view.scale,
-      y: (py - view.offsetY) / view.scale,
-    }),
+    (px: number, py: number) => ({ x: (px - view.offsetX) / view.scale, y: (py - view.offsetY) / view.scale }),
     [view],
   )
 
@@ -99,111 +120,57 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     const ctx = canvas.getContext('2d')
     if (ctx === null) return
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.clearRect(0, 0, size.w, size.h)
+    renderTown(ctx, {
+      sandbox,
+      tiles,
+      view,
+      size,
+      agents,
+      selectedId,
+      hover: { objectId: hover.object?.id, agentId: hover.agentId },
+      bubbles,
+    })
 
-    // 地面
-    ctx.fillStyle = sandbox.map.ground
-    const origin = toPx(0, 0)
-    ctx.fillRect(origin.px, origin.py, sandbox.map.width * view.scale, sandbox.map.height * view.scale)
-
-    // 网格：每 10 格一条细线，帮玩家对坐标（坐标是明文数字，看得见才好手改）
-    if (view.scale > 2.4) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.05)'
-      ctx.lineWidth = 1
-      for (let x = 0; x <= sandbox.map.width; x += 10) {
-        const p = toPx(x, 0)
-        ctx.beginPath()
-        ctx.moveTo(p.px, origin.py)
-        ctx.lineTo(p.px, origin.py + sandbox.map.height * view.scale)
-        ctx.stroke()
-      }
-      for (let y = 0; y <= sandbox.map.height; y += 10) {
-        const p = toPx(0, y)
-        ctx.beginPath()
-        ctx.moveTo(origin.px, p.py)
-        ctx.lineTo(origin.px + sandbox.map.width * view.scale, p.py)
-        ctx.stroke()
-      }
-    }
-
-    // 地标
-    for (const place of sandbox.places) {
-      const box = sameSize(place)
-      const corner = toPx(place.x - box.w / 2, place.y - box.h / 2)
-      ctx.fillStyle = place.color ?? '#3a4152'
-      ctx.globalAlpha = 0.92
-      ctx.fillRect(corner.px, corner.py, box.w * view.scale, box.h * view.scale)
-      ctx.globalAlpha = 1
-      ctx.strokeStyle = 'rgba(255,255,255,0.22)'
-      ctx.strokeRect(corner.px, corner.py, box.w * view.scale, box.h * view.scale)
-      if (view.scale > 2.2) {
-        ctx.fillStyle = 'rgba(255,255,255,0.86)'
-        ctx.font = `${Math.max(9, Math.min(12, view.scale * 2.4))}px system-ui, sans-serif`
-        ctx.textAlign = 'center'
-        ctx.fillText(place.name, corner.px + (box.w * view.scale) / 2, corner.py + (box.h * view.scale) / 2 + 3)
-      }
-    }
-
-    // 物件（圆点 + 状态异常高亮）
-    for (const object of sandbox.objects) {
-      const p = toPx(object.x, object.y)
-      const status = String(object.state.status ?? '正常')
-      const broken = status !== '正常'
-      ctx.beginPath()
-      ctx.arc(p.px, p.py, Math.max(2.5, view.scale * 0.75), 0, Math.PI * 2)
-      ctx.fillStyle = broken ? '#f07178' : object.color ?? '#c8ccd6'
-      ctx.fill()
-      if (hover.object?.id === object.id) {
-        ctx.strokeStyle = '#ffffff'
-        ctx.lineWidth = 1.5
-        ctx.stroke()
-      }
-      if (broken) {
-        ctx.strokeStyle = 'rgba(240,113,120,0.55)'
-        ctx.beginPath()
-        ctx.arc(p.px, p.py, Math.max(5, view.scale * 1.6), 0, Math.PI * 2)
-        ctx.stroke()
-      }
-    }
-
-    // 智能体
-    for (const agent of agents) {
-      const p = toPx(agent.x, agent.y)
-      ctx.beginPath()
-      ctx.arc(p.px, p.py, Math.max(4, view.scale * 1.25), 0, Math.PI * 2)
-      ctx.fillStyle = agent.color
-      ctx.fill()
-      ctx.strokeStyle = agent.id === selectedId ? '#ffffff' : 'rgba(0,0,0,0.5)'
-      ctx.lineWidth = agent.id === selectedId ? 2.5 : 1.25
-      ctx.stroke()
-      ctx.font = `${Math.max(10, Math.min(16, view.scale * 3))}px system-ui, sans-serif`
+    // 地标名下方补一行小字：所属类别，帮玩家认出"这是什么地方"
+    if (view.scale >= 4) {
+      ctx.font = '9px system-ui, "PingFang SC", sans-serif'
       ctx.textAlign = 'center'
-      ctx.fillText(agent.portrait, p.px, p.py - Math.max(6, view.scale * 1.6))
-      if (view.scale > 2.2) {
-        ctx.fillStyle = 'rgba(255,255,255,0.9)'
-        ctx.font = `${Math.max(9, Math.min(11, view.scale * 1.9))}px system-ui, sans-serif`
-        ctx.fillText(agent.name, p.px, p.py + Math.max(10, view.scale * 2.4))
+      ctx.textBaseline = 'top'
+      for (const object of sandbox.objects) {
+        const label = String(object.state.status ?? '')
+        if (label === '' || label === '正常' || view.scale < 5) continue
+        const x = view.offsetX + object.x * view.scale
+        const y = view.offsetY + object.y * view.scale + view.scale * 1.6
+        ctx.fillStyle = 'rgba(240,113,120,0.95)'
+        ctx.fillText(label, x, y)
       }
     }
-  }, [sandbox, agents, view, size, selectedId, hover, toPx])
+  }, [sandbox, tiles, view, size, agents, selectedId, hover, bubbles])
 
   // ── 命中判定 ──────────────────────────────────────────────────────────
   const hitTest = useCallback(
     (px: number, py: number): Hit | null => {
       const world = toWorld(px, py)
-      const radius = Math.max(1.2, 8 / view.scale)
+      const radius = Math.max(1.2, 9 / view.scale)
       let best: Hit | null = null
       let bestDistance = Number.POSITIVE_INFINITY
-      for (const object of [...sandbox.objects, ...sandbox.places]) {
-        const box = sameSize(object)
-        const halfW = object.kind === 'place' ? box.w / 2 : 0.6
-        const halfH = object.kind === 'place' ? box.h / 2 : 0.6
-        const dx = Math.max(0, Math.abs(world.x - object.x) - halfW)
-        const dy = Math.max(0, Math.abs(world.y - object.y) - halfH)
-        const d = Math.hypot(dx, dy)
+      for (const object of sandbox.objects) {
+        const d = Math.hypot(world.x - object.x, world.y - object.y)
         if (d <= radius && d < bestDistance) {
           bestDistance = d
           best = { object, px, py }
+        }
+      }
+      if (best !== null) return best
+      for (const place of sandbox.places) {
+        const halfW = (place.w ?? 4) / 2
+        const halfH = (place.h ?? 4) / 2
+        const dx = Math.max(0, Math.abs(world.x - place.x) - halfW)
+        const dy = Math.max(0, Math.abs(world.y - place.y) - halfH)
+        const d = Math.hypot(dx, dy)
+        if (d <= radius && d < bestDistance) {
+          bestDistance = d
+          best = { object: place, px, py }
         }
       }
       return best
@@ -217,7 +184,7 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
       let best: { id: string; d: number } | undefined
       for (const agent of agents) {
         const d = Math.hypot(agent.x - world.x, agent.y - world.y)
-        if (d <= Math.max(1.5, 9 / view.scale) && (best === undefined || d < best.d)) best = { id: agent.id, d }
+        if (d <= Math.max(1.6, 11 / view.scale) && (best === undefined || d < best.d)) best = { id: agent.id, d }
       }
       return best?.id
     },
@@ -232,14 +199,14 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
   const onContextMenu = (event: React.MouseEvent<HTMLCanvasElement>): void => {
     event.preventDefault()
     const { px, py } = localPoint(event)
-    const found = hitTest(px, py)
-    if (found === null) {
+    const agentId = agentAt(px, py)
+    if (agentId !== undefined) {
+      // 右键点角色：直接切到它的编辑页，比弹菜单快
+      onSelectAgent(agentId)
       setHit(null)
       return
     }
-    // 够不到的物件不该能改：菜单里给一句实测距离，而不是让玩家改完了才发现
-    // 引擎那边把改动吞了（引擎对智能体有 4 格护栏，玩家经手也会照这个口径提示）。
-    setHit(found)
+    setHit(hitTest(px, py))
   }
 
   const onClick = (event: React.MouseEvent<HTMLCanvasElement>): void => {
@@ -251,8 +218,8 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
 
   const onMove = (event: React.MouseEvent<HTMLCanvasElement>): void => {
     const { px, py } = localPoint(event)
-    const object = hitTest(px, py)?.object
-    const agentId = object === undefined ? agentAt(px, py) : undefined
+    const agentId = agentAt(px, py)
+    const object = agentId === undefined ? hitTest(px, py)?.object : undefined
     setHover((prev) => (prev.object?.id === object?.id && prev.agentId === agentId ? prev : { object, agentId }))
   }
 
@@ -260,33 +227,44 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
 
   return React.createElement(
     'div',
-    { className: 'pa-mapwrap', ref: wrapRef, style: { position: 'relative' } },
+    { className: 'pa-mapwrap', ref: wrapRef },
     React.createElement('canvas', {
       ref: canvasRef,
       className: 'pa-map',
-      // width/height 交给 CSS 的 inset:0；内联尺寸会参与布局，正是回路的一环。
       'aria-label': '小镇地图：左键点智能体，右键点地标或物件改状态',
       onClick,
       onMove,
       onMouseLeave: () => setHover({}),
       onContextMenu,
     }),
+    // 内描边 + 暗角：地图边缘收进容器，视觉上"这是一张图"而不是糊满整个框
+    React.createElement('div', { className: 'pa-mapvignette' }),
+    // 视图控制：图标用字符而不是 emoji，避免各系统字体不一致渲染成空白方块
     React.createElement(
       'div',
       { className: 'pa-mapbar' },
-      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', onClick: () => setZoom((z) => Math.max(0.6, z / 1.25)) }, '−'),
+      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', title: '缩小', onClick: () => setZoom((z) => Math.max(0.6, z / 1.25)) }, '−'),
       React.createElement('span', { className: 'pa-dim pa-mono' }, `${zoom.toFixed(2)}×`),
-      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', onClick: () => setZoom((z) => Math.min(4, z * 1.25)) }, '+'),
-      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', onClick: () => setZoom(1) }, '归位'),
+      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', title: '放大', onClick: () => setZoom((z) => Math.min(5, z * 1.25)) }, '+'),
+      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', title: '回到默认缩放', onClick: () => setZoom(1) }, '1:1'),
+      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', title: '铺满可用区域', onClick: () => setZoom(2.6) }, '铺满'),
     ),
     React.createElement(
       'div',
       { className: 'pa-legend' },
       hover.object !== undefined
-        ? `${hover.object.name}（${OBJECT_KIND_LABEL[hover.object.kind] ?? hover.object.kind}）@${hover.object.x},${hover.object.y}｜状态 ${Object.entries(hover.object.state).map(([k, v]) => `${k}=${String(v)}`).join(' ') || '（无）'}`
+        ? React.createElement(
+            'span',
+            null,
+            React.createElement('b', null, hover.object.name),
+            `（${OBJECT_KIND_LABEL[hover.object.kind] ?? hover.object.kind}）@${hover.object.x},${hover.object.y}`,
+            Object.keys(hover.object.state).length === 0
+              ? ''
+              : `　${Object.entries(hover.object.state).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('/') : String(v)}`).join('　')}`,
+          )
         : hoverAgent !== undefined
-          ? `${hoverAgent.name}｜${hoverAgent.concept} @${Math.round(hoverAgent.x)},${hoverAgent.y}`
-          : '左键点智能体查看/下指令 · 右键点地标或物件改状态',
+          ? React.createElement('span', null, React.createElement('b', null, hoverAgent.name), `　${hoverAgent.concept}　@${Math.round(hoverAgent.x)},${Math.round(hoverAgent.y)}`)
+          : React.createElement('span', null, '左键点角色看详情 · 右键点建筑或物件改状态 · 滚轮区外的 ＋/− 缩放'),
     ),
     hit === null
       ? null
@@ -339,17 +317,10 @@ function ObjectMenu(props: ObjectMenuProps): React.ReactElement {
       else if (typeof previous === 'number') {
         const n = Number(value)
         state[key] = Number.isFinite(n) ? n : previous
-      } else if (value.trim() === '' && previous !== null) state[key] = null
+      } else if (value.trim() === '' && previous !== undefined) state[key] = null
       else state[key] = value
     }
-    onPatch({
-      objectId: object.id,
-      state,
-      name,
-      x: Number(x),
-      y: Number(y),
-      by: '玩家',
-    })
+    onPatch({ objectId: object.id, state, name, x: Number(x), y: Number(y), by: '玩家' })
   }
 
   const addKey = (): void => {
@@ -363,15 +334,19 @@ function ObjectMenu(props: ObjectMenuProps): React.ReactElement {
   return React.createElement(
     'div',
     { className: 'pa-menu', style: { left: Math.min(hit.px, 120), top: Math.min(hit.py, 80) } },
-    React.createElement('h4', null, `右键菜单：修改物体状态 — ${object.name}`),
-    React.createElement('div', { className: 'pa-dim' }, `${OBJECT_KIND_LABEL[object.kind] ?? object.kind}｜id=${object.id}｜@${object.x},${object.y}${object.affordances === undefined ? '' : `｜可用：${object.affordances.join(' / ')}`}`),
+    React.createElement('h4', null, `修改物体状态 — ${object.name}`),
+    React.createElement(
+      'div',
+      { className: 'pa-dim' },
+      `${OBJECT_KIND_LABEL[object.kind] ?? object.kind}｜id=${object.id}｜@${object.x},${object.y}${object.affordances === undefined ? '' : `｜可用：${object.affordances.join(' / ')}`}`,
+    ),
     React.createElement('div', { className: 'pa-row' }, React.createElement('span', { className: 'pa-dim' }, '名称'), React.createElement('input', { value: name, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value) })),
     React.createElement(
       'div',
       { className: 'pa-row' },
       React.createElement('span', { className: 'pa-dim' }, '坐标'),
-      React.createElement('input', { value: x, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setX(e.target.value), style: { maxWidth: 60 } }),
-      React.createElement('input', { value: y, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setY(e.target.value), style: { maxWidth: 60 } }),
+      React.createElement('input', { value: x, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setX(e.target.value), style: { maxWidth: 58 } }),
+      React.createElement('input', { value: y, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setY(e.target.value), style: { maxWidth: 58 } }),
     ),
     React.createElement('div', { style: { height: 1, background: 'var(--pa-border)', margin: '6px 0' } }),
     entries.length === 0 ? React.createElement('div', { className: 'pa-dim' }, '这个物体还没有状态槽。') : null,
@@ -386,9 +361,16 @@ function ObjectMenu(props: ObjectMenuProps): React.ReactElement {
         isStatus
           ? React.createElement(
               'select',
-              { value, onChange: (e: React.ChangeEvent<HTMLSelectElement>) => setDraft((prev) => ({ ...prev, [key]: e.target.value })) },
-              ...STATUS_PRESETS.map((preset) => React.createElement('option', { key: preset, value: preset }, preset)),
-              React.createElement('option', { value }, '（当前：' + value + '）'),
+              {
+                value: STATUS_PRESETS.includes(value) ? value : '',
+                onChange: (e: React.ChangeEvent<HTMLSelectElement>) => setDraft((prev) => ({ ...prev, [key]: e.target.value })),
+              },
+              ...[
+                ...STATUS_PRESETS.map((preset) => React.createElement('option', { key: preset, value: preset }, preset)),
+                // 当前值不在预设里时补一条，而不是把 select 的 value 设成一个
+                // 不存在的选项（浏览器会退回第一个，看着像"值被改掉了"）。
+                ...(STATUS_PRESETS.includes(value) ? [] : [React.createElement('option', { key: '__current', value: '' }, `（当前：${value}）`)]),
+              ],
             )
           : isBool
             ? React.createElement(
@@ -404,16 +386,20 @@ function ObjectMenu(props: ObjectMenuProps): React.ReactElement {
         React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', 'data-danger': 'true', onClick: () => setDraft((prev) => { const next = { ...prev }; next[key] = ''; return next }) }, '清'),
       )
     }),
-    React.createElement('div', { className: 'pa-row', style: { marginTop: 6 } },
-      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', onClick: addKey }, '+ 加状态键'),
+    React.createElement(
+      'div',
+      { className: 'pa-row', style: { marginTop: 6 } },
+      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', onClick: addKey }, '＋ 加状态键'),
       React.createElement('span', { className: 'pa-spacer' }),
       React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', onClick: onClose }, '取消'),
       React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', 'data-primary': 'true', onClick: commit }, '保存'),
     ),
-    React.createElement('div', { className: 'pa-row', style: { marginTop: 4 } },
+    React.createElement(
+      'div',
+      { className: 'pa-row', style: { marginTop: 4 } },
       React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', 'data-danger': 'true', onClick: onRemove }, '从沙盒删除这个物体'),
-      React.createElement('span', { className: 'pa-dim' }, '（删除只影响沙盒设定）'),
+      React.createElement('span', { className: 'pa-dim' }, '（只影响沙盒设定）'),
     ),
-    React.createElement('div', { className: 'pa-dim', style: { marginTop: 4 } }, '改动会立刻落盘，并写进事件流（含改动者与时间）。'),
+    React.createElement('div', { className: 'pa-dim', style: { marginTop: 4 } }, '改动立刻落盘，并写进事件流（含改动者与时间）。'),
   )
 }

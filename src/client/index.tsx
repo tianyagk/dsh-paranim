@@ -196,7 +196,6 @@ function ParanimApp(props: TabProps): React.ReactElement {
   const sandbox = world.sandbox
   const agents = world.run.agents
   const agent = agents.find((a) => a.id === selected)
-  const agentView = agents.map((a) => ({ id: a.id, name: a.name, x: a.x, y: a.y, color: a.color, portrait: a.portrait, concept: a.concept }))
 
   return React.createElement(
     'div',
@@ -229,7 +228,8 @@ function ParanimApp(props: TabProps): React.ReactElement {
       { className: 'pa-body' },
       React.createElement(MapCanvas, {
         sandbox,
-        agents: agentView,
+        agents,
+        events: world.run.events,
         selectedId: selected,
         onSelectAgent: (id: string) => {
           setSelected(id)
@@ -734,8 +734,12 @@ function AgentEditor(props: {
     React.createElement('h4', { style: { marginTop: 10 } }, '记忆（最多 24 条 + 来历摘要）'),
     React.createElement('div', { className: 'pa-scroll', style: { maxHeight: 150 } },
       ...agent.memory.slice(-24).map((entry, index) =>
-        React.createElement('div', { className: 'pa-mem', key: `${entry.tick}-${index}` },
-          `[第 ${entry.tick} 步]${entry.kind === 'thought' ? '（心里）' : entry.kind === 'whisper' ? '（指令）' : entry.kind === 'summary' ? '（来历）' : ''} ${entry.text}`),
+        React.createElement('div', { className: 'pa-mem', key: `${entry.tick}-${index}`, 'data-kind': entry.kind },
+          React.createElement('span', { className: 'pa-dim pa-mono' }, `第 ${entry.tick} 步`),
+          ' ',
+          entry.kind === 'thought' ? '（心里）' : entry.kind === 'whisper' ? '（收到的指令）' : entry.kind === 'summary' ? '（来历）' : '',
+          ' ',
+          entry.text),
       ),
     ),
     React.createElement('div', { className: 'pa-dim', style: { marginTop: 6 } },
@@ -962,7 +966,7 @@ function EventRow(props: { event: WorldEvent }): React.ReactElement {
     React.createElement('span', { className: 'pa-tick pa-mono' }, `#${event.tick}`),
     React.createElement(
       'span',
-      { style: { flex: 1 } },
+      { className: 'pa-evbody' },
       React.createElement('span', null, `${kindIcon(event.kind)} ${event.text}`),
       event.roll === undefined
         ? null

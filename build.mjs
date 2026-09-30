@@ -99,7 +99,8 @@ const escapeUpper = (text) =>
 const REQUIRED_CLIENT_SNIPPETS = [
   'dsh-paranim',        // 侧边栏 tab 注册 id
   '他化自在天',          // tab 标题
-  '右键菜单：修改物体状态', // 需求 5 的右键交互入口
+  '修改物体状态',        // 需求 5 的右键交互入口（菜单标题）
+  '加状态键',            // 右键菜单里能新增状态槽
   '手动步进',            // 需求 6 的手动步进
   '自动步进',            // 需求 6 的自动步进
   '时间流速',            // 需求 6 的流速设置
@@ -113,6 +114,8 @@ const REQUIRED_CLIENT_SNIPPETS = [
   '恐惧',                // 需求 3 的 fear
   '隐瞒',                // 需求 3 的 secret
   '驱动模型',            // 需求 3 的每智能体模型选择
+  '1:1',                 // 地图视图控制（铺满/复位）
+  '铺满',
 ]
 
 const clientBundle = readFileSync('lib/client.js', 'utf8')

@@ -474,6 +474,14 @@ export interface SandboxMap {
   ground: string
   /** 底色装饰（网格线等）由客户端按样式绘制，这里只放语义化的色块。 */
   decor?: Array<{ x: number; y: number; w: number; h: number; color: string; label?: string }>
+  /**
+   * 可选的地块底图：每行一个字符串，字符含义 g 草 / r 路 / w 水 / s 沙 / p 石 / z 广场。
+   * 给了就用它，没给由客户端按地标布局推导一张降级图（见 client/town.ts）。
+   *
+   * 放在沙盒里而不是写死在客户端：它是**世界数据**，玩家可以手改——想给小镇
+   * 加一条河或一片沙地，改这一张字符画就行，不需要动代码。
+   */
+  tiles?: string[]
 }
 
 /** 一个可编辑、可保存、可载入的世界沙盒（需求 2）。 */
