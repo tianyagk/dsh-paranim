@@ -152,8 +152,6 @@ export function makeTools(deps: ToolDeps): {
           if (agent.appearance !== '') lines.push(`    外貌：${agent.appearance}`)
           if (agent.persona !== '') lines.push(`    性格：${agent.persona}`)
           if (agent.goal !== '') lines.push(`    想要的：${agent.goal}`)
-          if (agent.fear !== '') lines.push(`    害怕的：${agent.fear}`)
-          if (agent.secret !== '') lines.push(`    瞒着的：${agent.secret}`)
           if (agent.plan.length > 0) lines.push(`    计划：${agent.plan.join(' → ')}`)
           if (agent.inventory.length > 0) lines.push(`    随身：${agent.inventory.join('、')}`)
           const memory = agent.memory.filter((m) => m.kind !== 'summary').slice(-5)
@@ -393,7 +391,7 @@ export function makeTools(deps: ToolDeps): {
   defs.push({
     name: `${PREFIX}agent`,
     description:
-      '在沙盒里新增/修改/移除智能体：外貌、性格、来历、想要什么/怕什么/瞒着什么、六维属性' +
+      '在沙盒里新增/修改/移除智能体：外貌、性格、来历、想要什么、六维属性' +
       '（4-10 是常人区间）、驱动模型、计划、随身物品、坐标。新增的智能体会立刻加入当前推演，' +
       '并写回沙盒模板（下次开局仍在）。' +
       'Triggers: 加一个小镇居民, 改某个智能体的性格, 设置它的属性, 指定它的驱动模型, 让它离场.',
@@ -410,8 +408,6 @@ export function makeTools(deps: ToolDeps): {
         persona: { type: 'string' },
         backstory: { type: 'string' },
         goal: { type: 'string' },
-        fear: { type: 'string' },
-        secret: { type: 'string' },
         x: { type: 'number' },
         y: { type: 'number' },
         str: { type: 'number' },
@@ -476,8 +472,6 @@ export function makeTools(deps: ToolDeps): {
           persona: String(args.persona ?? ''),
           backstory: String(args.backstory ?? ''),
           goal: String(args.goal ?? ''),
-          fear: String(args.fear ?? ''),
-          secret: String(args.secret ?? ''),
           x: typeof args.x === 'number' ? Math.round(args.x) : Math.round(view.sandbox.map.width / 2),
           y: typeof args.y === 'number' ? Math.round(args.y) : Math.round(view.sandbox.map.height / 2),
           attrs: normalizeAttrs(attrs),
@@ -512,7 +506,7 @@ export function makeTools(deps: ToolDeps): {
       const agent = run.agents.find((a) => a.id === agentId)
       if (agent === undefined) throw new Error(`找不到智能体 ${agentId}（用 paranim_world view=agents 查 id）`)
       const changed: string[] = []
-      for (const key of ['name', 'concept', 'appearance', 'persona', 'backstory', 'goal', 'fear', 'secret'] as const) {
+      for (const key of ['name', 'concept', 'appearance', 'persona', 'backstory', 'goal'] as const) {
         if (typeof args[key] === 'string' && args[key] !== '') {
           if ((agent as unknown as Record<string, string>)[key] !== args[key]) {
             changed.push(`${key}：「${String((agent as unknown as Record<string, string>)[key] ?? '')}」→「${String(args[key])}」`)

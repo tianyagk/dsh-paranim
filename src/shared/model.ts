@@ -389,8 +389,6 @@ export interface SandboxAgent {
   persona: string
   backstory: string
   goal: string
-  fear: string
-  secret: string
   x: number
   y: number
   /** 六维属性（需求 4）。 */

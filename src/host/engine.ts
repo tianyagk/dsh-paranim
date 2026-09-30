@@ -147,8 +147,6 @@ export function buildObservation(sandbox: Sandbox, run: RunState, agent: RunAgen
     `外貌：${agent.appearance === '' ? '（未描述）' : agent.appearance}`,
     `性格：${agent.persona === '' ? '（未描述）' : agent.persona}`,
     `你想要的：${agent.goal === '' ? '（未设定）' : agent.goal}`,
-    `你害怕的：${agent.fear === '' ? '（未设定）' : agent.fear}`,
-    `你瞒着的：${agent.secret === '' ? '（没有秘密）' : agent.secret}`,
     `你的六维（1D6 + 属性 ≥ 难度即成功）：${ATTR_EN.str} ${agent.attrs.str}｜${ATTR_EN.con} ${agent.attrs.con}｜${ATTR_EN.dex} ${agent.attrs.dex}｜${ATTR_EN.app} ${agent.attrs.app}｜${ATTR_EN.int} ${agent.attrs.int}｜${ATTR_EN.pow} ${agent.attrs.pow}`,
     '',
     `【你在哪】${place?.name ?? `空旷处 (${agent.x},${agent.y})`}，坐标 (${agent.x},${agent.y})`,

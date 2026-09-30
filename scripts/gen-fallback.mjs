@@ -74,8 +74,6 @@ const agents = (raw.agents ?? []).map((a) => ({
   persona: clip(a.persona, 56),
   backstory: clip(a.backstory, 72),
   goal: clip(a.goal, 40),
-  fear: clip(a.fear, 32),
-  secret: clip(a.secret, 40),
   attrs: attrs(a.attrs),
   plan: (a.plan ?? []).map((step) => clip(step, 36)).slice(0, 4),
   inventory: (a.inventory ?? []).map((item) => clip(item, 16)).slice(0, 4),

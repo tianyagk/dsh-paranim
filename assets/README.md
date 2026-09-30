@@ -78,7 +78,8 @@
 
 1. **全 25 位角色的属性六项 `attrs`（STR/CON/DEX/APP/INT/POW）**。原版是**纯自然语言 prompt 驱动，没有任何数值属性系统**。数值依据是各角色真实的 `innate` 性格词与 `learned` 职业设定（如 Wolfgang 是「化学系学生 + 学生运动员」→ STR 8 / CON 8；Klaus 是社会学研究生 → INT 9）。
 2. **全 25 位角色的中文译名**。原版只有英文名。
-3. **8 位入场角色的 `appearance`（外貌）、`fear`（恐惧）、`secret`（隐瞒之事）**。原版 `scratch.json` **没有**这三个字段——schema 要求提供，故依据各角色的真实 `innate`/`learned`/`currently` 演绎。**注意：`smallville.json` 中这些内容对玩家可见，不含任何需要 GM 保密的信息。**
+3. **8 位入场角色的 `appearance`（外貌）**。原版 `scratch.json` **没有**这个字段——依据各角色真实的 `innate`/`learned`/`currently` 演绎。
+   > **变更记录（v0.2.0）**：早期版本曾带 `fear`（恐惧）与 `secret`（隐瞒之事）两个字段，现已**从 schema、界面与镜像数据中一并移除**。理由是它们属于"小说家写人物"时的内在设定，放进角色卡会让每张卡都背上两个填空，并与 `persona` / `backstory` / `goal` 的语义互相覆盖；有所忌惮或有所隐瞒完全可以写进这三个既有字段，模型同样读得到。清理用 `node scripts/migrate-drop-fields.mjs fear secret`（只删键，其它内容原样保留）。
 4. **`objects` 里的 12 件街道家具坐标**。命名思路来自 AI Town 的真实物件名，坐标是**按地标之外的空地布设**的（已校验：12 个 `objects` 全部落在 19 个地标之外的空白格上，无一重叠）。
 5. **`agents` 的 `plan`（每日日程）**。原版 `scratch.json` 的 `daily_req` / `f_daily_schedule` 在初始状态下**均为空数组**，日程是运行时才生成的。这里的 plan 依据各角色真实的 `lifestyle` 字段（作息时间）与 `currently`（当下在做的事）演绎，并与原版设定一致。
 6. **`relations` 的 `affinity` 数值与部分 `label`**。关系本身有真实依据（见下），但 affinity 的**数值**是本项目给的。有真实依据的部分：

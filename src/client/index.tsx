@@ -566,8 +566,6 @@ function AgentEditor(props: {
     persona: agent.persona,
     backstory: agent.backstory,
     goal: agent.goal,
-    fear: agent.fear,
-    secret: agent.secret,
     attrs: { ...agent.attrs },
     model: agent.model === undefined || agent.model === null ? '' : `${agent.model.provider}/${agent.model.model}`,
     plan: agent.plan.join('\n'),
@@ -580,8 +578,6 @@ function AgentEditor(props: {
     persona: agent.persona,
     backstory: agent.backstory,
     goal: agent.goal,
-    fear: agent.fear,
-    secret: agent.secret,
     attrs: agent.attrs,
     model: agent.model === undefined || agent.model === null ? '' : `${agent.model.provider}/${agent.model.model}`,
     plan: agent.plan.join('\n'),
@@ -600,8 +596,6 @@ function AgentEditor(props: {
           persona: draft.persona,
           backstory: draft.backstory,
           goal: draft.goal,
-          fear: draft.fear,
-          secret: draft.secret,
           attrs: draft.attrs,
           plan: draft.plan.split('\n').map((s) => s.trim()).filter((s) => s !== ''),
           inventory: draft.inventory.split(/[、,]/).map((s) => s.trim()).filter((s) => s !== ''),
@@ -689,19 +683,18 @@ function AgentEditor(props: {
       field('来历', draft.backstory, (v) => setDraft((p) => ({ ...p, backstory: v })), true),
     ),
 
-    // 内在驱力（需求 3）：想要 / 害怕 / 瞒着。这三项单独成段，不混在"外观字段"里。
-    React.createElement('h4', { style: { marginTop: 10 } }, '内在驱力'),
+    // 目标（需求 3）：一个角色只需要"它想要什么"。恐惧 / 隐瞒这类内在属性不做字段
+    // ——它们是小说家写人物时才需要的东西，放在这里只会让每张卡都背上两个填空，
+    // 且和"计划 / 目标 / 性格"的语义互相覆盖。想让某个角色有所忌惮或有所隐瞒，
+    // 写进「性格」或「来历」即可，模型照样读得到。
+    React.createElement('h4', { style: { marginTop: 10 } }, '目标'),
     React.createElement(
       'div',
       { className: 'pa-form' },
       field('想要', draft.goal, (v) => setDraft((p) => ({ ...p, goal: v }))),
-      field('恐惧', draft.fear, (v) => setDraft((p) => ({ ...p, fear: v }))),
-      field('隐瞒', draft.secret, (v) => setDraft((p) => ({ ...p, secret: v }))),
     ),
     React.createElement('div', { className: 'pa-dim', style: { marginTop: 3 } },
-      '「恐惧」决定它遇到风险时的退让，「隐瞒」只写进它的提示词、不会出现在事件流里——但会左右它的选择。'),
-    React.createElement('div', { className: 'pa-dim', style: { marginTop: 3 } },
-      '（沙盒模板里没有这三项的角色会显示为空；填上即生效，保存会同时写回沙盒与当前推演。）'),
+      '「想要」是它做事的动机。有所忌惮或有所隐瞒，写进「性格」或「来历」即可——那两个字段模型同样读得到，但不必每个角色都填。'),
 
     // 日程与随身
     React.createElement('h4', { style: { marginTop: 10 } }, '日程与随身'),
@@ -719,7 +712,7 @@ function AgentEditor(props: {
       React.createElement('button', { className: 'pa-btn', 'data-primary': 'true', disabled: !dirty, onClick: save }, dirty ? '保存设定' : '已保存'),
       React.createElement(
         'button',
-        { className: 'pa-btn', onClick: () => setDraft({ name: agent.name, concept: agent.concept, appearance: agent.appearance, persona: agent.persona, backstory: agent.backstory, goal: agent.goal, fear: agent.fear, secret: agent.secret, attrs: { ...agent.attrs }, model: agent.model === null || agent.model === undefined ? '' : `${agent.model.provider}/${agent.model.model}`, plan: agent.plan.join('\n'), inventory: agent.inventory.join('、') }) },
+        { className: 'pa-btn', onClick: () => setDraft({ name: agent.name, concept: agent.concept, appearance: agent.appearance, persona: agent.persona, backstory: agent.backstory, goal: agent.goal, attrs: { ...agent.attrs }, model: agent.model === null || agent.model === undefined ? '' : `${agent.model.provider}/${agent.model.model}`, plan: agent.plan.join('\n'), inventory: agent.inventory.join('、') }) },
         '撤销改动',
       ),
       React.createElement('span', { className: 'pa-spacer' }),

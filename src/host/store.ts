@@ -170,8 +170,6 @@ export function normalizeAgentTemplate(input: unknown, mapW: number, mapH: numbe
     persona: str(a.persona),
     backstory: str(a.backstory),
     goal: str(a.goal),
-    fear: str(a.fear),
-    secret: str(a.secret),
     x: Math.max(0, Math.min(mapW, Math.round(num(a.x, mapW / 2)))),
     y: Math.max(0, Math.min(mapH, Math.round(num(a.y, mapH / 2)))),
     attrs,

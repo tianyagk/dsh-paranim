@@ -680,7 +680,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
             if (agent === undefined) throw new HttpError(`找不到智能体 ${agentId}`, 404)
             const patch = (body.patch ?? {}) as Record<string, unknown>
             if (typeof patch.name === 'string' && patch.name.trim() !== '') agent.name = patch.name.trim()
-            for (const key of ['concept', 'appearance', 'persona', 'backstory', 'goal', 'fear', 'secret', 'color', 'portrait'] as const) {
+            for (const key of ['concept', 'appearance', 'persona', 'backstory', 'goal', 'color', 'portrait'] as const) {
               if (typeof patch[key] === 'string') agent[key] = patch[key] as string
             }
             if (Array.isArray(patch.plan)) agent.plan = patch.plan.filter((v) => typeof v === 'string').slice(0, 24)
@@ -853,8 +853,6 @@ function normalizeAgentFromBody(raw: Record<string, unknown>, sandbox: Sandbox):
     persona: typeof raw.persona === 'string' ? raw.persona : '',
     backstory: typeof raw.backstory === 'string' ? raw.backstory : '',
     goal: typeof raw.goal === 'string' ? raw.goal : '',
-    fear: typeof raw.fear === 'string' ? raw.fear : '',
-    secret: typeof raw.secret === 'string' ? raw.secret : '',
     x: Number.isFinite(Number(raw.x)) ? Math.max(0, Math.min(sandbox.map.width, Math.round(Number(raw.x)))) : Math.round(sandbox.map.width / 2),
     y: Number.isFinite(Number(raw.y)) ? Math.max(0, Math.min(sandbox.map.height, Math.round(Number(raw.y)))) : Math.round(sandbox.map.height / 2),
     attrs,

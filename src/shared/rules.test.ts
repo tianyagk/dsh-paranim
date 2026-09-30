@@ -57,8 +57,6 @@ function mkAgent(id: string, x: number, y: number, over: Partial<RunAgent> = {})
     persona: '',
     backstory: '',
     goal: '',
-    fear: '',
-    secret: '',
     x,
     y,
     attrs: normalizeAttrs({}),
