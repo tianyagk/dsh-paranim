@@ -68,6 +68,8 @@ export const THEMES: readonly Theme[] = [
       feedRow: '#141b27',
       feedText: '#e4eaf4',
       feedMeta: '#7f8b9f',
+      overlay: 'rgba(14,17,23,.86)',
+      vignette: 'rgba(0,0,0,.45)',
     },
   },
   {
@@ -95,6 +97,8 @@ export const THEMES: readonly Theme[] = [
       feedRow: '#f4eee1',
       feedText: '#2b261e',
       feedMeta: '#8a7d6a',
+      overlay: 'rgba(250,246,236,.92)',
+      vignette: 'rgba(90,74,48,.18)',
     },
   },
   {
@@ -122,6 +126,8 @@ export const THEMES: readonly Theme[] = [
       feedRow: '#0a1810',
       feedText: '#c6f7d8',
       feedMeta: '#5a9c76',
+      overlay: 'rgba(5,13,8,.88)',
+      vignette: 'rgba(0,0,0,.5)',
     },
   },
   {
@@ -149,6 +155,8 @@ export const THEMES: readonly Theme[] = [
       feedRow: '#eef2f8',
       feedText: '#20283a',
       feedMeta: '#7c8798',
+      overlay: 'rgba(247,249,252,.94)',
+      vignette: 'rgba(60,74,96,.16)',
     },
   },
 ]

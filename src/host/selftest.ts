@@ -592,6 +592,21 @@ ok(stepToolOut.text.includes('驱动'), 'paranim_step 报告驱动数量')
 // 事件正文里的三种语义片段：类名必须是显式映射写进产物的（拼字符串时改名不报错、
 // 只静默失色，且静态检索看不到它们被用过）。这里检查源码侧，产物侧由 build.mjs 断言。
 const clientSource = await readFile(join('src', 'client', 'index.tsx'), 'utf8').catch(() => '')
+const stylesSource = await readFile(join('src', 'client', 'styles.ts'), 'utf8').catch(() => '')
+const themeSource = await readFile(join('src', 'client', 'theme.ts'), 'utf8').catch(() => '')
+ok(
+  /background:\s*var\(--pa-bg\)/.test(stylesSource),
+  '.pa-root 自己铺了底（否则侧栏透明、露出宿主页面底色，深色主题下就是白底白字）',
+)
+ok(
+  /--pa-overlay:/.test(stylesSource),
+  '浮层底色走变量（浅色主题下不能沿用深色硬编码）',
+)
+ok(
+  (themeSource.match(/overlay:/g) ?? []).length === 4 && (themeSource.match(/vignette:/g) ?? []).length === 4,
+  '四套主题都定义了 overlay 与 vignette（少一套，那套切过去就是白底白字）',
+)
+
 ok(clientSource.includes("'pa-seg-quote'"), '片段类名显式映射：对话')
 ok(clientSource.includes("'pa-seg-dice'"), '片段类名显式映射：骰值')
 ok(clientSource.includes("'pa-seg-object'"), '片段类名显式映射：被引用的物件')

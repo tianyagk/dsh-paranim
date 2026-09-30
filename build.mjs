@@ -122,6 +122,9 @@ const REQUIRED_CLIENT_SNIPPETS = [
   'pa-seg-dice',           // 正文片段：骰值
   'pa-seg-object',         // 正文片段：被引用的物件
   'pa-swatch',             // 主题色块（色点 + 短名）
+  'var(--pa-bg)',          // 根容器铺底（白底白字的根治点）
+  '--pa-overlay',          // 浮层底色是主题变量
+  '--pa-vignette',         // 暗角强度是主题变量
 ]
 
 /**

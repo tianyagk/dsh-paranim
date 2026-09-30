@@ -13,6 +13,13 @@ const CSS = `
      避免注入失败时页面是白板——兜底不求好看，只求看得见。 */
   --pa-bg: #0b0e13;
   --pa-text: #eef2f8;
+  /* 这一行是"白底白字"的根治点：.pa-root 是唯一覆盖整个页签的层，
+     它不铺底，侧栏（.pa-side / .pa-sec 都是透明布局层）就会露出宿主页面的底色。
+     以前只在 .pa-mapwrap 上给了背景，所以只有地图区是深色，右侧栏是透的。 */
+  background: var(--pa-bg);
+  color: var(--pa-text);
+  --pa-overlay: rgba(14,17,23,.86);
+  --pa-vignette: rgba(0,0,0,.45);
 }
 .pa-root * { box-sizing: border-box; }
 .pa-root ::-webkit-scrollbar { width: 9px; height: 9px; }
@@ -122,7 +129,8 @@ const CSS = `
 .pa-map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
 .pa-mapvignette {
   position: absolute; inset: 0; pointer-events: none;
-  box-shadow: inset 0 0 0 1px var(--pa-border), inset 0 0 110px rgba(0,0,0,.45);
+  box-shadow: inset 0 0 0 1px var(--pa-border), inset 0 0 90px var(--pa-vignette);
+  /* 暗角强度跟主题走：浅色主题下压黑 45% 会把整张地图糊掉 */
 }
 
 .pa-mapbar {
@@ -131,7 +139,7 @@ const CSS = `
   padding: 4px 6px;
   border-radius: 9px;
   border: 1px solid var(--pa-border);
-  background: rgba(14,17,23,.82);
+  background: var(--pa-overlay);
   backdrop-filter: blur(8px);
   box-shadow: var(--pa-shadow);
 }
@@ -140,7 +148,7 @@ const CSS = `
   padding: 5px 9px;
   border-radius: 8px;
   border: 1px solid var(--pa-border);
-  background: rgba(14,17,23,.82);
+  background: var(--pa-overlay);
   backdrop-filter: blur(8px);
   color: var(--pa-textDim); font-size: 11px;
   box-shadow: var(--pa-shadow);
@@ -155,7 +163,7 @@ const CSS = `
   border-radius: 10px;
   border: 1px solid var(--pa-border);
   background: var(--pa-layer3);
-  box-shadow: 0 16px 40px rgba(0,0,0,.6);
+  box-shadow: var(--pa-shadow);
 }
 .pa-menu h4 { margin: 0 0 7px; font-size: 12.5px; font-weight: 600; }
 .pa-menu .pa-row { display: flex; gap: 5px; align-items: center; margin: 4px 0; }
