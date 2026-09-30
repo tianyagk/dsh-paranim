@@ -1,14 +1,16 @@
 /**
  * 小镇渲染层 —— 用真实像素图集（Kenney CC0）绘制俯视图。
  *
- * 素材来源与分工见 `mapStyle.ts`；取图接口见 `tiles.ts`。
+ * 绘制分三层，顺序不能变（后画的压住先画的）：
+ *   1. **地形**：草地/土/石板/水，大面积连续，纹理靠少量变体而不是撒点
+ *   2. **路网**：由 layout.ts 显式铺出来（Smallville 的辨识度就在那条贯穿全镇的
+ *      黄泥路；没有它，房子只是散落在草地上的方块）
+ *   3. **建筑**：每栋房子**有轮廓**——墙围一圈、屋顶在墙内、门朝路、窗按间距排。
+ *      上一版是把整个占地用随机瓦片填满，那必然是一堆格子，矩形填色不构成建筑。
  *
- * 三条硬约束（都是踩过坑换来的，别改）：
- *  1. **确定性**：地面变体、树位、朝向全部由坐标派生，同一份沙盒每次重绘一模一样，
- *     拖动缩放不会抖。
- *  2. **只画视口内的格子**：140×100 全画是 14000 次 drawImage，缩小时九成在画布外。
- *  3. **不参与布局**：画布由 CSS 绝对定位铺满容器，渲染层不写任何影响父容器尺寸的属性
- *     （那正是"向下无限下坠"的回路）。
+ * 另外两条硬约束：
+ *   · **只画视口内的格子**：140×100 全画是 14000 次 drawImage，缩小时九成在画布外
+ *   · **不参与布局**：画布由 CSS 绝对定位铺满容器，渲染层不写影响父容器尺寸的属性
  */
 import {
   OBJECT_KIND_LABEL,
@@ -18,12 +20,12 @@ import {
   type WorldObject,
 } from '../shared/model.ts'
 import { BUILDING, CHARACTER, GROUND, PROPS, SYMBOLS, pickSlot } from './mapStyle.ts'
+import { buildLayout, layoutKey, type TownLayout } from './layout.ts'
 import { drawGroundTile, drawTile, type TileRef } from './tiles.ts'
 
 /** 一格地图像素（图集瓦片原始尺寸）。 */
 export const TILE_PX = 16
-
-/** 世界之外留一圈草地边，让小镇不顶到画布边缘。 */
+/** 世界之外留一圈草地边。 */
 const BORDER_TILES = 3
 
 export interface View {
@@ -40,7 +42,6 @@ export interface RenderInput {
   selectedId?: string
   hover?: { objectId?: string; agentId?: string }
   bubbles?: Map<string, string>
-  /** 世界步数：驱动行走动画与朝向（同一格不抖）。 */
   tick?: number
 }
 
@@ -50,26 +51,36 @@ function hash2(x: number, y: number, salt = 0): number {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296
 }
 
-// ── 地面 ──────────────────────────────────────────────────────────────────
+// 布局缓存：同一份沙盒只算一次。键是地标几何 + 地图尺寸 + 自带地形长度。
+let cachedLayout: { key: string; layout: TownLayout } | null = null
 
-function groundRefAt(sandbox: Sandbox, x: number, y: number): TileRef | undefined {
-  const inMap = x >= 0 && y >= 0 && x < sandbox.map.width && y < sandbox.map.height
-  if (!inMap) return pickSlot(GROUND, 'void', hash2(x, y, 9))
-  const tiles = sandbox.map.tiles
-  const char = tiles === undefined ? undefined : (tiles[y] ?? '')[x]
-  const n = hash2(x, y, 1)
-  if (char === 'w') return pickSlot(GROUND, 'stone', n)
-  if (char === 'r' || char === 'p' || char === 'z') return pickSlot(GROUND, 'stone', n)
-  if (char === 's') return pickSlot(GROUND, 'dirt', n)
-  return pickSlot(GROUND, 'grass', n)
+export function townLayout(sandbox: Sandbox): TownLayout {
+  const key = layoutKey(sandbox)
+  if (cachedLayout !== null && cachedLayout.key === key) return cachedLayout.layout
+  const layout = buildLayout(sandbox)
+  cachedLayout = { key, layout }
+  return layout
 }
 
-function drawGround(ctx: CanvasRenderingContext2D, input: RenderInput): void {
+// ── 地形 ──────────────────────────────────────────────────────────────────
+
+const TERRAIN_SLOT: Record<string, string> = {
+  grass: 'grass',
+  grassAlt: 'grassPlain',
+  dirt: 'dirt',
+  stone: 'stone',
+  sand: 'sand',
+  water: 'stone',
+  field: 'field',
+}
+
+function drawTerrain(ctx: CanvasRenderingContext2D, input: RenderInput, layout: TownLayout): void {
   const { sandbox, view, size } = input
   const { scale, offsetX, offsetY } = view
   const step = TILE_PX * scale
   if (step <= 0.05) return
 
+  // 视口裁剪：只画看得见的格子
   const minX = Math.max(-BORDER_TILES, Math.floor(-offsetX / step) - 1)
   const maxX = Math.min(sandbox.map.width + BORDER_TILES, Math.ceil((size.w - offsetX) / step) + 1)
   const minY = Math.max(-BORDER_TILES, Math.floor(-offsetY / step) - 1)
@@ -77,7 +88,11 @@ function drawGround(ctx: CanvasRenderingContext2D, input: RenderInput): void {
 
   for (let y = minY; y <= maxY; y += 1) {
     for (let x = minX; x <= maxX; x += 1) {
-      const ref = groundRefAt(sandbox, x, y)
+      const inside = x >= 0 && y >= 0 && x < layout.width && y < layout.height
+      const slot = inside ? TERRAIN_SLOT[layout.terrain[y][x]] ?? 'grass' : 'void'
+      // 草地用多候选做纹理；其它地形只给少数候选，避免路面花掉
+      const n = slot === 'grass' ? hash2(x, y, 3) : hash2(x, y, 11)
+      const ref = pickSlot(GROUND, slot, n) ?? pickSlot(GROUND, 'grassPlain', n)
       if (ref === undefined) continue
       drawGroundTile(ctx, ref, offsetX + x * step, offsetY + y * step, step + 0.5)
     }
@@ -86,90 +101,74 @@ function drawGround(ctx: CanvasRenderingContext2D, input: RenderInput): void {
 
 // ── 建筑 ──────────────────────────────────────────────────────────────────
 
-/** 屋顶族按地标 tags 分配（配色即语义：暖=社交、蓝=商业、绿=公共/户外、默认=住宅）。 */
-function roofSlot(place: WorldObject): string {
-  const tags = (place.tags ?? []).join(' ')
-  if (tags.includes('社交') || tags.includes('餐饮')) return 'roofWarm'
-  if (tags.includes('商业') || tags.includes('学术')) return 'roofCool'
-  if (tags.includes('公共') || tags.includes('户外')) return 'roofGreen'
-  return 'roofWarm'
-}
-
 /**
- * 建筑画法：把占地拆成"屋顶横条 + 墙体横条"，逐格铺图集瓦片。
+ * 画一栋房子：**墙围一圈，屋顶在墙内**。
  *
- * 为什么不用单个大 sprite：图集里的建筑瓦片是 16×16 的模块（屋顶/墙/门/窗分开），
- * 拼装才能适配任意 `w×h` 的地标——原版 Smallville 的地标包围盒差异很大（4×4 到 26×22），
- * 固定 sprite 要么被拉伸变形、要么盖不住。
+ * 关键约束（上一版就是在这里错的）：屋顶不能铺满整个占地，否则看到的是一个
+ * 配色块而不是房子。墙必须留在最外一圈——它给出轮廓、门与窗的位置。
  */
-function drawBuilding(ctx: CanvasRenderingContext2D, view: View, place: WorldObject, hovered: boolean): void {
+function drawBuilding(ctx: CanvasRenderingContext2D, view: View, layout: TownLayout, index: number): void {
+  const b = layout.buildings[index]
   const { scale, offsetX, offsetY } = view
-  const wTiles = Math.max(2, Math.round(place.w ?? 4))
-  const hTiles = Math.max(2, Math.round(place.h ?? 4))
   const step = TILE_PX * scale
-  const left = Math.round(offsetX + (place.x - wTiles / 2) * step)
-  const top = Math.round(offsetY + (place.y - hTiles / 2) * step)
-  const roofRows = Math.max(1, Math.round(hTiles * 0.4))
-  const roofSlotName = roofSlot(place)
+  const px = (x: number): number => offsetX + x * step
+  const py = (y: number): number => offsetY + y * step
+  const w = b.right - b.left + 1
+  const h = b.bottom - b.top + 1
 
-  // 投影：先铺一层压暗的地面，让建筑"坐"下去（比画椭圆阴影更像素风）
-  ctx.fillStyle = 'rgba(18,26,18,0.22)'
-  ctx.fillRect(left, top + roofRows * step, wTiles * step, (hTiles - roofRows) * step + Math.max(2, step * 0.35))
+  // 落地投影（压在墙脚外侧，让房子"坐"在草地上）
+  ctx.fillStyle = 'rgba(20,28,20,0.22)'
+  ctx.fillRect(px(b.left), py(b.bottom) + step * 0.55, w * step, Math.max(2, step * 0.45))
 
-  // 屋顶
-  for (let ry = 0; ry < roofRows; ry += 1) {
-    for (let rx = 0; rx < wTiles; rx += 1) {
-      const ref = pickSlot(BUILDING, roofSlotName, hash2(place.x + rx, place.y + ry, 21))
-      if (ref !== undefined) drawGroundTile(ctx, ref, left + rx * step, top + ry * step, step + 0.5)
+  const wallRef = pickSlot(BUILDING, 'wall', hash2(b.left, b.top, 71))
+  const roofRef =
+    pickSlot(BUILDING, b.roofSlot, hash2(b.left, b.top, 73)) ?? pickSlot(BUILDING, 'roofWarm', 0)
+
+  for (let y = b.top; y <= b.bottom; y += 1) {
+    for (let x = b.left; x <= b.right; x += 1) {
+      const isEdge = x === b.left || x === b.right || y === b.bottom || y === b.top
+      if (isEdge) {
+        // 墙：外圈始终是墙——这是"房子"与"色块"的区别
+        const isDoor = x === b.doorX && y === b.doorY
+        const isWindow = b.windows.some((win) => win.x === x && win.y === y)
+        const ref = isDoor
+          ? pickSlot(BUILDING, 'door', 0)
+          : isWindow
+            ? pickSlot(BUILDING, 'window', 0)
+            : wallRef
+        if (ref !== undefined) drawGroundTile(ctx, ref, px(x), py(y), step + 0.5)
+        continue
+      }
+      // 内部：屋顶区铺瓦，其余铺墙（俯视下看不到地板，用墙色更整洁）
+      const inRoof = y >= b.roofTop && y <= b.roofBottom
+      const ref = inRoof ? roofRef : wallRef
+      if (ref !== undefined) drawGroundTile(ctx, ref, px(x), py(y), step + 0.5)
     }
   }
-  // 墙体
-  for (let wy = roofRows; wy < hTiles; wy += 1) {
-    for (let wx = 0; wx < wTiles; wx += 1) {
-      const isDoor = wy === hTiles - 1 && wx === Math.floor(wTiles / 2)
-      const isWindow = wy === Math.max(roofRows, hTiles - 2) && wx !== Math.floor(wTiles / 2) && wx % 2 === 0
-      const ref = isDoor
-        ? pickSlot(BUILDING, 'door', 0.5)
-        : isWindow
-          ? pickSlot(BUILDING, 'window', 0.5)
-          : pickSlot(BUILDING, 'wall', hash2(place.x + wx, place.y + wy, 31))
-      if (ref !== undefined) drawGroundTile(ctx, ref, left + wx * step, top + wy * step, step + 0.5)
-    }
-  }
-
-  if (hovered) {
-    ctx.strokeStyle = '#ffc861'
-    ctx.lineWidth = Math.max(1.5, scale * 0.8)
-    ctx.strokeRect(left - 1, top - 1, wTiles * step + 2, hTiles * step + 2)
+  // 屋脊：屋顶最上一行压一道深色，读起来才有"坡"
+  if (scale >= 1 && roofRef !== undefined) {
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'
+    ctx.fillRect(px(b.left), py(b.roofTop), w * step, Math.max(1, step * 0.22))
   }
 }
 
 // ── 物件 ──────────────────────────────────────────────────────────────────
 
-/** 物件 → 语义槽位：先按 id 认名字，再按 kind 兜底。 */
 function propSlotOf(object: WorldObject): string {
   const id = `${object.id} ${object.name}`.toLowerCase()
   const named: Array<[RegExp, string]> = [
-    [/lamp|灯/, 'streetlamp'],
-    [/bench|椅/, 'bench'],
-    [/bin|trash|垃圾/, 'bin'],
-    [/fountain|泉/, 'fountain'],
-    [/sign|notice|board|告示|牌/, 'sign'],
-    [/stall|摊/, 'stall'],
-    [/well|井/, 'well'],
-    [/campfire|篝火|fire/, 'campfire'],
-    [/windmill|风车|vehicle|truck|car|车/, 'vehicle'],
     [/tree|树/, 'tree'],
     [/bush|灌木|花丛/, 'bush'],
+    [/flower|花/, 'flower'],
     [/rock|石/, 'rock'],
-    [/fence|栅栏|篱/, 'fence'],
+    [/lamp|灯/, 'streetlamp'],
+    [/sign|notice|board|告示|牌/, 'sign'],
+    [/vehicle|truck|car|车|风车/, 'vehicle'],
   ]
   for (const [re, slot] of named) if (re.test(id)) return slot
   switch (object.kind as ObjectKind) {
     case 'plant':
       return 'tree'
-    case 'fixture':
-      return 'streetlamp'
     case 'vehicle':
       return 'vehicle'
     case 'sign':
@@ -186,22 +185,18 @@ function drawObject(ctx: CanvasRenderingContext2D, view: View, object: WorldObje
   const ref = pickSlot(PROPS, slot, n) ?? pickSlot(PROPS, 'fallback', n)
   if (ref === undefined) return
   const cx = offsetX + object.x * TILE_PX * scale
-  const bottom = offsetY + (object.y + 0.75) * TILE_PX * scale
+  const bottom = offsetY + (object.y + 0.85) * TILE_PX * scale
   drawTile(ctx, ref, cx, bottom, scale)
 
-  // 状态符号：非"正常"就压一个小角标（来自 1-Bit 后备图集）
   const status = String(object.state.status ?? '正常')
   if (status !== '正常') {
     const badge = pickSlot(SYMBOLS, 'broken', 0)
-    if (badge !== undefined) {
-      drawTile(ctx, badge, cx + 7 * scale, bottom - 13 * scale, Math.max(0.45, scale * 0.65))
-    }
+    if (badge !== undefined) drawTile(ctx, badge, cx + 6 * scale, bottom - 12 * scale, Math.max(0.45, scale * 0.6))
   }
 }
 
 // ── 角色 ──────────────────────────────────────────────────────────────────
 
-/** 朝向：由坐标派生（同一格稳定），步数驱动两帧切换。 */
 function facingOf(agent: SandboxAgent): 'down' | 'up' | 'side' {
   const n = hash2(agent.x, agent.y, 51)
   return n < 0.55 ? 'down' : n < 0.8 ? 'side' : 'up'
@@ -222,12 +217,10 @@ function drawAgent(
   const frame = Math.abs(Math.round(tick + hash2(agent.x, agent.y, 61) * 2)) % 2
   const ref = pickSlot(CHARACTER, facing, frame % 2) ?? pickSlot(CHARACTER, 'fallback', 0)
 
-  // 脚下投影
   ctx.fillStyle = 'rgba(18,26,18,0.25)'
   ctx.beginPath()
   ctx.ellipse(cx, bottom - scale * 2, scale * 5.5, scale * 2, 0, 0, Math.PI * 2)
   ctx.fill()
-
   if (ref !== undefined) drawTile(ctx, ref, cx, bottom, scale)
 
   if (selected) {
@@ -237,11 +230,11 @@ function drawAgent(
     ctx.arc(cx, bottom - scale * 8, scale * 9, 0, Math.PI * 2)
     ctx.stroke()
   }
-  if (scale >= 0.55) drawNameplate(ctx, agent.name, cx, bottom - 16 * scale - 3, selected)
-  if (bubble !== undefined && scale >= 1) drawBubble(ctx, bubble, cx, bottom - 16 * scale - 20)
+  // 名牌只在放大到一定倍率才画：整镇视野下每格不到 1 像素，画了只是噪点
+  if (scale >= 1.4) drawNameplate(ctx, agent.name, cx, bottom - 16 * scale - 3, selected)
+  if (bubble !== undefined && scale >= 2) drawBubble(ctx, bubble, cx, bottom - 16 * scale - 20)
 }
 
-/** 名牌：暖黑底 + 1px 亮描边，与像素素材的描边逻辑一致。 */
 function drawNameplate(ctx: CanvasRenderingContext2D, text: string, cx: number, bottomY: number, strong: boolean): void {
   ctx.font = '10px ui-monospace, "PingFang SC", "Microsoft YaHei", monospace'
   const w = Math.round(ctx.measureText(text).width) + 8
@@ -266,7 +259,6 @@ function drawBubble(ctx: CanvasRenderingContext2D, text: string, cx: number, top
   const h = 18
   const x = Math.round(cx - w / 2)
   const y = Math.round(topY - h - 6)
-  // 像素风的"圆角"：切角而不是画圆角
   ctx.fillStyle = 'rgba(250,247,240,0.96)'
   ctx.fillRect(x + 1, y, w - 2, h)
   ctx.fillRect(x, y + 1, w, h - 2)
@@ -287,25 +279,40 @@ function drawBubble(ctx: CanvasRenderingContext2D, text: string, cx: number, top
 export function renderTown(ctx: CanvasRenderingContext2D, input: RenderInput): void {
   const { sandbox, view, size, agents, selectedId, hover } = input
   const tick = input.tick ?? 0
+  const layout = townLayout(sandbox)
+
   ctx.clearRect(0, 0, size.w, size.h)
   ctx.fillStyle = '#0d1014'
   ctx.fillRect(0, 0, size.w, size.h)
   ctx.imageSmoothingEnabled = false
 
-  drawGround(ctx, input)
+  drawTerrain(ctx, input, layout)
 
   // 植物先画（压在地面、建筑之下）
   for (const object of sandbox.objects) if (object.kind === 'plant') drawObject(ctx, view, object)
 
   // 建筑按 y 排序 → 后画的盖住前面，形成俯视遮挡
-  for (const place of [...sandbox.places].sort((a, b) => a.y - b.y)) {
-    drawBuilding(ctx, view, place, hover?.objectId === place.id)
+  const order = layout.buildings.map((_, i) => i).sort((a, b) => layout.buildings[a].bottom - layout.buildings[b].bottom)
+  for (const i of order) drawBuilding(ctx, view, layout, i)
+  if (hover?.objectId !== undefined) {
+    // 悬停高亮：单独描一次边框（不重画建筑本体）
+    const idx = layout.buildings.findIndex((b) => b.place.id === hover.objectId)
+    if (idx >= 0) {
+      const b = layout.buildings[idx]
+      const step = TILE_PX * view.scale
+      ctx.strokeStyle = '#ffc861'
+      ctx.lineWidth = Math.max(1.5, view.scale * 0.8)
+      ctx.strokeRect(
+        view.offsetX + b.left * step - 1,
+        view.offsetY + b.top * step - 1,
+        (b.right - b.left + 1) * step + 2,
+        (b.bottom - b.top + 1) * step + 2,
+      )
+    }
   }
 
-  // 非植物物件
   for (const object of sandbox.objects) if (object.kind !== 'plant') drawObject(ctx, view, object)
 
-  // 角色同样按 y 排序；选中的最后画，保证不被别人盖住
   const walkers = [...agents].sort((a, b) =>
     a.y === b.y ? Number(a.id === selectedId) - Number(b.id === selectedId) : a.y - b.y,
   )

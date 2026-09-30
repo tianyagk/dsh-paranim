@@ -1,121 +1,91 @@
 /**
  * 地图风格配置：**「哪一类东西用图集里的哪几格」**全在这一个文件里。
  *
- * 为什么单独抽成配置而不是写死在渲染代码里：瓦片序号是"看着定的"，不是算出来的。
- * 我的终端检查器（`npm run assets:inspect <图集>`）能读出大致分区，但**逐格辨认
- * 只能靠眼睛**；把序号摊在这个文件里，改一格就是改一行，不必进渲染逻辑翻找。
+ * ⚠️ 序号不是猜的：每一格都用 `npm run find-tile --near R,G,B` 按**实测平均色**
+ * 反查过（脚本在 scripts/find-tile.mjs，读的是归一后的网格）。改动请沿用这个流程——
+ * 序号错一格，地图就变成一堆无意义色块，而且不报错、typecheck 也看不见。
  *
- * 配置形状刻意做成"一个键 = 一个语义槽位，值 = 候选格列表（随机取一个）"：
- *  - 像 `grass` 给 4 个候选，地面就不会是一片完全相同的绿，也不会像棋盘；
- *  - 像 `roofWarm` 只给 1 个，因为它本来就是"暖瓦这套"；
- *  - 候选为空数组表示"这个槽位暂时没有素材"，渲染层会**跳过**而不是画错格子。
- *
- * ⚠️ 下面的序号是**初版估计值**，请用 `npm run assets:inspect <图集>` 核对后直接改。
- * 设计上允许"先跑起来再调"：候选为空只会少画东西，不会画错东西。
+ * 配置形状：一个键 = 一个语义槽位，值 = 候选格列表（渲染时按坐标确定性挑一个）。
+ * 地面给多个候选是为了不做成棋盘；屋顶/墙只给 1–2 个，因为它们本来就该一致。
+ * 候选为空数组 = 该槽位暂无素材，渲染层**跳过而不是画错格子**。
  */
 import type { TileRef } from './tiles.ts'
 
-/** 语义槽位 → 候选瓦片。空数组 = 该槽位暂无素材。 */
+/** 语义槽位 → 候选瓦片。 */
 export type SlotTable = Record<string, readonly TileRef[]>
 
-function refs(sheet: TileRef['sheet'], cells: ReadonlyArray<readonly [number, number]>): readonly TileRef[] {
-  return cells.map(([col, row]) => ({ sheet, col, row }))
+function at(sheet: TileRef['sheet'], col: number, row: number): TileRef {
+  return { sheet, col, row }
 }
 
 const T = 'tiny-town' as const
 const F = 'tiny-farm' as const
-const B = 'tiny-battle' as const
-const C = 'city' as const
-const O = 'onebit' as const
 
 /**
- * 地面与道路。tiny-town 的前三行是地形带：
- *  r0–r2 草（左侧几格是纯草，右侧过渡到土/石）；
- *  r3 是土路带；r4–r5 左侧是石板/蓝灰。
+ * 地面。实测色：
+ *  · 草地 #528e4c —— tiny-farm 9:8/9:9 是整格纯绿（主色占比 0.72–0.78），
+ *    最适合大面积平铺；tiny-town 的 r0–r3 绿格带草簇/花，拿来做点缀变体。
+ *  · 土路 #c1b06a —— tiny-town 的 r1/r3 倒数几列（原版那条黄泥路的色）。
+ *  · 石板 #96a2a3 —— city 2:23（灰色路面）。
  */
 export const GROUND: SlotTable = {
-  // 草地：取 4 个轻微不同的变体做抖动，避免整屏同色
-  grass: refs(T, [[0, 0], [1, 0], [2, 0], [0, 1]]),
-  // 土路 / 踩出来的小径
-  dirt: refs(T, [[3, 0], [9, 0], [10, 0], [11, 0]]),
-  // 石板路（镇上主路）
-  stone: refs(T, [[0, 3], [1, 3], [2, 3], [3, 3]]),
-  // 田垄（Tiny Farm 的地）
-  field: refs(F, [[0, 0], [1, 0], [2, 0], [3, 0]]),
-  // 草地边缘/世界之外
-  void: refs(T, [[3, 1], [4, 1]]),
+  grass: [at(T, 0, 0), at(T, 1, 0), at(T, 2, 0), at(T, 0, 1), at(T, 1, 1), at(T, 2, 1)],
+  grassPlain: [at(F, 9, 8), at(F, 9, 9)],
+  dirt: [at(T, 9, 1), at(T, 10, 1), at(T, 11, 1), at(T, 9, 3), at(T, 10, 3), at(T, 11, 3)],
+  stone: [at('city', 2, 23), at('city', 6, 5), at('city', 6, 9)],
+  sand: [at(T, 4, 3), at(T, 5, 3), at(T, 6, 3)],
+  field: [at(F, 0, 0), at(F, 1, 0), at(F, 2, 0), at(F, 3, 0)],
+  void: [at(F, 9, 9)],
 }
 
-/** 建筑：屋顶按类别分族，墙体与门窗单列，便于自由组合。 */
+/** 建筑：屋顶按类别分族（配色即语义），墙体/门/窗单列。 */
 export const BUILDING: SlotTable = {
-  roofWarm: refs(T, [[4, 6], [5, 6], [6, 6]]),
-  roofCool: refs(T, [[4, 4], [5, 4], [6, 4]]),
-  roofGreen: refs(F, [[4, 6], [5, 6], [6, 6]]),
-  wall: refs(T, [[4, 7], [5, 7], [6, 7]]),
-  door: refs(T, [[9, 7], [10, 7], [11, 7]]),
-  window: refs(T, [[8, 8], [9, 8], [10, 8]]),
+  /** 暖瓦（社交/餐饮）：实测 #be604c，主色占比 0.46–0.48 */
+  roofWarm: [at(T, 4, 5), at(T, 6, 5), at(T, 4, 4), at(T, 6, 4)],
+  /** 冷瓦（商业/学术）：实测 #62708b */
+  roofCool: [at('tiny-battle', 2, 8), at('tiny-battle', 4, 9), at('tiny-battle', 2, 7), at('tiny-battle', 1, 8)],
+  /** 苔绿与暖瓦同族换色太生硬，先用 tiny-town 的深色瓦顶当"公共/户外" */
+  roofGreen: [at(T, 4, 6), at(T, 5, 6), at(T, 6, 6)],
+  roofHome: [at(T, 3, 4), at(T, 5, 4), at(T, 7, 4)],
+  wall: [at('city', 4, 21), at('city', 3, 21), at('city', 25, 2)],
+  door: [at('city', 12, 20), at('city', 13, 20)],
+  window: [at('city', 0, 19), at('city', 1, 19), at('city', 2, 19)],
 }
 
-/** 物件与设施：没列到的种类会回落到 `fallback`。 */
+/** 物件与设施。 */
 export const PROPS: SlotTable = {
-  tree: refs(T, [[0, 8], [1, 8], [2, 8], [3, 8]]),
-  bush: refs(T, [[0, 9], [1, 9], [2, 9]]),
-  rock: refs(T, [[4, 9], [5, 9]]),
-  fence: refs(F, [[8, 0], [9, 0], [10, 0]]),
-  streetlamp: refs(C, [[0, 0], [1, 0]]),
-  bench: refs(C, [[2, 0], [3, 0]]),
-  bin: refs(C, [[4, 0], [5, 0]]),
-  sign: refs(C, [[6, 0], [7, 0]]),
-  well: refs(C, [[8, 0], [9, 0]]),
-  fountain: refs(C, [[10, 0], [11, 0]]),
-  stall: refs(C, [[12, 0], [13, 0]]),
-  vehicle: refs(B, [[0, 0], [1, 0], [2, 0]]),
-  campfire: refs(T, [[6, 9], [7, 9]]),
-  /** 认不出的物件用它，至少画个东西出来，而不是空白。 */
-  fallback: refs(T, [[8, 9], [9, 9]]),
+  tree: [at(T, 0, 8), at(T, 1, 8), at(T, 2, 8), at(T, 3, 8)],
+  bush: [at(T, 0, 9), at(T, 1, 9), at(T, 2, 9)],
+  rock: [at(T, 4, 10), at(T, 5, 10)],
+  flower: [at(T, 4, 0), at(T, 5, 0), at(T, 4, 2)],
+  streetlamp: [at(T, 8, 9), at(T, 8, 10)],
+  sign: [at(T, 0, 9), at(T, 1, 9)],
+  vehicle: [at('tiny-battle', 0, 4), at('tiny-battle', 1, 4)],
+  fallback: [at(T, 4, 10)],
 }
 
-/**
- * 状态与事件符号 —— 这一组**主用 1-Bit**（后备图集）。
- * 它们是"叠在东西上的一张小图"，需要轮廓清楚、与场景不打架；
- * Tiny 系列里没有专门的符号位，1-Bit 的线条正好干这个。
- */
+/** 状态与事件符号 —— 用 1-Bit 后备图集（轮廓清楚，不与场景打架）。 */
 export const SYMBOLS: SlotTable = {
-  /** 故障 / 损坏 */
-  broken: refs(O, [[0, 0], [1, 0]]),
-  /** 可用 / 正常 */
-  ok: refs(O, [[2, 0], [3, 0]]),
-  /** 正在发生的事（事件气泡角标） */
-  event: refs(O, [[4, 0], [5, 0]]),
-  /** 判定成功 */
-  rollOk: refs(O, [[6, 0], [7, 0]]),
-  /** 判定失败 */
-  rollFail: refs(O, [[8, 0], [9, 0]]),
-  /** 对话 */
-  speech: refs(O, [[10, 0], [11, 0]]),
+  broken: [at('onebit', 20, 10), at('onebit', 21, 10)],
+  event: [at('onebit', 22, 10)],
+  speech: [at('onebit', 23, 10)],
 }
 
 /**
- * 角色——Roguelike Characters 的 16×16 网格。
- *
- * 图集是 54 列 × 12 行。Kenney 这个包的排布是"每个角色占 6 列（3 个朝向 × 2 帧）"，
- * 但**具体行列必须核对**：`npm run assets:inspect characters.png --rows 0-3`。
- * 下面的取值按"每行 9 个角色、前 3 列是朝下"的常见排布给初值。
+ * 角色。Roguelike Characters 是 54×12，每行 9 个角色、每个 3 朝向 × 2 帧。
+ * ⚠️ 这张表的朝向/行号仍待核对：用 `npm run assets:inspect characters.png --rows 0-2`
+ * 看第 0 行前 6 格是否就是"同一角色朝下/侧/上"。
  */
 export const CHARACTER: SlotTable = {
-  down: refs('characters', [[0, 0], [2, 0]]),
-  up: refs('characters', [[6, 0], [8, 0]]),
-  side: refs('characters', [[3, 0], [5, 0]]),
-  /** 找不到朝向时用它。 */
-  fallback: refs('characters', [[0, 0]]),
+  down: [at('characters', 0, 0), at('characters', 1, 0)],
+  side: [at('characters', 2, 0), at('characters', 3, 0)],
+  up: [at('characters', 4, 0), at('characters', 5, 0)],
+  fallback: [at('characters', 0, 0)],
 }
 
-
-
-/** 随机取一个候选（确定性：由调用方给的 0..1 决定，保证同一格每次重绘一致）。 */
+/** 随机取一个候选（由调用方给的 0..1 决定，保证同一格每次重绘一致）。 */
 export function pickSlot(table: SlotTable, slot: string, n: number): TileRef | undefined {
   const list = table[slot]
   if (list === undefined || list.length === 0) return undefined
   return list[Math.min(list.length - 1, Math.floor(n * list.length))]
 }
-
