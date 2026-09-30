@@ -55,6 +55,27 @@ bash scripts/install.sh /path/to/profile      # 或指定 profile
 | 1-Bit Pack | 49×22 | **后备**：状态与事件符号 |
 | Roguelike Characters | 54×12 | 角色（16×16，多朝向） |
 
+### Smallville 镜像的几何来自原版栅格，不是拟合的
+
+`assets/source/arena_maze.csv` 是斯坦福 generative_agents 发布的 140×100 tile 栅格
+（Apache-2.0）：0 = 可通行空地，非 0 = 建筑内部格，`(id − 32138) % 10` 是 tileset 列，
+而**列恰好编码了建筑类型**（住宅 / 公寓 / 商业）。`npm run assets:smallville`
+（scripts/gen-smallville-layout.mjs）从它解出：
+
+| 解出什么 | 怎么解 | 结果 |
+| --- | --- | --- |
+| 地点外接框 | 非 0 格 4-连通聚类，每块取"实心行列"区间 | **40 处**地点（旧镜像只有 19 个） |
+| 原版路网 | 贴着建筑 2 格内的空地烘成 `map.tiles` 的 `r` | 覆盖 **18.3%** 图面 |
+| 屋顶色系 | 按建筑族写进每处地点的 `roofSlot` | 住宅 / 公寓 / 商业各一个色系 |
+
+三点值得记下：
+
+- **半径选 2 不选 3**：3 格半径让路网占到 25% 图面，看起来整张地图都是路；2 格才像"贴着建筑的通路"。
+- **连通块不能直接取极值**：它会把相邻房间与走廊连在一起，得到虚胖的框；只取"实心行列"区间才准。
+- **命名基线与几何分开**：脚本读 `assets/source/smallville-places.json`（只有名字与叙事）、
+  写 `assets/smallville.json`。**输入与输出分开**是必须的——一版曾让脚本读自己的输出，
+  第二次运行就把上一次自动生成的名字当成原始名字认领，阈值内的块被反复改名。
+
 ### 三层绘制：地形 → 路网 → 建筑
 
 `src/client/layout.ts` 把"地标 + 物件"推导成**一张有结构的地图**（纯函数，可离线单测）：
@@ -297,6 +318,7 @@ npm run check        # typecheck + 单元测试 + 端到端自检 + 构建
 npm run typecheck
 npm run test         # 判定引擎单测（规则/对抗/移动/状态护栏/动作清洗）
 npm run selftest     # 离线端到端：store → 引擎 → 路由 → 工具，含假 llm 与假 req/res
+npm run assets:smallville # 从原版栅格重建 smallville 镜像（地点外接框 + 路网 + 屋顶族）
 npm run gen:fallback   # 改完 assets/smallville.json 后重新生成内联兜底小镇
 npm run migrate:fields # 从镜像与所有沙盒副本里删掉指定字段（只删键，可先 --list 预览）
 npm run preview:sprites # 把像素素材用真彩打到终端，校验行宽一致与调色板覆盖
