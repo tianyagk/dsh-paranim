@@ -98,14 +98,27 @@ export function buildLayout(sandbox: Sandbox): TownLayout {
     }
   }
 
+  // ── 1.5) 室内地板：house 类沙盒给一块矩形，铺石地板 ─────────────────────
+  const interior = sandbox.map.interior
+  if (interior !== undefined) {
+    for (let y = Math.max(0, Math.round(interior.y)); y < Math.min(height, Math.round(interior.y + interior.h)); y += 1) {
+      for (let x = Math.max(0, Math.round(interior.x)); x < Math.min(width, Math.round(interior.x + interior.w)); x += 1) {
+        terrain[y][x] = 'stone'
+      }
+    }
+  }
+
   // ── 2) 建筑：先定房子，再让路连它们（路要能贴到门口）──────────────────
   const buildings: BuildingSpec[] = []
   for (const place of sandbox.places) {
     const area = Math.max(4, (place.w ?? 5) * (place.h ?? 5))
-    // 由面积取档：小铺子 5×4，大建筑 9×6。上限刻意压着——原版那份包围盒是"区域"，
+    // 显式给了 w/h 就照用：room 这类"房间"的尺寸是数据，不能被推导规则改掉
+    // （改了就会出现"房间坐标与实际画出来的墙圈差两格"这种最难查的错位）。
+    const explicit = place.w !== undefined && place.h !== undefined
+    // 否则按面积取档：小铺子 5×5，大建筑 9×6。上限刻意压着——原版那份包围盒是"区域"，
     // 直接当房子会得到一张巨大的实心色块，整屏就只剩房子了。
-    const w = area >= 200 ? 9 : area >= 120 ? 8 : area >= 64 ? 7 : area >= 36 ? 6 : 5
-    const h = area >= 200 ? 6 : area >= 120 ? 6 : area >= 64 ? 5 : 5
+    const w = explicit ? Math.round(place.w as number) : area >= 200 ? 9 : area >= 120 ? 8 : area >= 64 ? 7 : area >= 36 ? 6 : 5
+    const h = explicit ? Math.round(place.h as number) : area >= 200 ? 6 : area >= 120 ? 6 : area >= 64 ? 5 : 5
     const left = Math.max(1, Math.min(width - w - 2, Math.round(place.x - w / 2)))
     const top = Math.max(1, Math.min(height - h - 2, Math.round(place.y - h / 2)))
     const right = left + w - 1
@@ -223,6 +236,6 @@ function carvePath(
 export function layoutKey(sandbox: Sandbox): string {
   return (
     sandbox.places.map((p) => `${p.id}:${p.x},${p.y},${p.w ?? 0}x${p.h ?? 0}`).join('|') +
-    `#${sandbox.map.width}x${sandbox.map.height}#${(sandbox.map.tiles ?? []).length}`
+    `#${sandbox.map.width}x${sandbox.map.height}#${(sandbox.map.tiles ?? []).length}#${JSON.stringify(sandbox.map.interior ?? null)}`
   )
 }

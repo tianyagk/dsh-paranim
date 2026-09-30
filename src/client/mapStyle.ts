@@ -52,8 +52,18 @@ export const BUILDING: SlotTable = {
   window: [at('city', 0, 19), at('city', 1, 19), at('city', 2, 19)],
 }
 
-/** 物件与设施。 */
+/**
+ * 物件与设施。
+ *
+ * 户外用 tiny-town / tiny-farm，**室内家具用 city**（那是唯一有室内物件的图集）。
+ * 每一条同样按实测色反查过：
+ *  · 木家具 #976f46 → city 21:11（不透明率仅 0.19，是薄薄一件小家具，正好当桌椅）
+ *  · 床品 #d9dde5 → city 14:9/14:11（近白的整格物件）
+ *  · 深色台面 #505152 → city 12:19（flat 0.86，最"实"的一块，当灶台/柜面）
+ *  · 洁具 #86929a → city 32:20 / 35:20
+ */
 export const PROPS: SlotTable = {
+  // —— 户外 ——
   tree: [at(T, 0, 8), at(T, 1, 8), at(T, 2, 8), at(T, 3, 8)],
   bush: [at(T, 0, 9), at(T, 1, 9), at(T, 2, 9)],
   rock: [at(T, 4, 10), at(T, 5, 10)],
@@ -61,6 +71,19 @@ export const PROPS: SlotTable = {
   streetlamp: [at(T, 8, 9), at(T, 8, 10)],
   sign: [at(T, 0, 9), at(T, 1, 9)],
   vehicle: [at('tiny-battle', 0, 4), at('tiny-battle', 1, 4)],
+  fence: [at(F, 0, 4), at(F, 1, 4)],
+  crop: [at(F, 2, 6), at(F, 3, 6)],
+  // —— 室内 ——
+  bed: [at('city', 14, 11), at('city', 14, 9)],
+  table: [at('city', 21, 11), at('city', 22, 11)],
+  chair: [at('city', 21, 15), at('city', 23, 15)],
+  sofa: [at('city', 21, 22), at('city', 21, 23)],
+  stove: [at('city', 12, 19), at('city', 15, 23)],
+  counter: [at('city', 16, 23), at('city', 15, 24)],
+  sink: [at('city', 32, 20), at('city', 35, 20)],
+  rug: [at('city', 30, 25)],
+  plant: [at('city', 21, 12)],
+  bookshelf: [at('city', 25, 2), at('city', 27, 2)],
   fallback: [at(T, 4, 10)],
 }
 

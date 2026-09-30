@@ -206,6 +206,16 @@ export function normalizeSandbox(input: unknown, fallbackId = 'sandbox'): Sandbo
             }
           })
       : undefined,
+    // 室内地板区域（house 类沙盒）：少了这条，房间会被画成实心屋顶，家具全被盖住
+    interior:
+      mapRaw.interior === null || typeof mapRaw.interior !== 'object'
+        ? undefined
+        : {
+            x: Math.max(0, Math.round(num((mapRaw.interior as Record<string, unknown>).x, 0))),
+            y: Math.max(0, Math.round(num((mapRaw.interior as Record<string, unknown>).y, 0))),
+            w: Math.max(1, Math.round(num((mapRaw.interior as Record<string, unknown>).w, 1))),
+            h: Math.max(1, Math.round(num((mapRaw.interior as Record<string, unknown>).h, 1))),
+          },
   }
   const places = (Array.isArray(raw.places) ? raw.places : [])
     .map((p) => normalizeObject(p, width, height, 'place'))
@@ -319,53 +329,90 @@ export function normalizeRun(input: unknown, sandboxId: string): RunState {
 
 // ── 沙盒库 ───────────────────────────────────────────────────────────────
 
-/** 从随插件发货的 assets/smallville.json 读复刻镜像；缺失时退到内联种子。 */
-async function readMirrorAsset(): Promise<unknown | undefined> {
+/**
+ * 读取全部发货镜像（assets/ 下的 *.json）。
+ *
+ * 目录里可能有多种镜像（整镇、室内……），全都要能种进去——所以按目录列举而不是
+ * 写死文件名。**排除 style-preview / pack 之类的素材目录**：那里也有 json（清单），
+ * 但它们是构建中间产物，不是沙盒。
+ */
+async function readMirrorAssets(): Promise<unknown[]> {
   const here = dirname(fileURLToPath(import.meta.url))
-  // 打包后 lib/index.js → ../assets/smallville.json；源码运行时 src/host → ../../assets
-  const candidates = [
-    join(here, '..', 'assets', 'smallville.json'),
-    join(here, '..', '..', 'assets', 'smallville.json'),
-  ]
-  for (const file of candidates) {
-    if (!existsSync(file)) continue
-    const parsed = await readJson<unknown>(file)
-    if (parsed !== undefined) {
-      log('loaded smallville mirror from', file)
-      return parsed
+  const dirs = [join(here, '..', 'assets'), join(here, '..', '..', 'assets')]
+  const out: unknown[] = []
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue
+    const names = await readdir(dir).catch(() => [] as string[])
+    for (const name of names.sort()) {
+      if (!name.endsWith('.json')) continue
+      const parsed = await readJson<unknown>(join(dir, name))
+      if (parsed !== null && typeof parsed === 'object' && Array.isArray((parsed as { places?: unknown }).places)) {
+        out.push(parsed)
+      }
+    }
+    if (out.length > 0) {
+      log(`loaded ${out.length} sandbox mirror(s) from ${dir}`)
+      break
     }
   }
-  return undefined
+  return out
 }
 
 export class SandboxStore {
   private cache: Sandbox[] | null = null
-  private mirror: Sandbox | null = null
+  private mirrors: Sandbox[] | null = null
 
+  /**
+   * 首次运行时把发货镜像种进用户目录。
+   *
+   * 现在有**两个**镜像（整镇的 smallville、室内的 house），所以不能再"发现目录非空就跳过"：
+   * 那样后加的镜像永远进不来。改成**逐个镜像检查**——缺哪个补哪个，已有的不动
+   * （玩家可能已经改过那份副本）。
+   */
   async ensureSeed(): Promise<void> {
     await mkdir(sandboxDir(), { recursive: true })
     await mkdir(runDir(), { recursive: true })
-    const existing = await readdir(sandboxDir()).catch(() => [] as string[])
-    if (existing.some((name) => name.endsWith('.json'))) return
-    const asset = await readMirrorAsset()
-    const mirror = normalizeSandbox(asset ?? INLINE_SMALLVILLE, 'smallville')
-    mirror.id = 'smallville'
-    mirror.builtin = true
-    mirror.updatedAt = Date.now()
-    mirror.createdAt = Date.now()
-    await writeJson(join(sandboxDir(), 'smallville.json'), mirror)
-    log('seeded default sandbox from mirror asset')
+    const existing = new Set((await readdir(sandboxDir()).catch(() => [] as string[])).filter((n) => n.endsWith('.json')))
+    const mirrors = await this.mirrorSandboxes()
+    let seeded = 0
+    for (const mirror of mirrors) {
+      const file = `${mirror.id}.json`
+      if (existing.has(file)) continue
+      await writeJson(join(sandboxDir(), file), mirror)
+      seeded += 1
+      log(`seeded sandbox mirror: ${mirror.id} (${mirror.places.length} places / ${mirror.agents.length} agents)`)
+    }
+    if (seeded === 0) log('all sandbox mirrors already present')
   }
 
-  /** 复刻镜像本体（用于「重置为出厂镜像」和 UI 的出处说明）。 */
-  async mirrorSandbox(): Promise<Sandbox> {
-    if (this.mirror !== null) return this.mirror
-    const asset = await readMirrorAsset()
-    const mirror = normalizeSandbox(asset ?? INLINE_SMALLVILLE, 'smallville')
-    mirror.id = 'smallville'
-    mirror.builtin = true
-    this.mirror = mirror
-    return mirror
+  /** 单个镜像（用于「恢复出厂」）。 */
+  async mirrorSandbox(id = 'smallville'): Promise<Sandbox> {
+    const all = await this.mirrorSandboxes()
+    return all.find((s) => s.id === id) ?? all[0]
+  }
+
+  /** 全部发货镜像：assets/ 下的 *.json（缺文件时退到内联兜底）。 */
+  async mirrorSandboxes(): Promise<Sandbox[]> {
+    if (this.mirrors !== null) return this.mirrors
+    const files = await readMirrorAssets()
+    const out: Sandbox[] = []
+    for (const asset of files) {
+      const mirror = normalizeSandbox(asset, 'sandbox')
+      mirror.id = typeof (asset as { id?: string }).id === 'string' ? String((asset as { id: string }).id) : mirror.id
+      mirror.builtin = true
+      mirror.createdAt = Date.now()
+      mirror.updatedAt = Date.now()
+      out.push(mirror)
+    }
+    if (out.length === 0) {
+      const fallback = normalizeSandbox(INLINE_SMALLVILLE, 'smallville')
+      fallback.id = 'smallville'
+      fallback.builtin = true
+      out.push(fallback)
+      log('no mirror asset found on disk — using the inline fallback')
+    }
+    this.mirrors = out
+    return out
   }
 
   async list(force = false): Promise<Sandbox[]> {

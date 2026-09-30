@@ -183,6 +183,20 @@ const store = new SandboxStore()
 await store.ensureSeed()
 const sandboxes = await store.list(true)
 ok(sandboxes.length >= 1, '沙盒库至少有一个沙盒', `实际 ${sandboxes.length}`)
+const house = sandboxes.find((s) => s.id === 'house')
+ok(house !== undefined, '第二个发货镜像 house 已种入（多镜像逐个检查，不是"目录非空就跳过"）')
+ok(house !== undefined && house.map.width === 32 && house.map.height === 24, `house 尺寸 32×24`, `${house?.map.width}×${house?.map.height}`)
+ok(house?.map.interior !== undefined, 'house 保留了 map.interior（少了它房间会被画成实心屋顶，家具全被盖住）')
+ok(house !== undefined && house.agents.length === 4, `house 有 4 位初始居民`, String(house?.agents.length))
+const houseRooms = house?.places ?? []
+ok(houseRooms.length >= 6, `house 有 ${houseRooms.length} 个房间`)
+const houseAttrOk = (house?.agents ?? []).every((a) => ATTR_IDS.every((id) => a.attrs[id] >= 4 && a.attrs[id] <= 10))
+ok(houseAttrOk, 'house 的居民六维都在常人区间 4–10')
+const insideRoom = (x: number, y: number): boolean =>
+  houseRooms.some((p) => x >= p.x && x < p.x + (p.w ?? 0) && y >= p.y && y < p.y + (p.h ?? 0))
+const inRoom = (house?.agents ?? []).every((a) => insideRoom(a.x, a.y))
+ok(inRoom, 'house 的每位居民初始坐标都落在某个房间里（不是站在墙里或院子外）')
+
 const smallville = sandboxes.find((s) => s.id === 'smallville')
 ok(smallville !== undefined, '出厂镜像 smallville 已种入')
 ok(smallville?.builtin === true, '出厂镜像标记为 builtin（不可删）')
@@ -426,7 +440,8 @@ ok(oneStep.driven === 1, 'maxAgents=1 只驱动一个智能体（参数没有被
 ok(oneStep.outcomes.length === 1, '本步 outcomes 也只有一条')
 
 // 步进路由必须先落盘：否则刷新页面会看到旧位置。
-const persistedAfterStep = await runStore.load('smallville')
+const currentId = dataOf<{ sandbox: { id: string } }>(await call(route, 'GET', '/paranim/world?workspace=/tmp/fake-workspace')).sandbox.id
+const persistedAfterStep = await runStore.load(currentId)
 ok(persistedAfterStep !== undefined && persistedAfterStep.tick >= oneStep.driven, '步进结果真的落盘了（不是只在内存里）', `disk tick=${persistedAfterStep?.tick}`)
 
 // 需求 6（续）：自动步进真的会自己走

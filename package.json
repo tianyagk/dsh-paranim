@@ -1,6 +1,6 @@
 {
   "name": "dsh-paranim",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "dsh-paranim（他化自在天）: a DeepSeek Harness web plugin that runs an editable multi-agent town sandbox. Sidebar tabs register through ctx.betterSidebar; the host half owns the JSON sandbox store, a tick engine driving every agent through ctx.llm on a per-agent model route, and a D6 attribute adjudication engine (STR/CON/DEX/APP/INT/POW vs difficulty). The map renders from an inline pixel-art sprite table (tiles, buildings, walkers, props) with right-click object state editing, user directives, and manual / auto world steppers. Ships a recreated Stanford Smallville mirror.",
   "type": "module",
   "engines": {
@@ -36,7 +36,8 @@
     "assets:snapshot": "node scripts/snapshot-assets.mjs",
     "assets:inspect": "node scripts/inspect-sheet.mjs",
     "assets:all": "node scripts/normalize-assets.mjs && node scripts/snapshot-assets.mjs",
-    "find-tile": "node scripts/find-tile.mjs"
+    "find-tile": "node scripts/find-tile.mjs",
+    "assets:house": "node scripts/gen-house-sandbox.mjs"
   },
   "keywords": [
     "deepseek",

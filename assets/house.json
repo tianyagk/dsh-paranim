@@ -1,0 +1,622 @@
+{
+  "v": 1,
+  "id": "house",
+  "name": "一户人家 · 32×24",
+  "desc": "再婚的四口之家：一对夫妻与他们各自的子女。二十格宽的一栋房子、六个房间，四个人在这里过一天。",
+  "attribution": "地图与家具取自 Kenney（kenney.nl）CC0 素材；户型与人物为原创。",
+  "license": "CC0-1.0（素材）",
+  "builtin": true,
+  "createdAt": 0,
+  "updatedAt": 0,
+  "map": {
+    "width": 32,
+    "height": 24,
+    "ground": "#5c8b3a",
+    "interior": {
+      "x": 6,
+      "y": 4,
+      "w": 20,
+      "h": 17
+    }
+  },
+  "places": [
+    {
+      "id": "xiaoman-room",
+      "name": "小满的房间",
+      "x": 7,
+      "y": 8,
+      "w": 6,
+      "h": 5,
+      "color": "#996f7a",
+      "desc": "镜子占了一面墙，地上摊着练功服。",
+      "tags": [
+        "住宅"
+      ],
+      "kind": "place",
+      "interactive": true,
+      "state": {
+        "light": "开"
+      }
+    },
+    {
+      "id": "parents-bedroom",
+      "name": "主卧",
+      "x": 14,
+      "y": 8,
+      "w": 6,
+      "h": 4,
+      "color": "#7d6b8f",
+      "desc": "床头柜上放着两个人的药盒。",
+      "tags": [
+        "住宅"
+      ],
+      "kind": "place",
+      "interactive": true,
+      "state": {
+        "light": "开"
+      }
+    },
+    {
+      "id": "zhiyuan-room",
+      "name": "知远的房间",
+      "x": 21,
+      "y": 8,
+      "w": 4,
+      "h": 4,
+      "color": "#5f7a99",
+      "desc": "墙上贴着没画完的素描，地上永远有干了的颜料。",
+      "tags": [
+        "住宅"
+      ],
+      "kind": "place",
+      "interactive": true,
+      "state": {
+        "light": "开"
+      }
+    },
+    {
+      "id": "kitchen",
+      "name": "厨房",
+      "x": 6,
+      "y": 13,
+      "w": 4,
+      "h": 5,
+      "color": "#6f8a6a",
+      "desc": "灶台边永远温着一锅汤。",
+      "tags": [
+        "餐饮"
+      ],
+      "kind": "place",
+      "interactive": true,
+      "state": {
+        "light": "开"
+      }
+    },
+    {
+      "id": "living-room",
+      "name": "客厅",
+      "x": 11,
+      "y": 13,
+      "w": 8,
+      "h": 5,
+      "color": "#8a7a5f",
+      "desc": "一张旧沙发，电视常年开着没人看。",
+      "tags": [
+        "社交"
+      ],
+      "kind": "place",
+      "interactive": true,
+      "state": {
+        "light": "开"
+      }
+    },
+    {
+      "id": "study",
+      "name": "书房",
+      "x": 20,
+      "y": 13,
+      "w": 5,
+      "h": 5,
+      "color": "#6a7a5f",
+      "desc": "一半是电器图纸，一半是旧账本。",
+      "tags": [
+        "住宅"
+      ],
+      "kind": "place",
+      "interactive": true,
+      "state": {
+        "light": "开"
+      }
+    },
+    {
+      "id": "hall",
+      "name": "门厅",
+      "x": 19,
+      "y": 18,
+      "w": 6,
+      "h": 2,
+      "color": "#7a7268",
+      "desc": "鞋架上四双鞋，摆得泾渭分明。",
+      "tags": [
+        "公共"
+      ],
+      "kind": "place",
+      "interactive": true,
+      "state": {
+        "light": "开"
+      }
+    }
+  ],
+  "objects": [
+    {
+      "id": "bed-parents",
+      "name": "双人床",
+      "x": 15,
+      "y": 9,
+      "kind": "prop",
+      "color": "#c9bfae",
+      "desc": "靠窗那一侧是林清的位置。",
+      "state": {
+        "status": "正常",
+        "made": true
+      },
+      "interactive": true,
+      "affordances": [
+        "铺床",
+        "躺下"
+      ]
+    },
+    {
+      "id": "bed-zhiyuan",
+      "name": "单人床",
+      "x": 22,
+      "y": 9,
+      "kind": "prop",
+      "color": "#b9c4d2",
+      "desc": "床单很久没换了。",
+      "state": {
+        "status": "正常",
+        "made": false
+      },
+      "interactive": true,
+      "affordances": [
+        "铺床",
+        "躺下"
+      ]
+    },
+    {
+      "id": "bed-xiaoman",
+      "name": "单人床",
+      "x": 8,
+      "y": 9,
+      "kind": "prop",
+      "color": "#d2bcc4",
+      "desc": "床边堆着三本舞蹈杂志。",
+      "state": {
+        "status": "正常",
+        "made": true
+      },
+      "interactive": true,
+      "affordances": [
+        "铺床",
+        "躺下"
+      ]
+    },
+    {
+      "id": "sofa",
+      "name": "旧沙发",
+      "x": 12,
+      "y": 14,
+      "kind": "prop",
+      "color": "#8a7a5f",
+      "desc": "坐垫塌了一边，是沈砚的固定位置。",
+      "state": {
+        "status": "正常",
+        "occupied": false
+      },
+      "interactive": true,
+      "affordances": [
+        "坐下",
+        "躺下"
+      ]
+    },
+    {
+      "id": "tv",
+      "name": "电视机",
+      "x": 16,
+      "y": 13,
+      "kind": "fixture",
+      "color": "#3a3f46",
+      "desc": "开着，但没人在看。",
+      "state": {
+        "status": "正常",
+        "on": true
+      },
+      "interactive": true,
+      "affordances": [
+        "换台",
+        "关掉"
+      ]
+    },
+    {
+      "id": "dining-table",
+      "name": "餐桌",
+      "x": 15,
+      "y": 15,
+      "kind": "prop",
+      "color": "#9b7046",
+      "desc": "四个人坐得下的方桌，实际上很少坐满。",
+      "state": {
+        "status": "正常"
+      },
+      "interactive": true,
+      "affordances": [
+        "摆碗筷",
+        "坐下"
+      ]
+    },
+    {
+      "id": "stove",
+      "name": "灶台",
+      "x": 8,
+      "y": 14,
+      "kind": "fixture",
+      "color": "#505152",
+      "desc": "灶上温着汤。",
+      "state": {
+        "status": "正常",
+        "on": false
+      },
+      "interactive": true,
+      "affordances": [
+        "点火",
+        "关火"
+      ]
+    },
+    {
+      "id": "fridge",
+      "name": "冰箱",
+      "x": 9,
+      "y": 17,
+      "kind": "fixture",
+      "color": "#c8ccd2",
+      "desc": "门上贴着便利贴，两张字迹不同的。",
+      "state": {
+        "status": "正常",
+        "power": true
+      },
+      "interactive": true,
+      "affordances": [
+        "打开",
+        "贴纸条"
+      ]
+    },
+    {
+      "id": "sink-kitchen",
+      "name": "水槽",
+      "x": 9,
+      "y": 14,
+      "kind": "fixture",
+      "color": "#86929a",
+      "desc": "泡着两个还没洗的碗。",
+      "state": {
+        "status": "正常"
+      },
+      "interactive": true,
+      "affordances": [
+        "洗碗"
+      ]
+    },
+    {
+      "id": "desk-study",
+      "name": "书桌",
+      "x": 21,
+      "y": 14,
+      "kind": "prop",
+      "color": "#976f46",
+      "desc": "桌面一分为二，中间用一摞书划开。",
+      "state": {
+        "status": "正常"
+      },
+      "interactive": true,
+      "affordances": [
+        "写字",
+        "翻找"
+      ]
+    },
+    {
+      "id": "shelf-study",
+      "name": "书架",
+      "x": 24,
+      "y": 16,
+      "kind": "prop",
+      "color": "#8a6a4a",
+      "desc": "电器手册与菜谱挤在同一层。",
+      "state": {
+        "status": "正常"
+      },
+      "interactive": true,
+      "affordances": [
+        "取书"
+      ]
+    },
+    {
+      "id": "mirror",
+      "name": "落地镜",
+      "x": 7,
+      "y": 10,
+      "kind": "fixture",
+      "color": "#b8c8d0",
+      "desc": "小满练功时对着它。",
+      "state": {
+        "status": "正常"
+      },
+      "interactive": true,
+      "affordances": [
+        "照镜子"
+      ]
+    },
+    {
+      "id": "easel",
+      "name": "画架",
+      "x": 23,
+      "y": 10,
+      "kind": "prop",
+      "color": "#b59a72",
+      "desc": "画布上是一扇半开的门。",
+      "state": {
+        "status": "正常"
+      },
+      "interactive": true,
+      "affordances": [
+        "作画"
+      ]
+    },
+    {
+      "id": "shoe-rack",
+      "name": "鞋架",
+      "x": 22,
+      "y": 19,
+      "kind": "prop",
+      "color": "#8a7a5f",
+      "desc": "四双鞋，左边两双摆得整齐，右边两双歪着。",
+      "state": {
+        "status": "正常"
+      },
+      "interactive": true,
+      "affordances": [
+        "整理"
+      ]
+    },
+    {
+      "id": "kettle",
+      "name": "水壶",
+      "x": 8,
+      "y": 16,
+      "kind": "prop",
+      "color": "#b9bcc4",
+      "desc": "一直温着。",
+      "state": {
+        "status": "正常",
+        "hot": true
+      },
+      "interactive": true,
+      "affordances": [
+        "倒水"
+      ]
+    },
+    {
+      "id": "yard-tree",
+      "name": "院子里的树",
+      "x": 3,
+      "y": 6,
+      "kind": "plant",
+      "color": "#3f6b34",
+      "desc": "比这栋房子还老。",
+      "state": {
+        "status": "正常"
+      },
+      "interactive": true,
+      "affordances": [
+        "乘凉"
+      ]
+    },
+    {
+      "id": "path-lamp",
+      "name": "门前的灯",
+      "x": 21,
+      "y": 22,
+      "kind": "fixture",
+      "color": "#d8d8a0",
+      "desc": "沈砚装的，等谁晚归就一直亮着。",
+      "state": {
+        "status": "正常",
+        "lit": true
+      },
+      "interactive": true,
+      "affordances": [
+        "修理",
+        "关灯"
+      ]
+    },
+    {
+      "id": "bike-yard",
+      "name": "靠墙的自行车",
+      "x": 3,
+      "y": 14,
+      "kind": "vehicle",
+      "color": "#3a7a8a",
+      "desc": "知远的，后座绑着画筒。",
+      "state": {
+        "status": "正常",
+        "locked": true
+      },
+      "interactive": true,
+      "affordances": [
+        "骑走",
+        "撬锁"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "a": "shenyan",
+      "b": "linqing",
+      "label": "再婚夫妻",
+      "affinity": 45
+    },
+    {
+      "a": "shenyan",
+      "b": "zhiyuan",
+      "label": "父子",
+      "affinity": 60
+    },
+    {
+      "a": "linqing",
+      "b": "xiaoman",
+      "label": "母女",
+      "affinity": 65
+    },
+    {
+      "a": "shenyan",
+      "b": "xiaoman",
+      "label": "继父与继女",
+      "affinity": 15
+    },
+    {
+      "a": "linqing",
+      "b": "zhiyuan",
+      "label": "继母与继子",
+      "affinity": 10
+    },
+    {
+      "a": "zhiyuan",
+      "b": "xiaoman",
+      "label": "继兄妹",
+      "affinity": -20
+    }
+  ],
+  "agents": [
+    {
+      "id": "shenyan",
+      "name": "沈砚",
+      "concept": "电器修理铺老板（继父）",
+      "x": 15,
+      "y": 16,
+      "appearance": "五十出头，袖口常卷到手肘，左手食指有一道旧疤。",
+      "persona": "话少，习惯先把坏掉的东西拆开看再说话；对两个孩子一视同仁，但不太会表达，容易显得偏心。",
+      "backstory": "前妻病故后一个人带大知远。两年前与林清再婚，把铺子二楼腾出来给这个家。",
+      "goal": "让这个家真正像一家，而不是四个人合住。",
+      "attrs": {
+        "str": 7,
+        "con": 7,
+        "dex": 6,
+        "app": 5,
+        "int": 8,
+        "pow": 8
+      },
+      "plan": [
+        "早起烧水、看铺子今天的单子",
+        "修好小满房间那盏接触不良的灯",
+        "晚饭时试着问问知远的画"
+      ],
+      "inventory": [
+        "螺丝刀",
+        "登记本"
+      ],
+      "color": "#5f7a99",
+      "portrait": "🔧"
+    },
+    {
+      "id": "linqing",
+      "name": "林清",
+      "concept": "面包师（母亲）",
+      "x": 8,
+      "y": 16,
+      "appearance": "短发利落，围裙上有面粉印，手腕戴一只旧表。",
+      "persona": "把情绪都做进食物里。对女儿要求严，对继子客气过头——她自己知道这一点，但改不过来。",
+      "backstory": "离婚后独自把小满带大，靠一家小面包店撑住。与沈砚再婚是想让两个人都松一口气。",
+      "goal": "这周把两家人真正坐在一起吃一顿饭。",
+      "attrs": {
+        "str": 6,
+        "con": 8,
+        "dex": 7,
+        "app": 7,
+        "int": 7,
+        "pow": 9
+      },
+      "plan": [
+        "发面、烤一炉早餐包",
+        "去店里看上午的出品",
+        "晚饭前把餐桌收拾出来"
+      ],
+      "inventory": [
+        "食谱本",
+        "面粉袋"
+      ],
+      "color": "#996f7a",
+      "portrait": "🥐"
+    },
+    {
+      "id": "zhiyuan",
+      "name": "沈知远",
+      "concept": "美院在读生（继子）",
+      "x": 23,
+      "y": 10,
+      "appearance": "瘦高，黑卫衣，手指关节有颜料。",
+      "persona": "对谁都不冷不热，唯独在画前话多；不承认自己讨厌小满，但每次都用\"嗯\"结束对话。",
+      "backstory": "母亲去世后跟着父亲。原本一个人住二楼，林清母女搬进来后他的房间被分掉一半。",
+      "goal": "把那张画完——一扇半开的门，他也不知道门外是什么。",
+      "attrs": {
+        "str": 5,
+        "con": 5,
+        "dex": 7,
+        "app": 6,
+        "int": 9,
+        "pow": 6
+      },
+      "plan": [
+        "在房间里画到中午",
+        "下楼找点吃的（尽量避开人）",
+        "晚上出门走走"
+      ],
+      "inventory": [
+        "画笔",
+        "速写本"
+      ],
+      "color": "#6a8ab0",
+      "portrait": "🎨"
+    },
+    {
+      "id": "xiaoman",
+      "name": "林小满",
+      "concept": "舞蹈专业大一（继女）",
+      "x": 8,
+      "y": 10,
+      "appearance": "扎高马尾，脚踝缠着练功带，走路习惯踮一下。",
+      "persona": "话密、爱问问题，被冷落时会故意弄出点动静；知道知远嫌她吵，于是更吵。",
+      "backstory": "从小跟着母亲在店里长大，习惯用热闹填满空间。搬进来后最不适应的是\"安静\"。",
+      "goal": "让知远跟她说一句完整的话。",
+      "attrs": {
+        "str": 5,
+        "con": 6,
+        "dex": 9,
+        "app": 8,
+        "int": 6,
+        "pow": 7
+      },
+      "plan": [
+        "上午在房间练功",
+        "去厨房找妈要点吃的",
+        "傍晚在院子里跳一段"
+      ],
+      "inventory": [
+        "练功带",
+        "耳机"
+      ],
+      "color": "#c08a9a",
+      "portrait": "🩰"
+    }
+  ],
+  "startTick": 0
+}

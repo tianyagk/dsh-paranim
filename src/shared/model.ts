@@ -466,6 +466,11 @@ export interface SandboxMap {
   /** 底色装饰（网格线等）由客户端按样式绘制，这里只放语义化的色块。 */
   decor?: Array<{ x: number; y: number; w: number; h: number; color: string; label?: string }>
   /**
+   * 可选：室内地板区域（`house` 类沙盒用）。给定后这块矩形铺石地板，
+   * 且其中地标（房间）**只画墙圈、不铺屋顶**——否则室内家具与地面会被屋顶盖住。
+   */
+  interior?: { x: number; y: number; w: number; h: number }
+  /**
    * 可选的地块底图：每行一个字符串，字符含义 g 草 / r 路 / w 水 / s 沙 / p 石 / z 广场。
    * 给了就用它，没给由客户端按地标布局推导一张降级图（见 client/town.ts）。
    *

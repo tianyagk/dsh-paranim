@@ -116,6 +116,25 @@ function drawBuilding(ctx: CanvasRenderingContext2D, view: View, layout: TownLay
   const w = b.right - b.left + 1
   const h = b.bottom - b.top + 1
 
+  // 室内小房间（占地 ≤ 8×6）：**只画墙圈**，不铺屋顶。
+  // 铺了屋顶就把房间里的家具与地面全盖住了——那正是"house 布局"最需要看见的东西。
+  const isInterior = w <= 8 && h <= 6
+  if (isInterior) {
+    const wallRef = pickSlot(BUILDING, 'wall', hash2(b.left, b.top, 71))
+    if (wallRef !== undefined) {
+      for (let y = b.top; y <= b.bottom; y += 1) {
+        for (let x = b.left; x <= b.right; x += 1) {
+          const isEdge = x === b.left || x === b.right || y === b.bottom || y === b.top
+          if (!isEdge) continue
+          drawGroundTile(ctx, wallRef, px(x), py(y), step + 0.5)
+        }
+      }
+    }
+    ctx.fillStyle = 'rgba(20,28,20,0.18)'
+    ctx.fillRect(px(b.left), py(b.bottom) + step * 0.55, (b.right - b.left + 1) * step, Math.max(2, step * 0.4))
+    return
+  }
+
   // 落地投影（压在墙脚外侧，让房子"坐"在草地上）
   ctx.fillStyle = 'rgba(20,28,20,0.22)'
   ctx.fillRect(px(b.left), py(b.bottom) + step * 0.55, w * step, Math.max(2, step * 0.45))
@@ -157,13 +176,24 @@ function drawBuilding(ctx: CanvasRenderingContext2D, view: View, layout: TownLay
 function propSlotOf(object: WorldObject): string {
   const id = `${object.id} ${object.name}`.toLowerCase()
   const named: Array<[RegExp, string]> = [
-    [/tree|树/, 'tree'],
+    [/tree|树|盆栽/, 'tree'],
     [/bush|灌木|花丛/, 'bush'],
     [/flower|花/, 'flower'],
     [/rock|石/, 'rock'],
     [/lamp|灯/, 'streetlamp'],
     [/sign|notice|board|告示|牌/, 'sign'],
     [/vehicle|truck|car|车|风车/, 'vehicle'],
+    [/bed|床/, 'bed'],
+    [/sofa|couch|沙发/, 'sofa'],
+    [/table|桌|餐桌|书桌/, 'table'],
+    [/chair|凳|椅/, 'chair'],
+    [/stove|cooker|灶|烤箱/, 'stove'],
+    [/counter|cabinet|柜|案台/, 'counter'],
+    [/sink|basin|水槽|洗手/, 'sink'],
+    [/rug|carpet|地毯/, 'rug'],
+    [/shelf|书架|柜架/, 'bookshelf'],
+    [/plant|绿植/, 'plant'],
+    [/fence|栅栏|篱/, 'fence'],
   ]
   for (const [re, slot] of named) if (re.test(id)) return slot
   switch (object.kind as ObjectKind) {
