@@ -222,8 +222,6 @@ const CSS = `
   border: 1px solid var(--pa-border); border-radius: 5px;
   font-size: 13px; font-weight: 600; padding: 1px 4px;
 }
-.pa-attrbar { height: 3px; border-radius: 2px; background: var(--pa-layer4); overflow: hidden; }
-.pa-attrbar i { display: block; height: 100%; background: linear-gradient(90deg, var(--pa-goldDim), var(--pa-gold)); }
 
 /* ── 记忆 / 事件流 ────────────────────────────────────────────────── */
 .pa-mem {
@@ -235,7 +233,6 @@ const CSS = `
 .pa-mem[data-kind="thought"] { border-left-color: var(--pa-accent); font-style: italic; }
 .pa-mem[data-kind="whisper"] { border-left-color: var(--pa-gold); color: var(--pa-text); }
 .pa-mem[data-kind="summary"] { border-left-color: var(--pa-ok); }
-.pa-mem .pa-memwhen { color: var(--pa-textFaint); margin-right: 5px; }
 
 /* ── 消息栏：按语义着色的三条渲染路径 ─────────────────────────────────
    同一份事件数据，三种呈现：卡片 / 日志 / 对白。颜色全部来自主题变量，
@@ -337,7 +334,6 @@ const CSS = `
 .pa-seg-dice { font-family: ui-monospace, monospace; color: var(--pa-gold); }
 .pa-seg-object { color: var(--pa-text); border-bottom: 1px dotted var(--pa-textFaint); }
 
-.pa-evmeta { color: var(--pa-feedMeta); font-size: 10.5px; }
 .pa-evhead .pa-evtime { color: var(--pa-feedMeta); font-size: 10.5px; margin-left: auto; }
 
 /* ── 底栏 ─────────────────────────────────────────────────────────── */
@@ -371,7 +367,6 @@ const CSS = `
 .pa-kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
 .pa-kv span:nth-child(odd) { color: var(--pa-textDim); }
 .pa-kv span:nth-child(even) { color: var(--pa-text); }
-.pa-hr { height: 1px; background: var(--pa-borderSoft); margin: 8px 0; }
 
 /* 主题与消息模式选择器（底栏，可即时看到效果） */
 .pa-picker { display: flex; align-items: center; gap: 4px; }

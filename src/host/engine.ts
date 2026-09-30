@@ -304,7 +304,7 @@ interface Draft {
  * （无路由 → 兜底；空文本/非 JSON/调用失败 → 兜底）只有一处，不会出现
  * "重试路径悄悄放宽了格式要求"这种双份契约。
  */
-export async function draftAction(
+async function draftAction(
   deps: EngineDeps,
   agent: RunAgent,
   signal: AbortSignal,

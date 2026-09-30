@@ -1069,11 +1069,19 @@ function EventRow(props: { event: WorldEvent; mode: FeedMode }): React.ReactElem
   const { event, mode } = props
   const tone = toneOf(event)
   const segments = segmentsOf(event)
-  const parts = segments.map((seg, i) =>
-    seg.kind === 'plain'
+  // 显式映射而不是拼 `pa-seg-${kind}`：拼字符串时改个类名不会报错，只会静默失色，
+  // 而且静态检索也看不到它们被用过（删样式时容易误删）。
+  const SEG_CLASS: Record<string, string> = {
+    quote: 'pa-seg-quote',
+    dice: 'pa-seg-dice',
+    object: 'pa-seg-object',
+  }
+  const parts = segments.map((seg, i) => {
+    const cls = SEG_CLASS[seg.kind]
+    return cls === undefined
       ? React.createElement('span', { key: i }, seg.text)
-      : React.createElement('span', { key: i, className: `pa-seg-${seg.kind}` }, seg.text),
-  )
+      : React.createElement('span', { key: i, className: cls }, seg.text)
+  })
 
   const head = React.createElement(
     'div',

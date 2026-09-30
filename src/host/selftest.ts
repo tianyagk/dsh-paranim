@@ -589,6 +589,13 @@ const stepToolOut = (await stepTool!.execute({ steps: 2 }, {})) as { text: strin
 ok(stepToolOut.text.includes('【第') && stepToolOut.text.includes('步】'), 'paranim_step 能一次推两步')
 ok(stepToolOut.text.includes('驱动'), 'paranim_step 报告驱动数量')
 
+// 事件正文里的三种语义片段：类名必须是显式映射写进产物的（拼字符串时改名不报错、
+// 只静默失色，且静态检索看不到它们被用过）。这里检查源码侧，产物侧由 build.mjs 断言。
+const clientSource = await readFile(join('src', 'client', 'index.tsx'), 'utf8').catch(() => '')
+ok(clientSource.includes("'pa-seg-quote'"), '片段类名显式映射：对话')
+ok(clientSource.includes("'pa-seg-dice'"), '片段类名显式映射：骰值')
+ok(clientSource.includes("'pa-seg-object'"), '片段类名显式映射：被引用的物件')
+
 ok(promptText.includes('他化自在天') && promptText.includes('骰值 + 对应属性'), '提示段写清了沙盒与判定规则')
 ok(promptText.includes('力量') && promptText.includes('意志'), '提示段解释了六维含义')
 disposeTools()

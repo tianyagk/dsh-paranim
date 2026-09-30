@@ -2,7 +2,7 @@
  * dsh-paranim — 公用契约（host 与 client 共享）。
  *
  * 这里定义三样东西，两端都只能通过它说话：
- *  1. 六维属性与 D6 判定引擎（`resolveCheck` / `adjudicate` / `DICE_RE`）
+ *  1. 六维属性与 D6 判定引擎（`resolveCheck` / `adjudicate`）
  *  2. 世界沙盒的持久化 schema（`Sandbox` / `Agent` / `WorldObject` / `RunState`）
  *  3. `/paranim/*` 路由的请求与响应形状
  *
@@ -57,8 +57,8 @@ export const HUMAN_MIN = 4
 export const HUMAN_MAX = 10
 
 /** 属性绝对值下限/上限（越界值在写入时被夹紧到这一档）。 */
-export const ATTR_MIN = 1
-export const ATTR_MAX = 20
+const ATTR_MIN = 1
+const ATTR_MAX = 20
 
 export function isAttrId(value: unknown): value is AttrId {
   return typeof value === 'string' && (ATTR_IDS as readonly string[]).includes(value)
@@ -100,9 +100,6 @@ export const DEFAULT_DIFFICULTY = 11
 export function difficultyOf(id: string): DifficultyStep {
   return DIFFICULTY_LADDER.find((step) => step.id === id) ?? DIFFICULTY_LADDER[2]
 }
-
-/** 只接受 1..6；其他输入返回 null（调用方决定报错口径）。 */
-export const DICE_RE = /^[1-6]$/
 
 export type CheckOutcome = 'critical' | 'success' | 'failure' | 'critical-failure'
 
@@ -153,7 +150,7 @@ export interface CheckInput {
 }
 
 /** 判定骰面是否合法（1..6 整数）。 */
-export function isValidRoll(value: unknown): value is number {
+function isValidRoll(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 6
 }
 
@@ -682,11 +679,6 @@ export function shortId(prefix: string): string {
   const base = Date.now().toString(36)
   const rand = Math.random().toString(36).slice(2, 7)
   return `${prefix}-${base}${rand}`
-}
-
-export function clamp(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min
-  return Math.min(max, Math.max(min, value))
 }
 
 /** 把任意输入读成一个状态值（拒绝对象/函数，避免脏数据进 JSON）。 */

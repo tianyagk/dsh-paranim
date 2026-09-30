@@ -118,6 +118,10 @@ const REQUIRED_CLIENT_SNIPPETS = [
   '消息',                  // 消息模式选择器标签
   '对白',                  // 消息模式之一
   'data-tone',             // 事件按语义着色
+  'pa-seg-quote',          // 正文片段：对话
+  'pa-seg-dice',           // 正文片段：骰值
+  'pa-seg-object',         // 正文片段：被引用的物件
+  'pa-swatch',             // 主题色块（色点 + 短名）
 ]
 
 /**

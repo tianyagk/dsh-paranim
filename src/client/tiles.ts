@@ -154,9 +154,3 @@ export function drawGroundTile(
   ctx.drawImage(s.image, sx, sy, tile, tile, Math.round(x), Math.round(y), Math.ceil(size), Math.ceil(size))
 }
 
-/** 一张图集的网格信息（给"对照表"界面用）。 */
-export function sheetGrid(key: SheetKey): { cols: number; rows: number; note: string } | undefined {
-  const meta = SHEETS[key]
-  if (meta === undefined) return undefined
-  return { cols: meta.cols, rows: meta.rows, note: meta.note }
-}

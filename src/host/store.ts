@@ -49,7 +49,7 @@ export function sandboxDir(): string {
   return join(dataHome(), 'sandboxes')
 }
 
-export function runDir(workspace?: string): string {
+function runDir(workspace?: string): string {
   // 运行态按工作区分桶：换一个项目/会话时不该看到上一个工作区的小镇在跑。
   // 工作区缺失（无会话上下文）时落到 shared 桶，仍然可用。
   return join(dataHome(), 'runs', bucketOf(workspace))
@@ -98,7 +98,7 @@ function num(value: unknown, fallback: number): number {
   return Number.isFinite(n) ? n : fallback
 }
 
-export function normalizeState(input: unknown): Record<string, StateValue> {
+function normalizeState(input: unknown): Record<string, StateValue> {
   const out: Record<string, StateValue> = {}
   if (input === null || typeof input !== 'object' || Array.isArray(input)) return out
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
@@ -150,7 +150,7 @@ export function normalizeObject(
   }
 }
 
-export function normalizeAgentTemplate(input: unknown, mapW: number, mapH: number, index: number): SandboxAgent | undefined {
+function normalizeAgentTemplate(input: unknown, mapW: number, mapH: number, index: number): SandboxAgent | undefined {
   if (input === null || typeof input !== 'object') return undefined
   const a = input as Record<string, unknown>
   const id = str(a.id).trim() === '' ? `agent-${index + 1}` : str(a.id).trim()
@@ -261,7 +261,7 @@ export function normalizeSandbox(input: unknown, fallbackId = 'sandbox'): Sandbo
   }
 }
 
-export function normalizeRun(input: unknown, sandboxId: string): RunState {
+function normalizeRun(input: unknown, sandboxId: string): RunState {
   const raw = (input ?? {}) as Record<string, unknown>
   const agentsRaw = Array.isArray(raw.agents) ? raw.agents : []
   const agents: RunAgent[] = agentsRaw

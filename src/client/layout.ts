@@ -13,6 +13,7 @@
  * 这一层是纯函数：同样的沙盒必然得到同样的地图，可以脱离浏览器单测。
  */
 import type { Sandbox, WorldObject } from '../shared/model.ts'
+import { hash2 } from './grid.ts'
 
 export type Terrain = 'grass' | 'grassAlt' | 'dirt' | 'stone' | 'water' | 'sand' | 'field'
 
@@ -45,14 +46,8 @@ export interface TownLayout {
   road: boolean[][]
 }
 
-function hash2(x: number, y: number, salt = 0): number {
-  let h = (Math.round(x) * 374761393 + Math.round(y) * 668265263 + salt * 2246822519) | 0
-  h = (h ^ (h >>> 13)) * 1274126177
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296
-}
-
 /** 屋顶族：配色即语义（暖=社交/餐饮、蓝=商业/学术、绿=公共/户外、默认=住宅）。 */
-export function roofSlotOf(place: WorldObject): string {
+function roofSlotOf(place: WorldObject): string {
   const tags = (place.tags ?? []).join(' ')
   if (tags.includes('社交') || tags.includes('餐饮')) return 'roofWarm'
   if (tags.includes('商业') || tags.includes('学术')) return 'roofCool'

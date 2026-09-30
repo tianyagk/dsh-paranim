@@ -21,6 +21,7 @@ import {
 } from '../shared/model.ts'
 import { BUILDING, CHARACTER, GROUND, PROPS, SYMBOLS, pickSlot } from './mapStyle.ts'
 import { buildLayout, layoutKey, type TownLayout } from './layout.ts'
+import { hash2 } from './grid.ts'
 import { drawGroundTile, drawTile, type TileRef } from './tiles.ts'
 
 /** 一格地图像素（图集瓦片原始尺寸）。 */
@@ -45,16 +46,10 @@ export interface RenderInput {
   tick?: number
 }
 
-function hash2(x: number, y: number, salt = 0): number {
-  let h = (Math.round(x) * 374761393 + Math.round(y) * 668265263 + salt * 2246822519) | 0
-  h = (h ^ (h >>> 13)) * 1274126177
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296
-}
-
 // 布局缓存：同一份沙盒只算一次。键是地标几何 + 地图尺寸 + 自带地形长度。
 let cachedLayout: { key: string; layout: TownLayout } | null = null
 
-export function townLayout(sandbox: Sandbox): TownLayout {
+function townLayout(sandbox: Sandbox): TownLayout {
   const key = layoutKey(sandbox)
   if (cachedLayout !== null && cachedLayout.key === key) return cachedLayout.layout
   const layout = buildLayout(sandbox)
