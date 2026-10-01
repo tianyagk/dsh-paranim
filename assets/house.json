@@ -618,5 +618,6 @@
       "portrait": "🩰"
     }
   ],
-  "startTick": 0
+  "startTick": 0,
+  "mirrorVersion": "1"
 }

@@ -12,6 +12,7 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
+import { resolveAction } from '../shared/rules.ts'
 import { ATTR_IDS, normalizeAttrs, shortId, type RunState, type Sandbox, type WorldEvent } from '../shared/model.ts'
 import { remember, runTick, issueDirective, listModelChoices } from './engine.ts'
 import { makeRoutes, type ParanimRoutes, type WorldView } from './routes.ts'
@@ -499,6 +500,31 @@ const moodRound = await routes.world({ workspace: '/tmp/fake-workspace', create:
 await runStore.save(moodRound.run)
 const moodReloaded = await runStore.load(moodRound.sandbox.id)
 ok(moodReloaded?.agents.find((a) => a.id === addedNullModel?.id)?.mood?.value === 2, '心情能落盘并读回（归一化没把它丢掉）')
+
+// 动作正文的清洗：模型常自带主语与句末标点，直接拼会得到「沈砚沈砚…。。」
+{
+  const before = (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).run.agents[0]
+  const settled = resolveAction(
+    { kind: 'observe', text: `${before.name}伸手抵住餐桌边缘。`, thought: '试试' },
+    {
+      sandbox: (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).sandbox,
+      run: (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).run,
+      agent: before,
+      ts: Date.now(),
+      operator: 'agent',
+      rng: { d6: () => 4 },
+    },
+  )
+  const actText = settled.events.find((e) => e.kind === 'act')?.text ?? ''
+  // 主语由 narrate() 有意补一次（正文没有主语时补上，已有则原样）——所以不变量不是
+  // "不以名字开头"，而是"名字恰好出现一次、且不出现连续句号"。
+  ok(
+    (actText.match(new RegExp(before.name, 'g')) ?? []).length === 1,
+    '动作正文里名字恰好出现一次（不会"沈砚沈砚…"）',
+    actText.slice(0, 44),
+  )
+  ok(!/[。．.]{2}/.test(actText), '动作正文不出现连续句号', actText.slice(0, 40))
+}
 
 // 需求 3：指令引导
 const directRes = await call(route, 'POST', '/paranim/directive?workspace=/tmp/fake-workspace', {

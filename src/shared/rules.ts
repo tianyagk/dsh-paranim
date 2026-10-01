@@ -281,13 +281,40 @@ export function resolveAction(action: AgentAction, ctx: ActionContext): ActionOu
     }
   }
 
+  // 动作正文的清洗规则，只写一处。
+  //
+  // 模型返回的 text 常常自带主语与句末标点（"沈砚伸手抵住餐桌边缘。"），
+  // 而事件本身已经单独存了 actorName；再拼一次名字、再补一个句号，
+  // 就会得到"沈砚沈砚伸手…。。"这种既重复又难看的正文（实测确实如此）。
+  const actionTextOf = (text: string): string => {
+    let out = text.trim()
+    // 模型给的正文**通常不带主语**（"站在空旷处，伸手抵住餐桌边缘"），
+    // 少数时候会自己带上（"沈砚伸手…"）。所以这里只负责把主语剥掉，
+    // 补不补由下面句式化函数统一决定——两边都补就会得到"沈砚沈砚…"（实测踩过）。
+    if (out.startsWith(agent.name)) out = out.slice(agent.name.length).replace(/^[，,、：:]+/, '').trim()
+    // 去掉句末标点：正文后面统一由一个句式化函数补句号，否则会出现"…。。"
+    out = out.replace(/[。．.!！?？；;，,]+$/u, '').trim()
+    return out === '' ? '动了动' : out
+  }
+
+  /**
+   * 句式化：**只在这里补主语与句号**。
+   *
+   * 事件单独存了 actorName，正文再说一遍名字是冗余的——但直接不补又会让"站在空旷处…"
+   * 这类句子没有主语的落点。折中规则是：正文里已经出现名字就原样用，否则补一次。
+   */
+  const narrate = (text: string): string => {
+    const body = actionTextOf(text)
+    return body.startsWith(agent.name) ? `${body}。` : `${agent.name}${body}。`
+  }
+
   switch (kind) {
     case 'wait': {
-      events.push(mkEvent({ kind: 'act', actor: agent.id, actorName: agent.name, text: `${agent.name}停下来${actionText === ACTION_LABEL.wait ? '观察了一下四周' : `：${actionText}`}。` }, run, ts))
+      events.push(mkEvent({ kind: 'act', actor: agent.id, actorName: agent.name, text: `${agent.name}停下来${actionText === ACTION_LABEL.wait ? '观察了一下四周' : `：${actionTextOf(actionText)}`}。` }, run, ts))
       break
     }
     case 'observe': {
-      events.push(mkEvent({ kind: 'act', actor: agent.id, actorName: agent.name, text: `${agent.name}${actionText}。` }, run, ts))
+      events.push(mkEvent({ kind: 'act', actor: agent.id, actorName: agent.name, text: narrate(actionText) }, run, ts))
       break
     }
     case 'move': {
@@ -365,7 +392,7 @@ export function resolveAction(action: AgentAction, ctx: ActionContext): ActionOu
         events.push(mkEvent({ kind: 'act', actor: agent.id, actorName: agent.name, text, targetAgentId: other.id }, run, ts))
         bumpRelation(run, agent.id, other.id, 3)
       } else {
-        events.push(mkEvent({ kind: 'act', actor: agent.id, actorName: agent.name, text: `${agent.name}${actionText}。` }, run, ts))
+        events.push(mkEvent({ kind: 'act', actor: agent.id, actorName: agent.name, text: narrate(actionText) }, run, ts))
       }
       break
     }
@@ -425,7 +452,7 @@ export function resolveAction(action: AgentAction, ctx: ActionContext): ActionOu
     case 'opposed': {
       const other = findAgent(run, action.targetAgentId)
       if (other === undefined) {
-        events.push(mkEvent({ kind: 'act', actor: agent.id, actorName: agent.name, text: `${agent.name}${actionText}，却找不到对手。` }, run, ts))
+        events.push(mkEvent({ kind: 'act', actor: agent.id, actorName: agent.name, text: `${narrate(actionText).replace(/。$/, '')}，却找不到对手。` }, run, ts))
         break
       }
       const attr: AttrId = isAttrId(action.attr) ? action.attr : kind === 'attack' ? 'str' : 'pow'
@@ -490,7 +517,7 @@ export function resolveAction(action: AgentAction, ctx: ActionContext): ActionOu
       break
     }
     default: {
-      events.push(mkEvent({ kind: 'act', actor: agent.id, actorName: agent.name, text: `${agent.name}${actionText}。` }, run, ts))
+      events.push(mkEvent({ kind: 'act', actor: agent.id, actorName: agent.name, text: narrate(actionText) }, run, ts))
       break
     }
   }

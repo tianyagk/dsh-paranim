@@ -274,7 +274,15 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
         if (retry.text.trim() !== '') return retry.text
         throw new Error(`模型 ${call.route.provider}/${call.route.model} 两次调用都没有文本（首次 ${attempt.detail}；摘掉 reasoningEffort 后 ${retry.detail}）`)
       }
-      throw new Error(`模型 ${call.route.provider}/${call.route.model} 没有返回文本（${attempt.detail}）`)
+      // 把"为什么没有文本"直接说清：推理模型常见的是"预算被推理吃光"，而不是模型拒答。
+      const hint = /空闲超过/.test(attempt.detail)
+        ? '（空闲超时：模型在推理途中长时间没有新产出，可调大 step.callTimeoutMs）'
+        : /finish=length/.test(attempt.detail)
+          ? '（预算被推理占满：maxTokens 不够，调大或换非推理模型）'
+          : /reasoning-delta/.test(attempt.detail)
+            ? '（有推理却无正文：多为推理未结束就断了，先看耗时与 finish 原因）'
+            : ''
+      throw new Error(`模型 ${call.route.provider}/${call.route.model} 没有返回文本${hint}（${attempt.detail}）`)
     }
   }
 
@@ -288,13 +296,16 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
       provider?: string
       model?: string
       temperature?: number
-      maxTokens?: number
       system?: string
       user?: string
       /** 覆盖 messages（探针用来对比"system 单独给"与"折进 messages"两种形状）。 */
       messages?: LlmMessage[]
       /** 完全不传 temperature（探针用：某些兼容层对 temperature 敏感）。 */
       noTemperature?: boolean
+      /** 覆盖 maxTokens（探针用：确认"预算被推理吃光"）。 */
+      maxTokens?: number
+      /** 覆盖空闲上限（毫秒）。默认 90s：推理模型的连续产出间隔远小于它。 */
+      idleMs?: number
     },
   ): Promise<{ text: string; detail: string }> => {
     const started = Date.now()
@@ -302,6 +313,26 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
     const kinds = new Map<string, number>()
     let finish = ''
     let usage = ''
+    /**
+     * **空闲**计时器，而不是总时长计时器。
+     *
+     * 推理模型很慢但不卡：实测 workbuddy/cn:hy4-preview-f 在长提示词下推理 1014 个块、
+     * 输出 3319 个 token、耗时 81.8 秒才吐出正文。用"总时长 60 秒"卡它，得到的不是
+     * 超时错误而是"模型没有返回文本"，界面上表现为整轮降级——而模型其实一切正常。
+     * 所以判据改成"多久没有新东西"：只要还在产出就不打断，真正卡死才中止。
+     */
+    const idleMs = Math.max(5000, options?.idleMs ?? 90000)
+    const idle = new AbortController()
+    let timer = setTimeout(() => idle.abort(new Error(`空闲超过 ${Math.round(idleMs / 1000)}s`)), idleMs)
+    const bump = (): void => {
+      clearTimeout(timer)
+      timer = setTimeout(() => idle.abort(new Error(`空闲超过 ${Math.round(idleMs / 1000)}s`)), idleMs)
+    }
+    const outer = signal
+    const onOuterAbort = (): void => idle.abort(outer.reason)
+    outer.addEventListener('abort', onOuterAbort, { once: true })
+    const streamSignal = AbortSignal.any([idle.signal, outer])
+    try {
     for await (const chunk of llm.stream({
       provider: options?.provider ?? call.route.provider,
       model: options?.model ?? call.route.model,
@@ -310,9 +341,14 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
       messages: options?.messages ?? [messageOf('user', options?.user ?? call.user)],
       // 「不传」而不是「传 0」：省缺与显式 0 在适配器里是两条路。
       temperature: options?.noTemperature === true ? undefined : (options?.temperature ?? 0.9),
-      maxTokens: options?.maxTokens ?? 1200,
-      signal,
+      // 推理模型（如 workbuddy/cn:hy4-preview-f）会把预算先花在 reasoning 上，
+      // 推理没结束就一个字正文都不会吐。1200 对这个世界的提示词（身份+记忆+周围环境）
+      // 远远不够：实测 20–45 秒后 finish，chunk 里只有 reasoning-delta、没有 text-delta。
+      // 智能体的输出本身很短（一个 JSON 动作），所以预算放大是安全的。
+      maxTokens: options?.maxTokens ?? 8192,
+      signal: streamSignal,
     })) {
+      bump()
       kinds.set(chunk.type, (kinds.get(chunk.type) ?? 0) + 1)
       if (chunk.type === 'text-delta') text += chunk.text
       else if (chunk.type === 'reasoning-delta') text = text
@@ -322,6 +358,10 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
     const shape = [...kinds.entries()].map(([kind, count]) => `${kind}×${count}`).join(' ')
     const detail = `耗时 ${Date.now() - started}ms｜chunk: ${shape === '' ? '（一个都没有）' : shape}｜finish=${finish === '' ? '（无）' : finish}${usage === '' ? '' : `｜usage=${usage}`}`
     return { text, detail }
+    } finally {
+      clearTimeout(timer)
+      outer.removeEventListener('abort', onOuterAbort)
+    }
   }
 
   /**
@@ -329,7 +369,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
    * 存在的理由是"空文本"这类失败**无法从错误信息里诊断**——必须看到 chunk
    * 构成与结束原因，才能判断是上游拒绝、适配器没吐文本，还是路由根本没生效。
    */
-  const llmProbe = async (args: { provider?: string; model?: string; reasoningEffort?: string; system?: string; user?: string }) => {
+  const llmProbe = async (args: { provider?: string; model?: string; reasoningEffort?: string; system?: string; user?: string; maxTokens?: number; quiet?: boolean }) => {
     const llm = deps.llm()
     if (llm === undefined) return { ok: false, text: 'ctx.get("llm") 为 undefined（宿主未挂 llm 服务）' }
     const route = deps.defaultRoute()
@@ -347,9 +387,15 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
       user: args.user ?? '现在几点了？',
     }
     const controller = new AbortController()
+    const budget = args.maxTokens ?? 8192
+    lines.push(`maxTokens=${budget}  system=${call.system.length} 字`)
+    if (args.quiet === true) {
+      lines.push(await oneProbe(llm, call, controller.signal, { maxTokens: budget }))
+      return { ok: true, text: lines.join('\n') }
+    }
     lines.push('')
     lines.push('【A】system= 单独给、messages 只有 user（插件当前的调用形状）')
-    lines.push(await oneProbe(llm, call, controller.signal))
+    lines.push(await oneProbe(llm, call, controller.signal, { maxTokens: budget }))
     lines.push('')
     lines.push('【B】system 折进 messages[0]（role=system），messages 走 user（agent-loop 的形状）')
     lines.push(
@@ -364,6 +410,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
         dropReasoningEffort: true,
         messages: [messageOf('user', '只回答两个字：收到')],
         noTemperature: true,
+        maxTokens: budget,
       }),
     )
     return { ok: true, text: lines.join('\n') }
@@ -378,6 +425,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
       messages?: LlmMessage[]
       dropReasoningEffort?: boolean
       noTemperature?: boolean
+      maxTokens?: number
     },
   ): Promise<string> => {
     try {
@@ -385,6 +433,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
         dropReasoningEffort: variant?.dropReasoningEffort,
         messages: variant?.messages,
         noTemperature: variant?.noTemperature,
+        maxTokens: variant?.maxTokens,
       })
       const rows = [`  ${attempt.detail}`, `  文本=${JSON.stringify(attempt.text.slice(0, 160))}`]
       if (attempt.text.trim() === '') {
@@ -392,6 +441,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
           dropReasoningEffort: true,
           messages: variant?.messages,
           noTemperature: variant?.noTemperature,
+          maxTokens: variant?.maxTokens,
         })
         rows.push(`  摘掉 reasoningEffort 重试：${retry.detail}`)
         rows.push(`    文本=${JSON.stringify(retry.text.slice(0, 160))}`)
@@ -816,6 +866,8 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
               reasoningEffort: typeof body.reasoningEffort === 'string' ? body.reasoningEffort : undefined,
               system: typeof body.system === 'string' ? body.system : undefined,
               user: typeof body.user === 'string' ? body.user : undefined,
+              maxTokens: body.maxTokens === undefined ? undefined : Number(body.maxTokens),
+              quiet: body.quiet === true,
             })
             return send(res, 200, { ok: true, data: probe })
           }

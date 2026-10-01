@@ -223,6 +223,8 @@ console.log(`  路网覆盖 ${roadTiles} 格（${((roadTiles / (WIDTH * HEIGHT))
 
 const next = {
   ...baseline,
+  // 镜像版本：升级时 store.ensureSeed 据此决定要不要更新玩家目录里的副本
+  mirrorVersion: '2',
   desc: '复刻斯坦福 generative_agents 的 Smallville：地点外接框与路网全部按原版 140×100 栅格还原。',
   attribution:
     '地点外接框与路网解自 joonspk-research/generative_agents 的 arena_maze.csv（Stanford Generative Agents, UIST 2023, Apache-2.0）；' +

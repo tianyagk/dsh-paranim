@@ -367,7 +367,7 @@ export interface Mood {
   label: string
 }
 
-export const MOOD_MIN = 0
+const MOOD_MIN = 0
 export const MOOD_MAX = 10
 /** 新角色的默认心情：不上不下，留给第一步去改变。 */
 export const MOOD_DEFAULT: Mood = { value: 6, label: '平静' }
@@ -538,6 +538,8 @@ export interface Sandbox {
   license?: string
   /** 是否随插件发货的只读镜像（允许另存为副本后编辑）。 */
   builtin?: boolean
+  /** 发货镜像的版本号：升级时据此判断要不要更新玩家目录里那份未改动的副本。 */
+  mirrorVersion?: string
   createdAt: number
   updatedAt: number
   map: SandboxMap
@@ -596,6 +598,9 @@ export const DEFAULT_STEP_CONFIG: StepConfig = {
   mode: 'manual',
   intervalMs: 15000,
   maxAgentsPerTick: 12,
+  // 这是**空闲**上限的兜底值（见 routes.ts 的空闲计时器），不是单次调用的总时长上限。
+  // 推理模型（workbuddy/cn:hy4-preview-f 等）在长提示词下可以推理 80 秒以上才吐第一个字，
+  // 用总时长卡它，表现就是"模型没有返回文本"、界面上一堆降级——而它其实工作得好好的。
   callTimeoutMs: 60000,
 }
 

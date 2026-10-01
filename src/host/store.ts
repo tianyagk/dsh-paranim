@@ -262,6 +262,7 @@ export function normalizeSandbox(input: unknown, fallbackId = 'sandbox'): Sandbo
     attribution: typeof raw.attribution === 'string' ? raw.attribution : undefined,
     license: typeof raw.license === 'string' ? raw.license : undefined,
     builtin: raw.builtin === true,
+    mirrorVersion: typeof raw.mirrorVersion === 'string' ? raw.mirrorVersion : undefined,
     createdAt: num(raw.createdAt, Date.now()),
     updatedAt: num(raw.updatedAt, Date.now()),
     map,
@@ -356,7 +357,7 @@ async function readMirrorAssets(): Promise<unknown[]> {
     if (!existsSync(dir)) continue
     const names = await readdir(dir).catch(() => [] as string[])
     for (const name of names.sort()) {
-      if (!name.endsWith('.json')) continue
+      if (!name.endsWith('.json') || name.startsWith('.')) continue
       const parsed = await readJson<unknown>(join(dir, name))
       if (parsed !== null && typeof parsed === 'object' && Array.isArray((parsed as { places?: unknown }).places)) {
         out.push(parsed)
@@ -387,15 +388,32 @@ export class SandboxStore {
     await mkdir(runDir(), { recursive: true })
     const existing = new Set((await readdir(sandboxDir()).catch(() => [] as string[])).filter((n) => n.endsWith('.json')))
     const mirrors = await this.mirrorSandboxes()
+    // 记下每个镜像种下去的是哪一版。**不能只看"文件在不在"**：
+    // 镜像是随插件升级的（例如 smallville 从 19 地点重建为 40 地点 + 原版路网），
+    // 只看存在性的话，老玩家目录里那份旧副本永远不会被更新——升级了却看不到变化。
+    const stamps = await readJson<Record<string, string>>(join(sandboxDir(), '.seed-version.json')) ?? {}
     let seeded = 0
     for (const mirror of mirrors) {
       const file = `${mirror.id}.json`
-      if (existing.has(file)) continue
+      const version = mirror.mirrorVersion ?? ''
+      const present = existing.has(file)
+      if (present && stamps[mirror.id] === version) continue
+      if (present) {
+        // 玩家改过的副本不覆盖：那已经是他的沙盒，不是我们的发货镜像。
+        const current = normalizeSandbox(await readJson<Record<string, unknown>>(join(sandboxDir(), file)) ?? {}, mirror.id)
+        if (current.builtin !== true) {
+          log(`keep user-modified sandbox ${mirror.id} (mirror version ${version} not applied)`)
+          stamps[mirror.id] = version
+          continue
+        }
+      }
       await writeJson(join(sandboxDir(), file), mirror)
+      stamps[mirror.id] = version
       seeded += 1
-      log(`seeded sandbox mirror: ${mirror.id} (${mirror.places.length} places / ${mirror.agents.length} agents)`)
+      log(`seeded sandbox mirror: ${mirror.id} v${version} (${mirror.places.length} places / ${mirror.agents.length} agents)`)
     }
-    if (seeded === 0) log('all sandbox mirrors already present')
+    if (seeded > 0) await writeJson(join(sandboxDir(), '.seed-version.json'), stamps)
+    else log('all sandbox mirrors already present')
   }
 
   /** 单个镜像（用于「恢复出厂」）。 */
@@ -445,7 +463,7 @@ export class SandboxStore {
     const names = await readdir(sandboxDir()).catch(() => [] as string[])
     const out: Sandbox[] = []
     for (const name of names) {
-      if (!name.endsWith('.json')) continue
+      if (!name.endsWith('.json') || name.startsWith('.')) continue
       const parsed = await readJson<unknown>(join(sandboxDir(), name))
       if (parsed === undefined) continue
       out.push(normalizeSandbox(parsed, name.replace(/\.json$/, '')))
@@ -461,7 +479,7 @@ export class SandboxStore {
     const names = await readdir(sandboxDir()).catch(() => [] as string[])
     const parts: string[] = []
     for (const name of names.sort()) {
-      if (!name.endsWith('.json')) continue
+      if (!name.endsWith('.json') || name.startsWith('.')) continue
       const info = await fsStat(join(sandboxDir(), name)).catch(() => undefined)
       parts.push(info === undefined ? `${name}:?` : `${name}:${info.mtimeMs}:${info.size}`)
     }

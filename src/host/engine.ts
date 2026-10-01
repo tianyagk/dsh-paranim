@@ -364,7 +364,10 @@ async function draftAction(
   if (route === undefined || route === null) {
     return { action: fallbackAction(sandbox, run, agent), source: 'fallback', detail: '未指定模型且宿主无默认模型' }
   }
-  const bounded = timeoutSignal(deps.timeoutMs, signal)
+  // `step.callTimeoutMs` 是**空闲**上限（见 routes.ts 的空闲计时器与 model.ts 的注释），
+  // 所以这里再给一层宽得多的总时长天花板：它的职责只是"别让一次死锁把整局挂住"，
+  // 不是"到点就砍"。推理模型一次调用 80 秒以上是正常的，用 60 秒卡它会让整轮降级。
+  const bounded = timeoutSignal(Math.max(deps.timeoutMs, 600000), signal)
   try {
     const call: AgentCall = { route, system: systemPromptFor(agent), user: buildObservation(sandbox, run, agent) }
     const text = await deps.callModel(agent, call, bounded.signal)
