@@ -536,6 +536,8 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
     send(res, 200, { ok: true, data: await world({ workspace, sandboxId: sandboxId ?? view.sandbox.id, create: true }) })
   }
 
+/** 每个工作区一条写队列，见 handler 里的 serialize。 */
+const writeQueues = new Map<string, Promise<unknown>>()
 
   const routes: PluginWebRoute[] = [
     {
@@ -551,609 +553,659 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
         try {
           guard(req)
           const body = method === 'POST' ? await readBody(req) : {}
-
-          // GET /paranim/world —— 沙盒 + 运行态 + 步进设置
-          if (method === 'GET' && path === '/world') {
-            const view = await world({ workspace, sandboxId, create: url.searchParams.get('create') !== 'false' })
-            return send(res, 200, { ok: true, data: view })
+          /**
+           * 路由表：`方法 路径` → 处理函数。
+           *
+           * 此前这里是十五个并列 if + 末尾一句无条件 throw：某个分支只要漏了 `return`，
+           * 已经成功响应的请求就会继续往下掉，最终报成"未知路由"——看着像路由没注册，
+           * 实际是分支没退出。改成查表之后每个处理函数各自结束，"未知路由"只在真的没注册时出现。
+           *
+           * 表定义在 handler 体内，所以每个处理函数都能闭包拿到 res / body / workspace ——
+           * 不需要定义上下文类型再层层传参，搬动时函数体可以原样保留。
+           */
+          /**
+           * 把同一 key 上的任务排成队列，前一个结束（无论成败）才跑下一个。
+           *
+           * `prev.then(job, job)` 两个分支都传 job：前一个任务抛错时队列必须继续，
+           * 否则一次失败会把后面所有请求永久卡死。
+           */
+          function serialize<T>(key: string, job: () => Promise<T>): Promise<T> {
+            const prev = writeQueues.get(key) ?? Promise.resolve()
+            const run = prev.then(job, job)
+            writeQueues.set(key, run.then(() => undefined, () => undefined))
+            return run
           }
 
-          // GET /paranim/sandboxes —— 沙盒库
-          if (method === 'GET' && path === '/sandboxes') {
-            const list = await deps.store.list(true)
-            const current = (await world({ workspace, sandboxId, create: true })).sandbox.id
-            return send(res, 200, {
-              ok: true,
-              data: {
-                currentId: current,
-                sandboxes: list.map((s) => ({
-                  id: s.id,
-                  name: s.name,
-                  desc: s.desc,
-                  builtin: s.builtin === true,
-                  attribution: s.attribution,
-                  license: s.license,
-                  updatedAt: s.updatedAt,
-                  places: s.places.length,
-                  objects: s.objects.length,
-                  agents: s.agents.length,
-                })),
-              },
-            })
-          }
-
-          // GET /paranim/models —— 可用模型（provider × model）
-          if (method === 'GET' && path === '/models') {
-            const choices = await listModelChoices(deps.llm(), deps.defaultRoute())
-            return send(res, 200, { ok: true, data: choices })
-          }
-
-          // POST /paranim/sandbox —— 保存/另存/切换沙盒
-          if (method === 'POST' && path === '/sandbox') {
-            const action = String(body.action ?? 'save')
-            if (action === 'select') {
-              const id = String(body.id ?? '')
-              const target = await deps.store.get(id)
-              if (target === undefined) throw new HttpError(`找不到沙盒 ${id}`, 404)
-              await rememberSandbox(workspace, id)
-              const view = await world({ workspace, sandboxId: id, create: true })
+          const routeTable: Record<string, () => Promise<void>> = {
+            // GET /paranim/world —— 沙盒 + 运行态 + 步进设置
+            'GET /world': async () => {
+              const view = await world({ workspace, sandboxId, create: url.searchParams.get('create') !== 'false' })
               return send(res, 200, { ok: true, data: view })
-            }
-            if (action === 'create') {
-              const name = String(body.name ?? '新沙盒')
-              const id = String(body.id ?? '').trim() === '' ? slugify(name) : String(body.id)
-              const blank = normalizeSandbox({
-                id,
-                name,
-                desc: String(body.desc ?? '空沙盒：自己摆一座镇。'),
-                map: { width: 120, height: 90, ground: '#1f2430' },
-                places: [],
-                objects: [],
-                agents: [],
-                relations: [],
-              }, id)
-              await deps.store.save(blank)
-              return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: blank.id, create: true }) })
-            }
-            if (action === 'duplicate') {
-              const from = String(body.id ?? '')
-              const copy = await deps.store.duplicate(from, String(body.newId ?? `${from}-copy`), typeof body.name === 'string' ? body.name : undefined)
-              return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: copy.id, create: true }) })
-            }
-            if (action === 'remove') {
-              const id = String(body.id ?? '')
-              await deps.store.remove(id)
-              return send(res, 200, { ok: true, data: await world({ workspace, create: true }) })
-            }
-            if (action === 'reset') {
-              // 重置回出厂镜像：删掉当前沙盒，把镜像重新种回去。
-              const id = String(body.id ?? 'smallville')
-              const mirror = await deps.store.mirrorSandbox()
-              if (id !== 'smallville') throw new HttpError('只有出厂镜像 smallville 支持重置', 400)
-              await deps.store.save({ ...mirror, builtin: true, updatedAt: Date.now() })
-              await deps.runOf(workspace).remove(id)
-              return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: id, create: true }) })
-            }
-            // 默认：保存当前沙盒（可带 fromRun 把运行态折回沙盒）
-            const saveBody = body as SandboxSaveBody
-            const current = await world({ workspace, sandboxId: saveBody.id ?? sandboxId, create: false })
-            let next: Sandbox = {
-              ...current.sandbox,
-              name: typeof saveBody.name === 'string' && saveBody.name.trim() !== '' ? saveBody.name.trim() : current.sandbox.name,
-              desc: typeof saveBody.desc === 'string' ? saveBody.desc : current.sandbox.desc,
-            }
-            if (saveBody.fromRun === true) {
-              next = { ...next, agents: current.run.agents.map(stripRunFields) }
-            }
-            const saved = await deps.store.save(next)
-            return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: saved.id, create: true }) })
-          }
+            },
 
-          // POST /paranim/map —— 增删地标/物件
-          if (method === 'POST' && path === '/map') {
-            const view = await world({ workspace, sandboxId, create: true })
-            const op = String(body.op ?? 'upsert')
-            /**
-             * place 写进 structure 层,而不是 places 字段。
-             *
-             * places 是三层的投影(由 structure 导出),往投影里 push 会在下一次
-             * 归一化时被覆盖——表现为"放了地标但刷新就没了"。规范表示只有一份,
-             * 写入必须落在它上面。
-             */
-            const isPlace = body.kind === 'place'
-            const layers = view.sandbox.map.layers
-            const bucket = isPlace ? (layers?.structure ?? []) : view.sandbox.objects
-            /**
-             * 对象 id 的两种写法都收:`id` 与 `objectId`。
-             *
-             * 这个接口原本只认 `id`,而 /object 与 MapCanvas 那边用的是 `objectId`——
-             * 名字不统一时,传错了不会报错,而是**静默新建一个对象**(走到 fallbackId 分支),
-             * 看上去像"改了没生效"。宁可在这一层兜住两种写法,也不让调用方差一个字就出鬼。
-             */
-            const wantedId = String(body.id ?? body.objectId ?? '')
-            const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
-            /**
-             * 布局改动必须写进事件流。
-             *
-             * 此前这条支线完全静默:改了地图或放了个物件,事件列表里什么都没有,
-             * 于是"刚才谁动了这个世界"这条线索断了——而这正是事件流存在的意义。
-             */
-            const logMutate = (text: string, targetId?: string): void => {
-              view.run.events.push({
-                id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate',
-                actor: 'gm', actorName: by, text, targetId,
+            // GET /paranim/sandboxes —— 沙盒库
+            'GET /sandboxes': async () => {
+              const list = await deps.store.list(true)
+              const current = (await world({ workspace, sandboxId, create: true })).sandbox.id
+              return send(res, 200, {
+                ok: true,
+                data: {
+                  currentId: current,
+                  sandboxes: list.map((s) => ({
+                    id: s.id,
+                    name: s.name,
+                    desc: s.desc,
+                    builtin: s.builtin === true,
+                    attribution: s.attribution,
+                    license: s.license,
+                    updatedAt: s.updatedAt,
+                    places: s.places.length,
+                    objects: s.objects.length,
+                    agents: s.agents.length,
+                  })),
+                },
               })
-            }
-            if (op === 'remove') {
-              const index = bucket.findIndex((o) => o.id === wantedId)
-              if (index < 0) throw new HttpError(`找不到对象 ${wantedId}`, 404)
-              const [gone] = bucket.splice(index, 1)
-              logMutate(`${by}移走了「${gone.name}」。`)
-            } else if (isPlace) {
-              // structure 层:建筑轮廓 + 门窗。形状与 WorldObject 不同,不能共用那条路径。
-              const structs = bucket as Structure[]
-              const inner = (body.object ?? body) as Record<string, unknown>
-              const id = String(inner.id ?? wantedId ?? '') || shortId('place')
-              const prev = structs.find((o) => o.id === id)
-              const next: Structure = {
-                id,
-                name: String(inner.name ?? prev?.name ?? '新建筑').slice(0, 24),
-                x: Math.max(0, Math.round(Number(inner.x ?? prev?.x ?? view.sandbox.map.width / 2))),
-                y: Math.max(0, Math.round(Number(inner.y ?? prev?.y ?? view.sandbox.map.height / 2))),
-                w: Math.max(2, Math.round(Number(inner.w ?? prev?.w ?? 6))),
-                h: Math.max(2, Math.round(Number(inner.h ?? prev?.h ?? 5))),
-                ...(typeof inner.roofSlot === 'string' && inner.roofSlot !== ''
-                  ? { roofSlot: inner.roofSlot }
-                  : prev?.roofSlot !== undefined ? { roofSlot: prev.roofSlot } : {}),
-                ...(Array.isArray(inner.doors) ? { doors: inner.doors as Structure['doors'] } : prev?.doors !== undefined ? { doors: prev.doors } : {}),
-                ...(Array.isArray(inner.windows) ? { windows: inner.windows as Structure['windows'] } : prev?.windows !== undefined ? { windows: prev.windows } : {}),
-                ...(typeof inner.color === 'string' ? { color: inner.color } : prev?.color !== undefined ? { color: prev.color } : {}),
-                ...(typeof inner.desc === 'string' ? { desc: inner.desc.slice(0, 400) } : prev?.desc !== undefined ? { desc: prev.desc } : {}),
+            },
+
+            // GET /paranim/models —— 可用模型（provider × model）
+            'GET /models': async () => {
+              const choices = await listModelChoices(deps.llm(), deps.defaultRoute())
+              return send(res, 200, { ok: true, data: choices })
+            },
+
+            // POST /paranim/sandbox —— 保存/另存/切换沙盒
+            'POST /sandbox': async () => {
+              const action = String(body.action ?? 'save')
+              if (action === 'select') {
+                const id = String(body.id ?? '')
+                const target = await deps.store.get(id)
+                if (target === undefined) throw new HttpError(`找不到沙盒 ${id}`, 404)
+                await rememberSandbox(workspace, id)
+                const view = await world({ workspace, sandboxId: id, create: true })
+                return send(res, 200, { ok: true, data: view })
               }
-              const index = structs.findIndex((o) => o.id === id)
-              if (index < 0) {
-                structs.push(next)
-                logMutate(`${by}建了一栋「${next.name}」(${next.w}×${next.h} @${next.x},${next.y})。`, next.id)
-              } else {
-                structs[index] = next
-                logMutate(`${by}改了建筑「${next.name}」:${next.w}×${next.h} @${next.x},${next.y}。`, next.id)
+              if (action === 'create') {
+                const name = String(body.name ?? '新沙盒')
+                const id = String(body.id ?? '').trim() === '' ? slugify(name) : String(body.id)
+                const blank = normalizeSandbox({
+                  id,
+                  name,
+                  desc: String(body.desc ?? '空沙盒：自己摆一座镇。'),
+                  map: { width: 120, height: 90, ground: '#1f2430' },
+                  places: [],
+                  objects: [],
+                  agents: [],
+                  relations: [],
+                }, id)
+                await deps.store.save(blank)
+                return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: blank.id, create: true }) })
               }
-            } else {
-              // id 的优先级:`object.id` > `body.id`/`body.objectId` > 兜底生成。
-              // 先取内层的、再回退外层的——外层 id 是"我要改哪个",内层是"它自己叫什么",
-              // 让外层赢会把[改名]变成"照抄外层",而这里是upsert,不该那样。
-              const inner = (body.object ?? body) as Record<string, unknown>
-              const raw = { kind: body.kind, ...inner, id: String(inner.id ?? wantedId ?? '') }
-              const fallbackId = shortId('obj')
-              const parsed = normalizeObject(raw, view.sandbox.map.width, view.sandbox.map.height, 'prop', fallbackId)
-              if (parsed === undefined) throw new HttpError('对象缺少合法 id', 400)
-              const list = bucket as WorldObject[]
-              const index = list.findIndex((o) => o.id === parsed.id)
-              if (index < 0) {
-                list.push(parsed)
-                logMutate(`${by}在世界里放了一件「${parsed.name}」(sprite=${parsed.sprite ?? 'auto'} @${parsed.x},${parsed.y})。`, parsed.id)
-              } else {
-                // 只覆盖请求里**真的给了**的字段。
-                // 直接 `{ ...旧值, ...parsed }` 是错的：parsed 里没给的字段是 undefined，
-                // 会把已有值抹掉——想只改 sprite 却把 description 清了就是这么来的。
-                const kept = list[index]
-                const patch = Object.fromEntries(
-                  Object.entries(parsed).filter(([, v]) => v !== undefined),
-                ) as Partial<WorldObject>
-                patch.state = { ...kept.state, ...parsed.state }
-                list[index] = { ...kept, ...patch }
-                const changedKeys = Object.keys(patch).filter((k) => k !== 'state')
-                logMutate(`${by}改了「${kept.name}」:${changedKeys.length === 0 ? '状态有变动' : changedKeys.join('、')}。`, kept.id)
+              if (action === 'duplicate') {
+                const from = String(body.id ?? '')
+                const copy = await deps.store.duplicate(from, String(body.newId ?? `${from}-copy`), typeof body.name === 'string' ? body.name : undefined)
+                return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: copy.id, create: true }) })
               }
-            }
-            view.sandbox.updatedAt = Date.now()
-            const saved = await commit(view, workspace)
-            return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: saved.id, create: true }) })
-          }
-
-          /**
-           * POST /paranim/place —— 增删改 structure layer 里的建筑。
-           *
-           * 与 /object 分开是有意的：建筑参与 ① 墙体绘制 ② 移动边界（见
-           * rules.blockedByStructure）③ 智能体的"所在地点数"，改一个矩形会牵动
-           * 这三处，所以它有自己的校验（宽高下限、必须落在图内）与自己的事件类型。
-           *
-           * 写的是 structure 层而不是 places 字段：places 是三层的投影，
-           * 往投影里写在下一次归一化时会被覆盖，表现为"改了又变回去"。
-           */
-          if (method === 'POST' && path === '/place') {
-            const view = await world({ workspace, sandboxId, create: true })
-            const op = String(body.op ?? 'patch')
-            const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
-            const W = view.sandbox.map.width
-            const H = view.sandbox.map.height
-            const clampX = (v: number): number => Math.min(W - 1, Math.max(0, Math.round(v)))
-            const clampY = (v: number): number => Math.min(H - 1, Math.max(0, Math.round(v)))
-            /**
-             * structure 层必须真的存在再往里加。
-             *
-             * `?? []` 看着安全,其实是个陷阱:新建的空沙盒可能还没走过一次归一化,
-             * map.layers 仍是 undefined——此时 push 进这个临时数组,谁也不持有它,
-             * 请求返回 200 但建筑根本没落上。宁可就地补一层。
-             */
-            if (view.sandbox.map.layers === undefined) {
-              view.sandbox.map.layers = {
-                background: Array.from({ length: view.sandbox.map.height }, () => 'g'.repeat(view.sandbox.map.width)),
-                structure: [],
-                object: [],
+              if (action === 'remove') {
+                const id = String(body.id ?? '')
+                await deps.store.remove(id)
+                return send(res, 200, { ok: true, data: await world({ workspace, create: true }) })
               }
-            }
-            const structs = view.sandbox.map.layers.structure
-            const logMutate = (text: string, targetId?: string): void => {
-              view.run.events.push({
-                id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate', actor: 'gm', actorName: by,
-                text, targetId,
-              })
-            }
-
-            if (op === 'add') {
-              const name = typeof body.name === 'string' && body.name.trim() !== '' ? body.name.trim().slice(0, 24) : '新建筑'
-              const w = Math.min(W, Math.max(2, Math.round(Number(body.w ?? 6)) || 6))
-              const h = Math.min(H, Math.max(2, Math.round(Number(body.h ?? 5)) || 5))
-              const struct: Structure = {
-                id: `place-${randomToken(6)}`,
-                name,
-                x: clampX(Number(body.x ?? W / 2)),
-                y: clampY(Number(body.y ?? H / 2)),
-                w,
-                h,
-                color: typeof body.color === 'string' ? body.color : '#a8623f',
-                roofSlot: typeof body.roofSlot === 'string' ? body.roofSlot : 'roofHome',
-                desc: typeof body.desc === 'string' ? body.desc : '',
+              if (action === 'reset') {
+                // 重置回出厂镜像：删掉当前沙盒，把镜像重新种回去。
+                const id = String(body.id ?? 'smallville')
+                const mirror = await deps.store.mirrorSandbox()
+                if (id !== 'smallville') throw new HttpError('只有出厂镜像 smallville 支持重置', 400)
+                await deps.store.save({ ...mirror, builtin: true, updatedAt: Date.now() })
+                await deps.runOf(workspace).remove(id)
+                return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: id, create: true }) })
               }
-              // 外框不许越界：越界的建筑画出来缺一角，移动边界也会伸到图外
-              struct.x = Math.min(W - 1 - Math.floor(w / 2), Math.max(Math.floor(w / 2), struct.x))
-              struct.y = Math.min(H - 1 - Math.floor(h / 2), Math.max(Math.floor(h / 2), struct.y))
-              structs.push(struct)
-              logMutate(`${by}新建了建筑「${struct.name}」（${struct.w}×${struct.h} @${struct.x},${struct.y}）。`, struct.id)
-              view.sandbox.updatedAt = Date.now()
-              // 必须 return：掉下去会走到"按 placeId 找建筑"，而 add 请求没带 id，
-              // 于是表现为"新建成功了却报 404"。
-              await sendWorld(res, view, workspace)
-              return
-            }
+              // 默认：保存当前沙盒（可带 fromRun 把运行态折回沙盒）
+              const saveBody = body as SandboxSaveBody
+              const current = await world({ workspace, sandboxId: saveBody.id ?? sandboxId, create: false })
+              let next: Sandbox = {
+                ...current.sandbox,
+                name: typeof saveBody.name === 'string' && saveBody.name.trim() !== '' ? saveBody.name.trim() : current.sandbox.name,
+                desc: typeof saveBody.desc === 'string' ? saveBody.desc : current.sandbox.desc,
+              }
+              if (saveBody.fromRun === true) {
+                next = { ...next, agents: current.run.agents.map(stripRunFields) }
+              }
+              const saved = await deps.store.save(next)
+              return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: saved.id, create: true }) })
+            },
 
-            // id / placeId 两种写法都收：与 /map 保持一致的宽容度。
-            // 只认一种写法的后果是——调用方换了字段名就静默 404,排查起来很脏。
-            const placeId = String(body.placeId ?? body.id ?? '')
-            const index = structs.findIndex((p) => p.id === placeId)
-            if (index < 0) throw new HttpError(`找不到建筑 ${placeId}`, 404)
-
-            if (op === 'remove') {
-              const [gone] = structs.splice(index, 1)
-              logMutate(`${by}拆掉了建筑「${gone.name}」。`)
-              view.sandbox.updatedAt = Date.now()
-              // 同样必须 return：否则会带着一个已经不存在的结构掉进下面的 patch 分支。
-              await sendWorld(res, view, workspace)
-              return
-            }
-
-            // patch：只收白名单字段，改完做一次范围收敛
-            const target = structs[index]
-            const before = `${target.name} ${target.w}×${target.h} @${target.x},${target.y}`
-            if (typeof body.name === 'string' && body.name.trim() !== '') target.name = body.name.trim().slice(0, 24)
-            if (body.x !== undefined) target.x = clampX(Number(body.x))
-            if (body.y !== undefined) target.y = clampY(Number(body.y))
-            if (body.w !== undefined) target.w = Math.min(W, Math.max(2, Math.round(Number(body.w)) || target.w))
-            if (body.h !== undefined) target.h = Math.min(H, Math.max(2, Math.round(Number(body.h)) || target.h))
-            if (typeof body.desc === 'string') target.desc = body.desc.slice(0, 400)
-            if (typeof body.roofSlot === 'string' && body.roofSlot !== '') target.roofSlot = body.roofSlot
-            if (typeof body.color === 'string' && body.color !== '') target.color = body.color
-            // 门/窗：整体替换。它们是"墙体上的开口"，增量合并容易留下已经不在墙上的旧开口。
-            if (Array.isArray(body.doors)) {
-              target.doors = body.doors
-                .filter((d) => d !== null && typeof d === 'object')
-                .slice(0, 32)
-                .map((d) => ({ x: clampX(Number((d as Record<string, unknown>).x)), y: clampY(Number((d as Record<string, unknown>).y)) }))
-            }
-            if (Array.isArray(body.windows)) {
-              target.windows = body.windows
-                .filter((d) => d !== null && typeof d === 'object')
-                .slice(0, 32)
-                .map((d) => ({ x: clampX(Number((d as Record<string, unknown>).x)), y: clampY(Number((d as Record<string, unknown>).y)) }))
-            }
-            // 外框不许越界：越界的建筑画出来会缺一角，路网也会接到图外
-            target.x = Math.min(W - 1 - Math.floor(target.w / 2), Math.max(Math.floor(target.w / 2), target.x))
-            target.y = Math.min(H - 1 - Math.floor(target.h / 2), Math.max(Math.floor(target.h / 2), target.y))
-            target.lastEditedBy = by
-            target.lastEditedAt = Date.now()
-            view.sandbox.updatedAt = Date.now()
-            logMutate(`${by}改了建筑「${target.name}」：${before} → ${target.name} ${target.w}×${target.h} @${target.x},${target.y}。`, target.id)
-            await sendWorld(res, view, workspace)
-            return
-          }
-
-          /**
-           * POST /paranim/tile —— 用笔刷画 background layer。
-           *
-           * 一次请求可以带一串格子（拖拽涂抹会连点），所以入参是 `cells` 数组
-           * 而不是单个 x/y：一笔刷过去要是一次请求一格，画一片草地会打出上百个请求。
-           */
-          if (method === 'POST' && path === '/tile') {
-            const view = await world({ workspace, sandboxId, create: true })
-            const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
-            const kind = String(body.kind ?? 'grass')
-            if (!GROUND_KINDS.has(kind)) throw new HttpError(`未知地面材质 ${kind}`, 400)
-            const ch = GROUND_KINDS.get(kind) as string
-            const W = view.sandbox.map.width
-            const H = view.sandbox.map.height
-            const bg = view.sandbox.map.layers?.background ?? []
-            const rows = Array.isArray(body.cells) ? body.cells : [{ x: body.x, y: body.y }]
-            let painted = 0
-            for (const cell of rows.slice(0, 4096)) {
-              const c = cell as Record<string, unknown>
-              const x = Math.round(Number(c.x))
-              const y = Math.round(Number(c.y))
-              if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= W || y >= H) continue
-              const row = bg[y] ?? 'g'.repeat(W)
-              if (row[x] === ch) continue
-              bg[y] = row.slice(0, x) + ch + row.slice(x + 1)
-              painted += 1
-            }
-            if (painted > 0 && view.sandbox.map.layers !== undefined) {
-              view.sandbox.map.layers.background = bg
-              view.sandbox.map.tiles = bg
-              view.sandbox.updatedAt = Date.now()
-              view.run.events.push({
-                id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate', actor: 'gm', actorName: by,
-                text: `${by}用「${kind}」刷了 ${painted} 格地面。`,
-              })
-              await commit(view, workspace)
-            }
-            return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: view.sandbox.id, create: true }) })
-          }
-
-          // POST /paranim/object —— 修改物体状态（需求 5 的右键菜单落点）
-          if (method === 'POST' && path === '/object') {
-            const view = await world({ workspace, sandboxId, create: true })
-            const objectId = String(body.objectId ?? '')
-            const target = findObject(view.sandbox, objectId) ?? findObject({ ...view.sandbox, objects: [...view.sandbox.objects, ...[]] }, objectId)
-            if (target === undefined) throw new HttpError(`找不到物体 ${objectId}`, 404)
-            const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
-            const changes: string[] = []
-
-            if (typeof body.name === 'string' && body.name.trim() !== '' && body.name !== target.name) {
-              changes.push(`名称「${target.name}」→「${body.name.trim()}」`)
-              target.name = body.name.trim()
-            }
-            if (typeof body.desc === 'string') target.desc = body.desc
-            if (typeof body.color === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(body.color)) target.color = body.color
-            if (typeof body.interactive === 'boolean') target.interactive = body.interactive
-            if (body.x !== undefined && Number.isFinite(Number(body.x))) target.x = Math.max(0, Math.min(view.sandbox.map.width, Math.round(Number(body.x))))
-            if (body.y !== undefined && Number.isFinite(Number(body.y))) target.y = Math.max(0, Math.min(view.sandbox.map.height, Math.round(Number(body.y))))
-
-            if (body.state !== null && typeof body.state === 'object' && !Array.isArray(body.state)) {
-              for (const [key, rawValue] of Object.entries(body.state as Record<string, unknown>)) {
-                if (key === '' || key.length > 60) continue
-                const value = rawValue === null ? null : toStateValue(rawValue)
-                if (value === undefined) {
-                  throw new HttpError(`状态「${key}」的值类型不支持（只接受字符串/数字/布尔/null/短数组）`, 400)
+            // POST /paranim/map —— 增删地标/物件
+            'POST /map': async () => {
+              const view = await world({ workspace, sandboxId, create: true })
+              const op = String(body.op ?? 'upsert')
+              /**
+               * place 写进 structure 层,而不是 places 字段。
+               *
+               * places 是三层的投影(由 structure 导出),往投影里 push 会在下一次
+               * 归一化时被覆盖——表现为"放了地标但刷新就没了"。规范表示只有一份,
+               * 写入必须落在它上面。
+               */
+              const isPlace = body.kind === 'place'
+              const layers = view.sandbox.map.layers
+              const bucket = isPlace ? (layers?.structure ?? []) : view.sandbox.objects
+              /**
+               * 对象 id 的两种写法都收:`id` 与 `objectId`。
+               *
+               * 这个接口原本只认 `id`,而 /object 与 MapCanvas 那边用的是 `objectId`——
+               * 名字不统一时,传错了不会报错,而是**静默新建一个对象**(走到 fallbackId 分支),
+               * 看上去像"改了没生效"。宁可在这一层兜住两种写法,也不让调用方差一个字就出鬼。
+               */
+              const wantedId = String(body.id ?? body.objectId ?? '')
+              const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
+              /**
+               * 布局改动必须写进事件流。
+               *
+               * 此前这条支线完全静默:改了地图或放了个物件,事件列表里什么都没有,
+               * 于是"刚才谁动了这个世界"这条线索断了——而这正是事件流存在的意义。
+               */
+              const logMutate = (text: string, targetId?: string): void => {
+                view.run.events.push({
+                  id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate',
+                  actor: 'gm', actorName: by, text, targetId,
+                })
+              }
+              if (op === 'remove') {
+                const index = bucket.findIndex((o) => o.id === wantedId)
+                if (index < 0) throw new HttpError(`找不到对象 ${wantedId}`, 404)
+                const [gone] = bucket.splice(index, 1)
+                logMutate(`${by}移走了「${gone.name}」。`)
+              } else if (isPlace) {
+                // structure 层:建筑轮廓 + 门窗。形状与 WorldObject 不同,不能共用那条路径。
+                const structs = bucket as Structure[]
+                const inner = (body.object ?? body) as Record<string, unknown>
+                const id = String(inner.id ?? wantedId ?? '') || shortId('place')
+                const prev = structs.find((o) => o.id === id)
+                const next: Structure = {
+                  id,
+                  name: String(inner.name ?? prev?.name ?? '新建筑').slice(0, 24),
+                  x: Math.max(0, Math.round(Number(inner.x ?? prev?.x ?? view.sandbox.map.width / 2))),
+                  y: Math.max(0, Math.round(Number(inner.y ?? prev?.y ?? view.sandbox.map.height / 2))),
+                  w: Math.max(2, Math.round(Number(inner.w ?? prev?.w ?? 6))),
+                  h: Math.max(2, Math.round(Number(inner.h ?? prev?.h ?? 5))),
+                  ...(typeof inner.roofSlot === 'string' && inner.roofSlot !== ''
+                    ? { roofSlot: inner.roofSlot }
+                    : prev?.roofSlot !== undefined ? { roofSlot: prev.roofSlot } : {}),
+                  ...(Array.isArray(inner.doors) ? { doors: inner.doors as Structure['doors'] } : prev?.doors !== undefined ? { doors: prev.doors } : {}),
+                  ...(Array.isArray(inner.windows) ? { windows: inner.windows as Structure['windows'] } : prev?.windows !== undefined ? { windows: prev.windows } : {}),
+                  ...(typeof inner.color === 'string' ? { color: inner.color } : prev?.color !== undefined ? { color: prev.color } : {}),
+                  ...(typeof inner.desc === 'string' ? { desc: inner.desc.slice(0, 400) } : prev?.desc !== undefined ? { desc: prev.desc } : {}),
                 }
-                const before = target.state[key] ?? null
-                if (before === value) continue
-                if (value === null) delete target.state[key]
-                else target.state[key] = value
-                changes.push(`${key}「${before === null ? '（无）' : String(before)}」→「${value === null ? '（清除）' : String(value)}」`)
+                const index = structs.findIndex((o) => o.id === id)
+                if (index < 0) {
+                  structs.push(next)
+                  logMutate(`${by}建了一栋「${next.name}」(${next.w}×${next.h} @${next.x},${next.y})。`, next.id)
+                } else {
+                  structs[index] = next
+                  logMutate(`${by}改了建筑「${next.name}」:${next.w}×${next.h} @${next.x},${next.y}。`, next.id)
+                }
+              } else {
+                // id 的优先级:`object.id` > `body.id`/`body.objectId` > 兜底生成。
+                // 先取内层的、再回退外层的——外层 id 是"我要改哪个",内层是"它自己叫什么",
+                // 让外层赢会把[改名]变成"照抄外层",而这里是upsert,不该那样。
+                const inner = (body.object ?? body) as Record<string, unknown>
+                const raw = { kind: body.kind, ...inner, id: String(inner.id ?? wantedId ?? '') }
+                const fallbackId = shortId('obj')
+                const parsed = normalizeObject(raw, view.sandbox.map.width, view.sandbox.map.height, 'prop', fallbackId)
+                if (parsed === undefined) throw new HttpError('对象缺少合法 id', 400)
+                const list = bucket as WorldObject[]
+                const index = list.findIndex((o) => o.id === parsed.id)
+                if (index < 0) {
+                  list.push(parsed)
+                  logMutate(`${by}在世界里放了一件「${parsed.name}」(sprite=${parsed.sprite ?? 'auto'} @${parsed.x},${parsed.y})。`, parsed.id)
+                } else {
+                  // 只覆盖请求里**真的给了**的字段。
+                  // 直接 `{ ...旧值, ...parsed }` 是错的：parsed 里没给的字段是 undefined，
+                  // 会把已有值抹掉——想只改 sprite 却把 description 清了就是这么来的。
+                  const kept = list[index]
+                  const patch = Object.fromEntries(
+                    Object.entries(parsed).filter(([, v]) => v !== undefined),
+                  ) as Partial<WorldObject>
+                  patch.state = { ...kept.state, ...parsed.state }
+                  list[index] = { ...kept, ...patch }
+                  const changedKeys = Object.keys(patch).filter((k) => k !== 'state')
+                  logMutate(`${by}改了「${kept.name}」:${changedKeys.length === 0 ? '状态有变动' : changedKeys.join('、')}。`, kept.id)
+                }
               }
-            }
-            if (changes.length === 0) throw new HttpError('没有任何要改的内容', 400)
+              view.sandbox.updatedAt = Date.now()
+              const saved = await commit(view, workspace)
+              return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: saved.id, create: true }) })
+            },
 
-            target.lastEditedBy = by
-            target.lastEditedAt = Date.now()
-            view.run.events.push({
-              id: shortId('ev'),
-              tick: view.run.tick,
-              kind: 'mutate',
-              ts: Date.now(),
-              actor: 'gm',
-              actorName: by,
-              text: `${by}把「${target.name}」的 ${changes.join('，')}。`,
-              targetId: target.id,
-            })
-            if (view.run.events.length > 3000) view.run.events = view.run.events.slice(-3000)
-            await commit(view, workspace)
-            return send(res, 200, {
-              ok: true,
-              data: { world: await world({ workspace, sandboxId, create: true }), changes },
-            })
-          }
+            /**
+             * POST /paranim/place —— 增删改 structure layer 里的建筑。
+             *
+             * 与 /object 分开是有意的：建筑参与 ① 墙体绘制 ② 移动边界（见
+             * rules.blockedByStructure）③ 智能体的"所在地点数"，改一个矩形会牵动
+             * 这三处，所以它有自己的校验（宽高下限、必须落在图内）与自己的事件类型。
+             *
+             * 写的是 structure 层而不是 places 字段：places 是三层的投影，
+             * 往投影里写在下一次归一化时会被覆盖，表现为"改了又变回去"。
+             */
+            'POST /place': async () => {
+              const view = await world({ workspace, sandboxId, create: true })
+              const op = String(body.op ?? 'patch')
+              const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
+              const W = view.sandbox.map.width
+              const H = view.sandbox.map.height
+              const clampX = (v: number): number => Math.min(W - 1, Math.max(0, Math.round(v)))
+              const clampY = (v: number): number => Math.min(H - 1, Math.max(0, Math.round(v)))
+              /**
+               * structure 层必须真的存在再往里加。
+               *
+               * `?? []` 看着安全,其实是个陷阱:新建的空沙盒可能还没走过一次归一化,
+               * map.layers 仍是 undefined——此时 push 进这个临时数组,谁也不持有它,
+               * 请求返回 200 但建筑根本没落上。宁可就地补一层。
+               */
+              if (view.sandbox.map.layers === undefined) {
+                view.sandbox.map.layers = {
+                  background: Array.from({ length: view.sandbox.map.height }, () => 'g'.repeat(view.sandbox.map.width)),
+                  structure: [],
+                  object: [],
+                }
+              }
+              const structs = view.sandbox.map.layers.structure
+              const logMutate = (text: string, targetId?: string): void => {
+                view.run.events.push({
+                  id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate', actor: 'gm', actorName: by,
+                  text, targetId,
+                })
+              }
 
-          // POST /paranim/agent —— 智能体的增/改/删（需求 3）
-          if (method === 'POST' && path === '/agent') {
-            const view = await world({ workspace, sandboxId, create: true })
-            const op = String(body.op ?? 'update')
+              if (op === 'add') {
+                const name = typeof body.name === 'string' && body.name.trim() !== '' ? body.name.trim().slice(0, 24) : '新建筑'
+                const w = Math.min(W, Math.max(2, Math.round(Number(body.w ?? 6)) || 6))
+                const h = Math.min(H, Math.max(2, Math.round(Number(body.h ?? 5)) || 5))
+                const struct: Structure = {
+                  id: `place-${randomToken(6)}`,
+                  name,
+                  x: clampX(Number(body.x ?? W / 2)),
+                  y: clampY(Number(body.y ?? H / 2)),
+                  w,
+                  h,
+                  color: typeof body.color === 'string' ? body.color : '#a8623f',
+                  roofSlot: typeof body.roofSlot === 'string' ? body.roofSlot : 'roofHome',
+                  desc: typeof body.desc === 'string' ? body.desc : '',
+                }
+                // 外框不许越界：越界的建筑画出来缺一角，移动边界也会伸到图外
+                struct.x = Math.min(W - 1 - Math.floor(w / 2), Math.max(Math.floor(w / 2), struct.x))
+                struct.y = Math.min(H - 1 - Math.floor(h / 2), Math.max(Math.floor(h / 2), struct.y))
+                structs.push(struct)
+                logMutate(`${by}新建了建筑「${struct.name}」（${struct.w}×${struct.h} @${struct.x},${struct.y}）。`, struct.id)
+                view.sandbox.updatedAt = Date.now()
+                // 必须 return：掉下去会走到"按 placeId 找建筑"，而 add 请求没带 id，
+                // 于是表现为"新建成功了却报 404"。
+                await sendWorld(res, view, workspace)
+                return
+              }
 
-            if (op === 'remove') {
+              // id / placeId 两种写法都收：与 /map 保持一致的宽容度。
+              // 只认一种写法的后果是——调用方换了字段名就静默 404,排查起来很脏。
+              const placeId = String(body.placeId ?? body.id ?? '')
+              const index = structs.findIndex((p) => p.id === placeId)
+              if (index < 0) throw new HttpError(`找不到建筑 ${placeId}`, 404)
+
+              if (op === 'remove') {
+                const [gone] = structs.splice(index, 1)
+                logMutate(`${by}拆掉了建筑「${gone.name}」。`)
+                view.sandbox.updatedAt = Date.now()
+                // 同样必须 return：否则会带着一个已经不存在的结构掉进下面的 patch 分支。
+                await sendWorld(res, view, workspace)
+                return
+              }
+
+              // patch：只收白名单字段，改完做一次范围收敛
+              const target = structs[index]
+              const before = `${target.name} ${target.w}×${target.h} @${target.x},${target.y}`
+              if (typeof body.name === 'string' && body.name.trim() !== '') target.name = body.name.trim().slice(0, 24)
+              if (body.x !== undefined) target.x = clampX(Number(body.x))
+              if (body.y !== undefined) target.y = clampY(Number(body.y))
+              if (body.w !== undefined) target.w = Math.min(W, Math.max(2, Math.round(Number(body.w)) || target.w))
+              if (body.h !== undefined) target.h = Math.min(H, Math.max(2, Math.round(Number(body.h)) || target.h))
+              if (typeof body.desc === 'string') target.desc = body.desc.slice(0, 400)
+              if (typeof body.roofSlot === 'string' && body.roofSlot !== '') target.roofSlot = body.roofSlot
+              if (typeof body.color === 'string' && body.color !== '') target.color = body.color
+              // 门/窗：整体替换。它们是"墙体上的开口"，增量合并容易留下已经不在墙上的旧开口。
+              if (Array.isArray(body.doors)) {
+                target.doors = body.doors
+                  .filter((d) => d !== null && typeof d === 'object')
+                  .slice(0, 32)
+                  .map((d) => ({ x: clampX(Number((d as Record<string, unknown>).x)), y: clampY(Number((d as Record<string, unknown>).y)) }))
+              }
+              if (Array.isArray(body.windows)) {
+                target.windows = body.windows
+                  .filter((d) => d !== null && typeof d === 'object')
+                  .slice(0, 32)
+                  .map((d) => ({ x: clampX(Number((d as Record<string, unknown>).x)), y: clampY(Number((d as Record<string, unknown>).y)) }))
+              }
+              // 外框不许越界：越界的建筑画出来会缺一角，路网也会接到图外
+              target.x = Math.min(W - 1 - Math.floor(target.w / 2), Math.max(Math.floor(target.w / 2), target.x))
+              target.y = Math.min(H - 1 - Math.floor(target.h / 2), Math.max(Math.floor(target.h / 2), target.y))
+              target.lastEditedBy = by
+              target.lastEditedAt = Date.now()
+              view.sandbox.updatedAt = Date.now()
+              logMutate(`${by}改了建筑「${target.name}」：${before} → ${target.name} ${target.w}×${target.h} @${target.x},${target.y}。`, target.id)
+              await sendWorld(res, view, workspace)
+              return
+            },
+
+            /**
+             * POST /paranim/tile —— 用笔刷画 background layer。
+             *
+             * 一次请求可以带一串格子（拖拽涂抹会连点），所以入参是 `cells` 数组
+             * 而不是单个 x/y：一笔刷过去要是一次请求一格，画一片草地会打出上百个请求。
+             */
+            'POST /tile': async () => {
+              const view = await world({ workspace, sandboxId, create: true })
+              const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
+              const kind = String(body.kind ?? 'grass')
+              if (!GROUND_KINDS.has(kind)) throw new HttpError(`未知地面材质 ${kind}`, 400)
+              const ch = GROUND_KINDS.get(kind) as string
+              const W = view.sandbox.map.width
+              const H = view.sandbox.map.height
+              const bg = view.sandbox.map.layers?.background ?? []
+              const rows = Array.isArray(body.cells) ? body.cells : [{ x: body.x, y: body.y }]
+              let painted = 0
+              for (const cell of rows.slice(0, 4096)) {
+                const c = cell as Record<string, unknown>
+                const x = Math.round(Number(c.x))
+                const y = Math.round(Number(c.y))
+                if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= W || y >= H) continue
+                const row = bg[y] ?? 'g'.repeat(W)
+                if (row[x] === ch) continue
+                bg[y] = row.slice(0, x) + ch + row.slice(x + 1)
+                painted += 1
+              }
+              if (painted > 0 && view.sandbox.map.layers !== undefined) {
+                view.sandbox.map.layers.background = bg
+                view.sandbox.map.tiles = bg
+                view.sandbox.updatedAt = Date.now()
+                view.run.events.push({
+                  id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate', actor: 'gm', actorName: by,
+                  text: `${by}用「${kind}」刷了 ${painted} 格地面。`,
+                })
+                await commit(view, workspace)
+              }
+              return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: view.sandbox.id, create: true }) })
+            },
+
+            // POST /paranim/object —— 修改物体状态（需求 5 的右键菜单落点）
+            'POST /object': async () => {
+              const view = await world({ workspace, sandboxId, create: true })
+              const objectId = String(body.objectId ?? '')
+              const target = findObject(view.sandbox, objectId) ?? findObject({ ...view.sandbox, objects: [...view.sandbox.objects, ...[]] }, objectId)
+              if (target === undefined) throw new HttpError(`找不到物体 ${objectId}`, 404)
+              const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
+              const changes: string[] = []
+
+              if (typeof body.name === 'string' && body.name.trim() !== '' && body.name !== target.name) {
+                changes.push(`名称「${target.name}」→「${body.name.trim()}」`)
+                target.name = body.name.trim()
+              }
+              if (typeof body.desc === 'string') target.desc = body.desc
+              if (typeof body.color === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(body.color)) target.color = body.color
+              if (typeof body.interactive === 'boolean') target.interactive = body.interactive
+              if (body.x !== undefined && Number.isFinite(Number(body.x))) target.x = Math.max(0, Math.min(view.sandbox.map.width, Math.round(Number(body.x))))
+              if (body.y !== undefined && Number.isFinite(Number(body.y))) target.y = Math.max(0, Math.min(view.sandbox.map.height, Math.round(Number(body.y))))
+
+              if (body.state !== null && typeof body.state === 'object' && !Array.isArray(body.state)) {
+                for (const [key, rawValue] of Object.entries(body.state as Record<string, unknown>)) {
+                  if (key === '' || key.length > 60) continue
+                  const value = rawValue === null ? null : toStateValue(rawValue)
+                  if (value === undefined) {
+                    throw new HttpError(`状态「${key}」的值类型不支持（只接受字符串/数字/布尔/null/短数组）`, 400)
+                  }
+                  const before = target.state[key] ?? null
+                  if (before === value) continue
+                  if (value === null) delete target.state[key]
+                  else target.state[key] = value
+                  changes.push(`${key}「${before === null ? '（无）' : String(before)}」→「${value === null ? '（清除）' : String(value)}」`)
+                }
+              }
+              if (changes.length === 0) throw new HttpError('没有任何要改的内容', 400)
+
+              target.lastEditedBy = by
+              target.lastEditedAt = Date.now()
+              view.run.events.push({
+                id: shortId('ev'),
+                tick: view.run.tick,
+                kind: 'mutate',
+                ts: Date.now(),
+                actor: 'gm',
+                actorName: by,
+                text: `${by}把「${target.name}」的 ${changes.join('，')}。`,
+                targetId: target.id,
+              })
+              if (view.run.events.length > 3000) view.run.events = view.run.events.slice(-3000)
+              await commit(view, workspace)
+              return send(res, 200, {
+                ok: true,
+                data: { world: await world({ workspace, sandboxId, create: true }), changes },
+              })
+            },
+
+            // POST /paranim/agent —— 智能体的增/改/删（需求 3）
+            'POST /agent': async () => {
+              const view = await world({ workspace, sandboxId, create: true })
+              const op = String(body.op ?? 'update')
+
+              if (op === 'remove') {
+                const agentId = String(body.agentId ?? '')
+                const index = view.run.agents.findIndex((a) => a.id === agentId)
+                if (index < 0) throw new HttpError(`找不到智能体 ${agentId}`, 404)
+                const [gone] = view.run.agents.splice(index, 1)
+                view.run.events.push({
+                  id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'despawn', actor: 'gm', actorName: '世界',
+                  text: `${gone.name}离开了这座小镇。`,
+                })
+                await deps.runOf(workspace).save(view.run)
+                return send(res, 200, { ok: true, data: await world({ workspace, sandboxId, create: true }) })
+              }
+
+              if (op === 'add') {
+                const raw = (body.agent ?? {}) as Record<string, unknown>
+                // 自动生成的 id 必须**自己避让**，而不是撞上就报 409：
+                // 调用方没有指定 id（界面的新增按钮就是这样），用一个随机短 id 撞上已有
+                // 角色时报错，等于"点新增偶尔会失败、只闪一下底栏错误"。
+                // 调用方**显式**指定了 id 才该报冲突——那时冲突是它自己的意图问题。
+                const explicitId = typeof raw.id === 'string' && raw.id.trim() !== ''
+                let template = normalizeAgentFromBody(raw, view.sandbox)
+                if (explicitId) {
+                  if (view.run.agents.some((a) => a.id === template.id)) {
+                    throw new HttpError(`智能体 id ${template.id} 已存在`, 409)
+                  }
+                } else {
+                  let guard = 0
+                  while (view.run.agents.some((a) => a.id === template.id) && guard < 32) {
+                    template = normalizeAgentFromBody({ ...raw, id: undefined }, view.sandbox)
+                    guard += 1
+                  }
+                  if (view.run.agents.some((a) => a.id === template.id)) {
+                    throw new HttpError('无法为该智能体生成唯一 id（连续 32 次碰撞，请显式指定 id）', 500)
+                  }
+                }
+                if (view.run.agents.length >= 64) throw new HttpError('一局最多 64 个智能体', 400)
+                const agent = {
+                  ...template,
+                  spawnTick: view.run.tick,
+                  origin: 'user' as const,
+                  memory: [{ tick: view.run.tick, kind: 'summary' as const, text: template.backstory === '' ? `${template.name}刚刚来到镇上。` : template.backstory, ts: Date.now() }],
+                  lastUpdateTick: view.run.tick,
+                  stepsTaken: 0,
+                }
+                view.run.agents.push(agent)
+                view.run.events.push({
+                  id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'spawn', actor: 'gm', actorName: '世界',
+                  text: `${agent.name}（${agent.concept}）加入了小镇。`,
+                  targetAgentId: agent.id,
+                })
+                // 加进沙盒模板，下次开新局还在（用户新增的角色属于"设定"，不是一次性的）。
+                view.sandbox.agents.push(stripRunFields(agent))
+                await deps.runOf(workspace).save(view.run)
+                await commit(view, workspace)
+                return send(res, 200, { ok: true, data: await world({ workspace, sandboxId, create: true }) })
+              }
+
               const agentId = String(body.agentId ?? '')
-              const index = view.run.agents.findIndex((a) => a.id === agentId)
-              if (index < 0) throw new HttpError(`找不到智能体 ${agentId}`, 404)
-              const [gone] = view.run.agents.splice(index, 1)
-              view.run.events.push({
-                id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'despawn', actor: 'gm', actorName: '世界',
-                text: `${gone.name}离开了这座小镇。`,
-              })
-              await deps.runOf(workspace).save(view.run)
-              return send(res, 200, { ok: true, data: await world({ workspace, sandboxId, create: true }) })
-            }
-
-            if (op === 'add') {
-              const raw = (body.agent ?? {}) as Record<string, unknown>
-              // 自动生成的 id 必须**自己避让**，而不是撞上就报 409：
-              // 调用方没有指定 id（界面的新增按钮就是这样），用一个随机短 id 撞上已有
-              // 角色时报错，等于"点新增偶尔会失败、只闪一下底栏错误"。
-              // 调用方**显式**指定了 id 才该报冲突——那时冲突是它自己的意图问题。
-              const explicitId = typeof raw.id === 'string' && raw.id.trim() !== ''
-              let template = normalizeAgentFromBody(raw, view.sandbox)
-              if (explicitId) {
-                if (view.run.agents.some((a) => a.id === template.id)) {
-                  throw new HttpError(`智能体 id ${template.id} 已存在`, 409)
-                }
-              } else {
-                let guard = 0
-                while (view.run.agents.some((a) => a.id === template.id) && guard < 32) {
-                  template = normalizeAgentFromBody({ ...raw, id: undefined }, view.sandbox)
-                  guard += 1
-                }
-                if (view.run.agents.some((a) => a.id === template.id)) {
-                  throw new HttpError('无法为该智能体生成唯一 id（连续 32 次碰撞，请显式指定 id）', 500)
+              const agent = view.run.agents.find((a) => a.id === agentId)
+              if (agent === undefined) throw new HttpError(`找不到智能体 ${agentId}`, 404)
+              const patch = (body.patch ?? {}) as Record<string, unknown>
+              if (typeof patch.name === 'string' && patch.name.trim() !== '') agent.name = patch.name.trim()
+              for (const key of ['concept', 'appearance', 'persona', 'backstory', 'goal', 'color', 'portrait'] as const) {
+                if (typeof patch[key] === 'string') agent[key] = patch[key] as string
+              }
+              if (Array.isArray(patch.plan)) agent.plan = patch.plan.filter((v) => typeof v === 'string').slice(0, 24)
+              if (Array.isArray(patch.inventory)) agent.inventory = patch.inventory.filter((v) => typeof v === 'string').slice(0, 24)
+              if (patch.x !== undefined && Number.isFinite(Number(patch.x))) agent.x = Math.max(0, Math.min(view.sandbox.map.width, Math.round(Number(patch.x))))
+              if (patch.y !== undefined && Number.isFinite(Number(patch.y))) agent.y = Math.max(0, Math.min(view.sandbox.map.height, Math.round(Number(patch.y))))
+              if (patch.attrs !== null && typeof patch.attrs === 'object') {
+                agent.attrs = normalizeAttrs({ ...agent.attrs, ...(patch.attrs as Record<string, number>) })
+              }
+              if (patch.mood !== undefined && patch.mood !== null) agent.mood = normalizeMood(patch.mood)
+              if (patch.model !== undefined) {
+                if (patch.model === null) agent.model = null
+                else {
+                  const m = patch.model as Record<string, unknown>
+                  const provider = String(m.provider ?? '')
+                  const model = String(m.model ?? '')
+                  agent.model = provider === '' || model === '' ? null : {
+                    provider,
+                    model,
+                    reasoningEffort: typeof m.reasoningEffort === 'string' && m.reasoningEffort !== '' ? m.reasoningEffort : undefined,
+                  }
                 }
               }
-              if (view.run.agents.length >= 64) throw new HttpError('一局最多 64 个智能体', 400)
-              const agent = {
-                ...template,
-                spawnTick: view.run.tick,
-                origin: 'user' as const,
-                memory: [{ tick: view.run.tick, kind: 'summary' as const, text: template.backstory === '' ? `${template.name}刚刚来到镇上。` : template.backstory, ts: Date.now() }],
-                lastUpdateTick: view.run.tick,
-                stepsTaken: 0,
-              }
-              view.run.agents.push(agent)
-              view.run.events.push({
-                id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'spawn', actor: 'gm', actorName: '世界',
-                text: `${agent.name}（${agent.concept}）加入了小镇。`,
-                targetAgentId: agent.id,
-              })
-              // 加进沙盒模板，下次开新局还在（用户新增的角色属于"设定"，不是一次性的）。
-              view.sandbox.agents.push(stripRunFields(agent))
+              // 同步回沙盒模板：改的是"这个人是谁"，不该只在这一局里生效。
+              const template = view.sandbox.agents.find((a) => a.id === agent.id)
+              if (template !== undefined) Object.assign(template, stripRunFields(agent))
+              else view.sandbox.agents.push(stripRunFields(agent))
               await deps.runOf(workspace).save(view.run)
               await commit(view, workspace)
               return send(res, 200, { ok: true, data: await world({ workspace, sandboxId, create: true }) })
-            }
+            },
 
-            const agentId = String(body.agentId ?? '')
-            const agent = view.run.agents.find((a) => a.id === agentId)
-            if (agent === undefined) throw new HttpError(`找不到智能体 ${agentId}`, 404)
-            const patch = (body.patch ?? {}) as Record<string, unknown>
-            if (typeof patch.name === 'string' && patch.name.trim() !== '') agent.name = patch.name.trim()
-            for (const key of ['concept', 'appearance', 'persona', 'backstory', 'goal', 'color', 'portrait'] as const) {
-              if (typeof patch[key] === 'string') agent[key] = patch[key] as string
-            }
-            if (Array.isArray(patch.plan)) agent.plan = patch.plan.filter((v) => typeof v === 'string').slice(0, 24)
-            if (Array.isArray(patch.inventory)) agent.inventory = patch.inventory.filter((v) => typeof v === 'string').slice(0, 24)
-            if (patch.x !== undefined && Number.isFinite(Number(patch.x))) agent.x = Math.max(0, Math.min(view.sandbox.map.width, Math.round(Number(patch.x))))
-            if (patch.y !== undefined && Number.isFinite(Number(patch.y))) agent.y = Math.max(0, Math.min(view.sandbox.map.height, Math.round(Number(patch.y))))
-            if (patch.attrs !== null && typeof patch.attrs === 'object') {
-              agent.attrs = normalizeAttrs({ ...agent.attrs, ...(patch.attrs as Record<string, number>) })
-            }
-            if (patch.mood !== undefined && patch.mood !== null) agent.mood = normalizeMood(patch.mood)
-            if (patch.model !== undefined) {
-              if (patch.model === null) agent.model = null
-              else {
-                const m = patch.model as Record<string, unknown>
-                const provider = String(m.provider ?? '')
-                const model = String(m.model ?? '')
-                agent.model = provider === '' || model === '' ? null : {
-                  provider,
-                  model,
-                  reasoningEffort: typeof m.reasoningEffort === 'string' && m.reasoningEffort !== '' ? m.reasoningEffort : undefined,
-                }
-              }
-            }
-            // 同步回沙盒模板：改的是"这个人是谁"，不该只在这一局里生效。
-            const template = view.sandbox.agents.find((a) => a.id === agent.id)
-            if (template !== undefined) Object.assign(template, stripRunFields(agent))
-            else view.sandbox.agents.push(stripRunFields(agent))
-            await deps.runOf(workspace).save(view.run)
-            await commit(view, workspace)
-            return send(res, 200, { ok: true, data: await world({ workspace, sandboxId, create: true }) })
+            // POST /paranim/directive —— 下达指令（需求 3 的指令引导）
+            'POST /directive': async () => {
+              const view = await world({ workspace, sandboxId, create: true })
+              const directive = issueDirective(view.run, String(body.agentId ?? ''), String(body.text ?? ''))
+              await deps.runOf(workspace).save(view.run)
+              return send(res, 200, { ok: true, data: { directive, world: await world({ workspace, sandboxId, create: true }) } })
+            },
+
+            // POST /paranim/step —— 手动步进（需求 6）
+            'POST /step': async () => {
+              const result = await step({
+                workspace,
+                sandboxId,
+                persist: body.persist !== false,
+                maxAgents: body.maxAgents === undefined ? undefined : Number(body.maxAgents),
+              })
+              return send(res, 200, { ok: true, data: result })
+            },
+
+            // POST /paranim/step/config —— 手动 / 自动 + 时间流速（需求 6）
+            'POST /step/config': async () => {
+              const store = deps.stepOf(workspace)
+              await store.load()
+              const patch: Partial<StepConfig> = {}
+              if (body.mode === 'manual' || body.mode === 'auto') patch.mode = body.mode
+              if (body.intervalMs !== undefined) patch.intervalMs = Number(body.intervalMs)
+              if (body.maxAgentsPerTick !== undefined) patch.maxAgentsPerTick = Number(body.maxAgentsPerTick)
+              if (body.callTimeoutMs !== undefined) patch.callTimeoutMs = Number(body.callTimeoutMs)
+              const next = await store.set(clampStepConfig({ ...store.get(), ...patch }))
+              const resolvedId = (await world({ workspace, sandboxId, create: true })).sandbox.id
+              if (next.mode === 'auto') startStepper(workspace, resolvedId, next.intervalMs)
+              else stopStepper(stepperKey(workspace, resolvedId))
+              return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: resolvedId, create: true }) })
+            },
+
+            // POST /paranim/reset —— 重置运行态（保留沙盒设定，回到开局那一天）
+            'POST /reset': async () => {
+              const view = await world({ workspace, sandboxId, create: true })
+              const fresh = deps.store.newRun(view.sandbox, body.count === undefined ? undefined : { count: Number(body.count) })
+              await deps.runOf(workspace).save(fresh)
+              stopStepper(stepperKey(workspace, view.sandbox.id))
+              return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: view.sandbox.id, create: true }) })
+            },
+
+            // POST /paranim/roll —— 直接掷一次（界面上的"亲自掷一骰"）
+            'POST /roll': async () => {
+              const view = await world({ workspace, sandboxId, create: true })
+              const actorId = String(body.agentId ?? '')
+              const agent = view.run.agents.find((a) => a.id === actorId)
+              if (agent === undefined) throw new HttpError(`找不到智能体 ${actorId}`, 404)
+              const attrRaw = String(body.attr ?? 'dex')
+              if (!isAttrId(attrRaw)) throw new HttpError(`未知属性 ${attrRaw}`, 400)
+              const difficulty = Number(body.difficulty ?? 11)
+              const roll = resolveCheck({
+                roll: 1 + Math.floor(Math.random() * 6),
+                attr: attrRaw,
+                attrValue: agent.attrs[attrRaw],
+                difficulty: Number.isFinite(difficulty) ? difficulty : 11,
+                actorName: agent.name,
+                action: typeof body.action === 'string' ? body.action : '临时判定',
+              })
+              view.run.events.push({
+                id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'roll', actor: agent.id, actorName: agent.name,
+                text: roll.text, roll: {
+                  actor: agent.id, action: String(body.action ?? '临时判定'), kind: 'check',
+                  roll: roll.roll, attr: roll.attr, attrValue: roll.attrValue, modifier: roll.modifier,
+                  total: roll.total, difficulty: roll.difficulty, outcome: roll.outcome, ok: roll.ok, decisive: roll.decisive, text: roll.text,
+                },
+              })
+              await deps.runOf(workspace).save(view.run)
+              return send(res, 200, { ok: true, data: { roll, world: await world({ workspace, sandboxId, create: true }) } })
+            },
+
+            // POST /paranim/llm-probe —— 模型调用自检（逐 chunk 明细）
+            'POST /llm-probe': async () => {
+              const probe = await llmProbe({
+                provider: typeof body.provider === 'string' ? body.provider : undefined,
+                model: typeof body.model === 'string' ? body.model : undefined,
+                reasoningEffort: typeof body.reasoningEffort === 'string' ? body.reasoningEffort : undefined,
+                system: typeof body.system === 'string' ? body.system : undefined,
+                user: typeof body.user === 'string' ? body.user : undefined,
+                maxTokens: body.maxTokens === undefined ? undefined : Number(body.maxTokens),
+                quiet: body.quiet === true,
+              })
+              return send(res, 200, { ok: true, data: probe })
+            },
           }
 
-          // POST /paranim/directive —— 下达指令（需求 3 的指令引导）
-          if (method === 'POST' && path === '/directive') {
-            const view = await world({ workspace, sandboxId, create: true })
-            const directive = issueDirective(view.run, String(body.agentId ?? ''), String(body.text ?? ''))
-            await deps.runOf(workspace).save(view.run)
-            return send(res, 200, { ok: true, data: { directive, world: await world({ workspace, sandboxId, create: true }) } })
+          const handle = routeTable[`${method} ${path}`]
+          if (handle === undefined) throw new HttpError(`未知路由 ${method} /paranim${path}`, 404)
+          /**
+           * 同一工作区的写操作串行化。
+           *
+           * 每个写路由都是"读沙盒 → 改 → 落盘"三步，这几步的 await 点之间是交错
+           * 窗口：两个请求的"读"若都发生在对方"写"之前，后写的那个就带着自己那份
+           * 旧快照覆盖前面刚写的结果。实测 128 条并发涂抹——**全部请求都返回 200，
+           * 却只有 2 格落上**，丢了 126 格且一声不吭。拖动涂抹正好稳定落进这个窗口，
+           * 表现就是"涂不上去"。
+           *
+           * 队列把这三步绑成一个不可交错的整体。只读路由（掷骰、探测）不排队：
+           * 让它们跟着等没有意义，还会让界面显得卡。
+           */
+          if (method === 'POST' && path !== '/roll' && path !== '/llm-probe') {
+            await serialize(workspace, handle)
+          } else {
+            await handle()
           }
-
-          // POST /paranim/step —— 手动步进（需求 6）
-          if (method === 'POST' && path === '/step') {
-            const result = await step({
-              workspace,
-              sandboxId,
-              persist: body.persist !== false,
-              maxAgents: body.maxAgents === undefined ? undefined : Number(body.maxAgents),
-            })
-            return send(res, 200, { ok: true, data: result })
-          }
-
-          // POST /paranim/step/config —— 手动 / 自动 + 时间流速（需求 6）
-          if (method === 'POST' && path === '/step/config') {
-            const store = deps.stepOf(workspace)
-            await store.load()
-            const patch: Partial<StepConfig> = {}
-            if (body.mode === 'manual' || body.mode === 'auto') patch.mode = body.mode
-            if (body.intervalMs !== undefined) patch.intervalMs = Number(body.intervalMs)
-            if (body.maxAgentsPerTick !== undefined) patch.maxAgentsPerTick = Number(body.maxAgentsPerTick)
-            if (body.callTimeoutMs !== undefined) patch.callTimeoutMs = Number(body.callTimeoutMs)
-            const next = await store.set(clampStepConfig({ ...store.get(), ...patch }))
-            const resolvedId = (await world({ workspace, sandboxId, create: true })).sandbox.id
-            if (next.mode === 'auto') startStepper(workspace, resolvedId, next.intervalMs)
-            else stopStepper(stepperKey(workspace, resolvedId))
-            return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: resolvedId, create: true }) })
-          }
-
-          // POST /paranim/reset —— 重置运行态（保留沙盒设定，回到开局那一天）
-          if (method === 'POST' && path === '/reset') {
-            const view = await world({ workspace, sandboxId, create: true })
-            const fresh = deps.store.newRun(view.sandbox, body.count === undefined ? undefined : { count: Number(body.count) })
-            await deps.runOf(workspace).save(fresh)
-            stopStepper(stepperKey(workspace, view.sandbox.id))
-            return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: view.sandbox.id, create: true }) })
-          }
-
-          // POST /paranim/roll —— 直接掷一次（界面上的"亲自掷一骰"）
-          if (method === 'POST' && path === '/roll') {
-            const view = await world({ workspace, sandboxId, create: true })
-            const actorId = String(body.agentId ?? '')
-            const agent = view.run.agents.find((a) => a.id === actorId)
-            if (agent === undefined) throw new HttpError(`找不到智能体 ${actorId}`, 404)
-            const attrRaw = String(body.attr ?? 'dex')
-            if (!isAttrId(attrRaw)) throw new HttpError(`未知属性 ${attrRaw}`, 400)
-            const difficulty = Number(body.difficulty ?? 11)
-            const roll = resolveCheck({
-              roll: 1 + Math.floor(Math.random() * 6),
-              attr: attrRaw,
-              attrValue: agent.attrs[attrRaw],
-              difficulty: Number.isFinite(difficulty) ? difficulty : 11,
-              actorName: agent.name,
-              action: typeof body.action === 'string' ? body.action : '临时判定',
-            })
-            view.run.events.push({
-              id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'roll', actor: agent.id, actorName: agent.name,
-              text: roll.text, roll: {
-                actor: agent.id, action: String(body.action ?? '临时判定'), kind: 'check',
-                roll: roll.roll, attr: roll.attr, attrValue: roll.attrValue, modifier: roll.modifier,
-                total: roll.total, difficulty: roll.difficulty, outcome: roll.outcome, ok: roll.ok, decisive: roll.decisive, text: roll.text,
-              },
-            })
-            await deps.runOf(workspace).save(view.run)
-            return send(res, 200, { ok: true, data: { roll, world: await world({ workspace, sandboxId, create: true }) } })
-          }
-
-          // POST /paranim/llm-probe —— 模型调用自检（逐 chunk 明细）
-          if (method === 'POST' && path === '/llm-probe') {
-            const probe = await llmProbe({
-              provider: typeof body.provider === 'string' ? body.provider : undefined,
-              model: typeof body.model === 'string' ? body.model : undefined,
-              reasoningEffort: typeof body.reasoningEffort === 'string' ? body.reasoningEffort : undefined,
-              system: typeof body.system === 'string' ? body.system : undefined,
-              user: typeof body.user === 'string' ? body.user : undefined,
-              maxTokens: body.maxTokens === undefined ? undefined : Number(body.maxTokens),
-              quiet: body.quiet === true,
-            })
-            return send(res, 200, { ok: true, data: probe })
-          }
-
-          throw new HttpError(`未知路由 ${method} /paranim${path}`, 404)
         } catch (error) {
           const status = error instanceof HttpError ? error.status : 500
-          if (status >= 500) log('route error:', `${method} ${path}`, String(error))
+          /**
+           * 5xx 要把堆栈记下来。
+           *
+           * 只记 message 的话，像 "Cannot read properties of null" 这种错误完全
+           * 无法定位——看不到是哪一行、也看不到调用链，只能靠反复插桩猜。
+           */
+          if (status >= 500) {
+            log('route error:', `${method} ${path}`, error instanceof Error ? (error.stack ?? error.message) : String(error))
+          }
           return send(res, status, { ok: false, error: error instanceof Error ? error.message : String(error) })
         }
       },

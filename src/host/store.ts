@@ -96,7 +96,15 @@ async function readJson<T>(file: string): Promise<T | undefined> {
 /** 原子写：同目录临时文件 + rename，避免半截 JSON 覆盖掉一个好沙盒。 */
 async function writeJson(file: string, value: unknown): Promise<void> {
   await mkdir(dirname(file), { recursive: true })
-  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`
+  /**
+   * 临时文件名必须**每次都不同**。
+   *
+   * 原来是 `${pid}-${Date.now()}`：同一个进程在同一毫秒内发起两次写就会撞名，
+   * 后者覆盖前者的 tmp，前者 rename 时那个文件已经不在——报 ENOENT，
+   * 整个请求 500。并发涂抹正好稳定地落进这个窗口。
+   * 带上随机段之后，撞名在概率上不可能。
+   */
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}-${shortId('w')}`
   await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
   await rename(tmp, file)
 }

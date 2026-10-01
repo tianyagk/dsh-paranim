@@ -15,7 +15,11 @@
 import type { Sandbox, WorldObject } from '../shared/model.ts'
 import { hash2 } from './grid.ts'
 
-export type Terrain = 'grass' | 'grassAlt' | 'dirt' | 'stone' | 'water' | 'sand' | 'field'
+/**
+ * 地面材质。取值必须与 mapStyle.GROUND 的槽位、以及 store.GROUND_CHARS
+ * 的八种笔刷对齐——三处任何一处漏掉一种，玩家涂它就没反应。
+ */
+export type Terrain = 'grass' | 'grassAlt' | 'dirt' | 'stone' | 'concrete' | 'water' | 'sand' | 'field' | 'wood'
 
 export interface BuildingSpec {
   place: WorldObject
@@ -83,11 +87,16 @@ export function buildLayout(sandbox: Sandbox): TownLayout {
     for (let y = 0; y < Math.min(height, sandbox.map.tiles.length); y += 1) {
       const row = sandbox.map.tiles[y] ?? ''
       for (let x = 0; x < Math.min(width, row.length); x += 1) {
+        // 字符 → 材质。必须与 store.GROUND_CHARS 的八种笔刷一一对应：
+        // 笔刷面板给出的每一种，这里都要有去处，否则玩家刷下去什么都不出现。
         const ch = row[x]
         if (ch === 'w') terrain[y][x] = 'water'
         else if (ch === 's') terrain[y][x] = 'sand'
+        else if (ch === 'f') terrain[y][x] = 'field'
+        else if (ch === 'o') terrain[y][x] = 'wood'
         else if (ch === 'r') { terrain[y][x] = 'dirt'; road[y][x] = true }
-        else if (ch === 'p' || ch === 'z') { terrain[y][x] = 'stone'; road[y][x] = true }
+        else if (ch === 'p') { terrain[y][x] = 'stone'; road[y][x] = true }
+        else if (ch === 'z') { terrain[y][x] = 'concrete'; road[y][x] = true }
         else if (ch === 'g') terrain[y][x] = hash2(x, y, 7) > 0.82 ? 'grassAlt' : 'grass'
       }
     }
@@ -227,10 +236,30 @@ function carvePath(
   for (let y = y0; y !== y1 + stepY; y += stepY) paint(x1, y)
 }
 
+/**
+ * 字符画的轻量指纹（FNV-1a）。
+ *
+ * 不能只用 `tiles.length`：玩家用笔刷涂抹一行里的格子时行数不变，
+ * 指纹也就不变——缓存命中、地图不重算，表现成"涂了没反应"。
+ * 整张字符画（140×100 约 1.4 万字符）逐帧拼进 key 又太长，
+ * 所以取一个数字指纹。
+ */
+function hashRows(rows: readonly string[]): number {
+  let h = 0x811c9dc5
+  for (const row of rows) {
+    for (let i = 0; i < row.length; i += 1) {
+      h ^= row.charCodeAt(i)
+      h = Math.imul(h, 0x01000193)
+    }
+  }
+  return h >>> 0
+}
+
 /** 布局指纹：用于客户端判断"要不要重建"。 */
 export function layoutKey(sandbox: Sandbox): string {
+  const rows = sandbox.map.layers?.background ?? sandbox.map.tiles ?? []
   return (
     sandbox.places.map((p) => `${p.id}:${p.x},${p.y},${p.w ?? 0}x${p.h ?? 0}`).join('|') +
-    `#${sandbox.map.width}x${sandbox.map.height}#${(sandbox.map.tiles ?? []).length}#${JSON.stringify(sandbox.map.interior ?? null)}`
+    `#${sandbox.map.width}x${sandbox.map.height}#${hashRows(rows)}#${JSON.stringify(sandbox.map.interior ?? null)}`
   )
 }

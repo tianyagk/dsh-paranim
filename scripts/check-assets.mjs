@@ -154,43 +154,102 @@ else console.log(`  自行车贴图 ${bikeCells.length} 张,轮圈行均呈现�
 
 // 注释里声称的"实测色"必须真的对得上。mapStyle.ts 靠这些色值说明每格取材依据,
 // 色值一旦漂移(比如图集被重新归一),注释就成了误导——比没有注释更糟。
+// 清单里每行以**槽位名**开头,所以能逐槽核对而不是抽样。
 {
   const styleText = readFileSync(join(root, 'src', 'client', 'mapStyle.ts'), 'utf8')
-  const claims = [...styleText.matchAll(/·\s*([^ ]+)\s*(#[0-9a-fA-F]{6})/g)].map((m) => [m[1], m[2].toLowerCase()])
-  if (claims.length > 0) {
-    // 抽样核对:草地那一格是 ground 的主力,它的色值写错的话整片地面都解释错了
-    const groundText = styleText.slice(styleText.indexOf('export const GROUND'))
-    const groundRefs = new Map()
-    for (const gm of groundText.split('\n').slice(0, 40).join('\n').matchAll(/^\s*([a-zA-Z]+):\s*\[(.*)\]/gm)) {
-      const cells = []
-      for (const c of gm[2].matchAll(/at\(('[a-z-]+'|[A-Za-z][A-Za-z-]*)\s*,\s*(\d+)\s*,\s*(\d+)\)/g)) {
-        const rawSheet = c[1]
-        const sheet = rawSheet.startsWith("'") ? rawSheet.replaceAll("'", '') + '.png' : ALIAS.get(rawSheet)
-        cells.push({ sheet: sheet ?? rawSheet, col: +c[2], row: +c[3] })
-      }
-      groundRefs.set(gm[1], cells)
-      if (gm[1] === 'void') break
+  const claims = new Map()
+  for (const m of styleText.matchAll(/·\s*([a-zA-Z][a-zA-Z0-9]*)\s+\S+\s*(#[0-9a-fA-F]{6})/g)) {
+    claims.set(m[1], m[2].toLowerCase())
+  }
+
+  const groundText = styleText.slice(styleText.indexOf('export const GROUND'))
+  const groundRefs = new Map()
+  for (const gm of groundText.split('\n').slice(0, 60).join('\n').matchAll(/^\s*([a-zA-Z]+):\s*\[(.*)\]/gm)) {
+    const cells = []
+    for (const c of gm[2].matchAll(/at\(('[a-z-]+'|[A-Za-z][A-Za-z-]*)\s*,\s*(\d+)\s*,\s*(\d+)\)/g)) {
+      const rawSheet = c[1]
+      const sheet = rawSheet.startsWith("'") ? rawSheet.replaceAll("'", '') + '.png' : ALIAS.get(rawSheet)
+      cells.push({ sheet: sheet ?? rawSheet, col: +c[2], row: +c[3] })
     }
-    const grass = groundRefs.get('grassPlain') ?? []
-    const cell = grass[0]
-    if (cell !== undefined) {
-      const meta = sheets.get(cell.sheet)
-      let R = 0, G = 0, B = 0, n = 0
-      for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
-        const o = ((cell.row * 16 + y) * meta.w + cell.col * 16 + x) * 4
-        if (meta.px[o + 3] < 128) continue
-        n++; R += meta.px[o]; G += meta.px[o + 1]; B += meta.px[o + 2]
-      }
-      const actual = '#' + [R / n, G / n, B / n].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
-      const claimed = claims.find(([label]) => label === '草地')
-      if (claimed !== undefined && claimed[1] !== actual) {
-        console.error(`  ✗ 注释声称草地是 ${claimed[1]},实测 ${actual}(图集被改过?改注释或改槽位)`)
-        bad++
-      } else {
-        console.log(`  草地色值与注释一致:${actual}`)
-      }
+    groundRefs.set(gm[1], cells)
+    if (gm[1] === 'void') break
+  }
+
+  const avgOf = (cell) => {
+    const meta = sheets.get(cell.sheet)
+    let R = 0, G = 0, B = 0, n = 0
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+      const o = ((cell.row * 16 + y) * meta.w + cell.col * 16 + x) * 4
+      if (meta.px[o + 3] < 128) continue
+      n++; R += meta.px[o]; G += meta.px[o + 1]; B += meta.px[o + 2]
+    }
+    return n === 0 ? undefined : '#' + [R / n, G / n, B / n].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
+  }
+
+  let checked = 0
+  let mismatched = 0
+  for (const [slot, claimed] of claims) {
+    const cell = (groundRefs.get(slot) ?? [])[0]
+    if (cell === undefined) continue
+    const actual = avgOf(cell)
+    if (actual === undefined) continue
+    checked++
+    if (actual !== claimed) {
+      mismatched++
+      console.error(`  ✗ 注释声称 ${slot} 是 ${claimed},实测 ${actual}(图集被改过?改注释或改槽位)`)
+      bad++
     }
   }
+  // 措辞要跟着结果走:一句话里既报错又说"一致"会让人以为只有一处坏
+  if (checked > 0) {
+    console.log(
+      mismatched === 0
+        ? `  地面实测色与注释一致:${checked} 个槽位`
+        : `  地面实测色:${checked - mismatched}/${checked} 个槽位一致,${mismatched} 个对不上`,
+    )
+  }
+}
+
+// 笔刷必须真的能画出来 —— 这是"涂了没反应"这类静默失败的唯一防线。
+//
+// 一次涂抹要穿过四层才落到画面上:
+//   ① index.tsx 的 GROUND_PALETTE(面板上有这个笔刷)
+//   ② store.ts 的 GROUND_CHARS(材质名 ↔ 字符)
+//   ③ layout.ts 的字符映射(字符 → Terrain)
+//   ④ town.ts 的 TERRAIN_SLOT + mapStyle 的 GROUND(材质 → 非空贴图槽)
+// 任何一层漏掉一种材质,玩家点下去都毫无变化、且**不报错**。四层逐一断言。
+{
+  const paletteText = readFileSync(join(root, 'src', 'client', 'index.tsx'), 'utf8')
+  const storeText = readFileSync(join(root, 'src', 'host', 'store.ts'), 'utf8')
+  const layoutText = readFileSync(join(root, 'src', 'client', 'layout.ts'), 'utf8')
+  const townText = readFileSync(join(root, 'src', 'client', 'town.ts'), 'utf8')
+  const styleText = readFileSync(join(root, 'src', 'client', 'mapStyle.ts'), 'utf8')
+
+  const kinds = [...paletteText.matchAll(/\{\s*kind:\s*'([a-z]+)'/g)].map((m) => m[1])
+  const charOf = new Map([...storeText.matchAll(/\['([a-z])',\s*'([a-z]+)'\]/g)].map((m) => [m[2], m[1]]))
+  const terrainOfChar = new Map(
+    // 宽松匹配到行尾第一个引号词:'g' 那行是三元表达式(grassAlt : grass),
+    // 只要拿到其中一个能落地的材质即可。
+    [...layoutText.matchAll(/ch === '([a-z])'[^\n]*?'([a-zA-Z]+)'/g)].map((m) => [m[1], m[2]]),
+  )
+  const slotOfTerrain = new Map([...townText.matchAll(/^\s*([a-zA-Z]+):\s*'([a-zA-Z]+)',/gm)].map((m) => [m[1], m[2]]))
+  const groundSlots = new Set(
+    [...styleText.slice(styleText.indexOf('export const GROUND')).split('\n').slice(0, 60).join('\n')
+      .matchAll(/^\s*([a-zA-Z]+):\s*\[([^\]]*)\]/gm)]
+      .filter((m) => m[2].trim() !== '').map((m) => m[1]),
+  )
+
+  if (kinds.length === 0) { console.error('  ✗ 没解析到笔刷面板的材质清单'); bad++ }
+  for (const kind of kinds) {
+    const ch = charOf.get(kind)
+    if (ch === undefined) { console.error(`  ✗ 笔刷「${kind}」没有字符映射(store.GROUND_CHARS)`); bad++; continue }
+    const terrain = terrainOfChar.get(ch)
+    if (terrain === undefined) { console.error(`  ✗ 笔刷「${kind}」的字符 '${ch}' 在 layout 里没有去向`); bad++; continue }
+    const slot = slotOfTerrain.get(terrain)
+    if (slot === undefined) { console.error(`  ✗ 材质「${terrain}」在 TERRAIN_SLOT 里没有槽位`); bad++; continue }
+    if (!groundSlots.has(slot)) { console.error(`  ✗ 材质「${terrain}」指向的槽位 ${slot} 没有贴图`); bad++; continue }
+  }
+  if (bad === 0) console.log(`  笔刷 ${kinds.length} 种材质四层贯通(面板→字符→材质→贴图)`)
 }
 
 // 生成物必须与它的源同步。fallback.ts 是"镜像读不到时"的降级路径,

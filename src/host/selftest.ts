@@ -706,6 +706,30 @@ section('图层：三层编辑')
     '建筑真的从 structure 层消失了',
   )
 
+  // ⑦ 并发涂抹不能丢更新
+  //
+  // 每条写路由都是"读沙盒 → 改 → 落盘"三步，await 点之间是交错窗口。
+  // 实测过一次真实事故：128 条并发涂抹**全部返回 200，却只有 2 格落上**——
+  // 后到的请求带着自己那份旧快照覆盖前面刚写的，而且一声不吭。前端拖动涂抹
+  // 正好稳定落进这个窗口，用户看到的就是"涂不上去"。
+  //
+  // 规模刻意开大：8 条并发是抓不到这个 bug 的（试过，全绿），必须够密才撞得上。
+  const cells: Array<{ x: number; y: number }> = []
+  for (let y = 4; y < 12; y += 1) for (let x = 2; x < 10; x += 1) cells.push({ x, y })
+  const concurrent = await Promise.all(
+    cells.map((cell) =>
+      call(route, 'POST', `/paranim/tile?workspace=${encodeURIComponent(ws)}`, { kind: 'water', cells: [cell] }),
+    ),
+  )
+  ok(
+    concurrent.every((r) => r.status === 200),
+    `${cells.length} 条并发涂抹都返回 200（落盘的临时文件名不会互相撞掉）`,
+    concurrent.every((r) => r.status === 200) ? '' : concurrent.filter((r) => r.status !== 200).length + ' 条失败',
+  )
+  const afterPaint = dataOf<WorldView>(concurrent[concurrent.length - 1]).sandbox.map.layers?.background ?? []
+  const lost = cells.filter((c) => (afterPaint[c.y] ?? '')[c.x] !== 'w')
+  ok(lost.length === 0, `${cells.length} 格并发涂抹一格都没丢`, lost.length === 0 ? '' : `丢了 ${lost.length} 格`)
+
   // 必须还原：注入是进程级的,留着会让后面所有段落读写这个已删除的临时目录
   setDataHomeForTest(undefined)
   await rm(home, { recursive: true, force: true })

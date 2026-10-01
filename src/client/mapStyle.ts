@@ -22,11 +22,23 @@ const T = 'tiny-town' as const
 const F = 'tiny-farm' as const
 
 /**
- * 地面。实测色：
- *  · 草地 #528e4c —— tiny-farm 9:8/9:9 是整格纯绿（主色占比 0.72–0.78），
- *    最适合大面积平铺；tiny-town 的 r0–r3 绿格带草簇/花，拿来做点缀变体。
- *  · 土路 #c1b06a —— tiny-town 的 r1/r3 倒数几列（原版那条黄泥路的色）。
- *  · 石板 #96a2a3 —— city 2:23（灰色路面）。
+ * 地面。每一槽的实测色（每行以**槽位名**开头，scripts/check-assets.mjs 会
+ * 逐槽核对首格像素——色值写错就等于取材依据变成了误导，比没有注释更糟）：
+ *
+ *  · grassPlain 草地 #528e4c —— tiny-farm 9:8/9:9 是整格纯绿（主色占比
+ *    0.72–0.78），最适合大面积平铺；tiny-town 的 r0–r3 绿格带草簇/花，
+ *    拿来做点缀变体。
+ *  · dirt 泥土 #9b6738 —— tiny-town r1/r3 的 9–11 列（深棕压实土）。
+ *    注意：同一行的 0–2 列是 #c1b06a 那种浅黄土路，两者都是"路"但深浅差很多。
+ *    当前取的是深棕这一组；若要让镇上路面更像原版那条黄泥路，把列号改成 0–2 即可。
+ *    （这条注释此前写的是 #c1b06a，与槽位实际用的格子对不上——是校验器揪出来的。）
+ *  · stone 石板 #96a2a3 —— city 2:23。
+ *  · concrete 水泥 #aeb1b5 —— city 18:2，比石板亮一档且偏中性灰：两者都是
+ *    路面，但一个是石材一个是浇筑，图上必须分得开。
+ *  · wood 木地板 #b38355 —— city 13:25，主色占比 0.89，室内平铺很干净；
+ *    偏红棕，与土路的土黄一眼可分。
+ *  · water 水面 #3cacd7 —— onebit 8:5 纯色格。此前 water 直接降级成 stone，
+ *    玩家刷出"水面"却看到石地，只能当成笔刷坏了。
  */
 export const GROUND: SlotTable = {
   grass: [at(T, 0, 0), at(T, 1, 0), at(T, 2, 0), at(T, 0, 1), at(T, 1, 1), at(T, 2, 1)],
@@ -35,6 +47,9 @@ export const GROUND: SlotTable = {
   stone: [at('city', 2, 23), at('city', 6, 5), at('city', 6, 9)],
   sand: [at(T, 4, 3), at(T, 5, 3), at(T, 6, 3)],
   field: [at(F, 0, 0), at(F, 1, 0), at(F, 2, 0), at(F, 3, 0)],
+  wood: [at('city', 13, 25), at('city', 14, 25), at('city', 13, 26), at('city', 14, 26)],
+  water: [at('onebit', 8, 5), at('onebit', 11, 5)],
+  concrete: [at('city', 18, 2), at('city', 23, 2), at('city', 16, 1), at('city', 17, 1)],
   void: [at(F, 9, 9)],
 }
 

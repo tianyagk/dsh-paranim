@@ -65,8 +65,10 @@ const TERRAIN_SLOT: Record<string, string> = {
   dirt: 'dirt',
   stone: 'stone',
   sand: 'sand',
-  water: 'stone',
+  water: 'water',
   field: 'field',
+  wood: 'wood',
+  concrete: 'concrete',
 }
 
 function drawTerrain(ctx: CanvasRenderingContext2D, input: RenderInput, layout: TownLayout): void {
