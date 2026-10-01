@@ -471,9 +471,7 @@ function ParanimApp(props: TabProps): React.ReactElement {
           '下达指令',
         ),
         React.createElement('span', { className: 'pa-spacer' }),
-        // 版本标记：客户端包在插件装载时就被读进内存，改了源码必须重启 dsh 才会换新版。
-        // 没有这个标记，"重启了但他看的是旧包"只能靠猜——它就写在那行最右边。
-        // 主题与消息模式：放在底栏而不是设置页——调外观时要立刻看到结果。
+        // 主题与消息模式放在底栏而不是设置页：调外观时要立刻看到结果。
         React.createElement(
           'div',
           { className: 'pa-picker', title: '主题风格：只换配色，不动布局' },
@@ -515,6 +513,8 @@ function ParanimApp(props: TabProps): React.ReactElement {
             ),
           ),
         ),
+        // 版本标记：客户端包在插件装载时就读进内存，改了源码要重启 dsh 才换新版。
+        // 没有它，"重启了但他看的是旧包"只能靠猜。
         React.createElement('span', {
           className: 'pa-dim pa-mono',
           title: '客户端包版本（改了源码需重启 dsh 才会换新版）',

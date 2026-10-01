@@ -2,11 +2,11 @@
  * 内联兜底小镇 —— **由 scripts/gen-fallback.mjs 从 assets/smallville.json 生成，不要手改**。
  *
  * 作用：镜像文件读不到（缺失 / JSON 坏了 / 打包时 assets 没带上）时，引擎与 UI
- * 仍要能立刻可用。因此它是**降级路径**，不追求完整：19 处地标、
+ * 仍要能立刻可用。因此它是**降级路径**，不追求完整：40 处地标、
  * 12 件可改状态的物件、8 位居民，全部取自发货镜像本身，
  * 只是裁掉了长文本与重复的 props 组。
  *
- * 素材出处：地图分区、地标名、物件名与 25 位居民设定取自 joonspk-research/generative_agents（Stanford Generative Agents, UIST 2023, Apache-2.0）。本文件的 19 个 places 的 x/y/w/h 由原仓库 matrix/maze/aren…
+ * 素材出处：地点外接框与路网解自 joonspk-research/generative_agents 的 arena_maze.csv（Stanford Generative Agents, UIST 2023, Apache-2.0）；居民设定取自 storage/base_the_ville_n25/personas/<N…
  * 许可：Apache-2.0
  *
  * 改动镜像后请重新生成：node scripts/gen-fallback.mjs
@@ -17,8 +17,8 @@ export const INLINE_SMALLVILLE: Sandbox = {
   v: 1,
   id: 'smallville',
   name: 'Smallville · 斯坦福小镇',
-  desc: "140x100 网格的小镇，25 位居民在咖啡馆、酒馆、超市、学院与各自住所之间过着有日程、有记忆、有社交的日子。",
-  attribution: "地图分区、地标名、物件名与 25 位居民设定取自 joonspk-research/generative_agents（Stanford Generative Agents, UIST 2023, Apache-2.0）。本文件的 19 个 places 的 x/y/w/h 由原仓库 matrix/maze/arena_maze.csv 的 140x100 网格逐格解析得出，均为原版真实坐标；1…",
+  desc: "复刻斯坦福 generative_agents 的 Smallville：地点外接框与路网全部按原版 140×100 栅格还原。",
+  attribution: "地点外接框与路网解自 joonspk-research/generative_agents 的 arena_maze.csv（Stanford Generative Agents, UIST 2023, Apache-2.0）；居民设定取自 storage/base_the_ville_n25/personas/<Name>/bootstrap_memory/scratch.json；像素图集取…",
   license: "Apache-2.0",
   builtin: true,
   createdAt: 0,
@@ -26,17 +26,171 @@ export const INLINE_SMALLVILLE: Sandbox = {
   map: {
     "width": 140,
     "height": 100,
-    "ground": "#4a6b3f"
+    "ground": "#5c8b3a"
   },
   places: [
     {
-      "id": "hobbs-cafe",
+      "id": "place-1",
+      "name": "罗西公寓",
+      "kind": "place",
+      "x": 88,
+      "y": 19,
+      "w": 5,
+      "h": 14,
+      "color": "#6b7f9c",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-2",
+      "name": "戈麦斯公寓",
+      "kind": "place",
+      "x": 95,
+      "y": 19,
+      "w": 5,
+      "h": 14,
+      "color": "#6b7f9c",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-3",
+      "name": "玫瑰与王冠酒馆",
+      "kind": "place",
+      "x": 58,
+      "y": 20,
+      "w": 10,
+      "h": 14,
+      "color": "#6b7f9c",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-4",
       "name": "霍布斯咖啡馆",
       "kind": "place",
-      "x": 72,
-      "y": 19,
+      "x": 67,
+      "y": 20,
+      "w": 5,
+      "h": 14,
+      "color": "#6b7f9c",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-5",
+      "name": "伊莎贝拉公寓",
+      "kind": "place",
+      "x": 78,
+      "y": 20,
       "w": 12,
-      "h": 8,
+      "h": 14,
+      "color": "#6b7f9c",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-6",
+      "name": "艺术家合居空间",
+      "kind": "place",
+      "x": 19,
+      "y": 20,
+      "w": 8,
+      "h": 6,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-7",
+      "name": "亚瑟·伯顿公寓",
+      "kind": "place",
+      "x": 29,
+      "y": 20,
+      "w": 8,
+      "h": 6,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-8",
+      "name": "起居室 1",
+      "kind": "place",
+      "x": 39,
+      "y": 25,
+      "w": 8,
+      "h": 16,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-9",
+      "name": "橡树山学院",
+      "kind": "place",
+      "x": 116,
+      "y": 27,
+      "w": 17,
+      "h": 16,
+      "color": "#6b7f9c",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-10",
+      "name": "约翰逊公园",
+      "kind": "place",
+      "x": 19,
+      "y": 30,
+      "w": 8,
+      "h": 6,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-11",
+      "name": "厨房 1",
+      "kind": "place",
+      "x": 29,
+      "y": 30,
+      "w": 8,
+      "h": 6,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-12",
+      "name": "橡树山学院宿舍",
+      "kind": "place",
+      "x": 124,
+      "y": 36,
+      "w": 15,
+      "h": 11,
       "color": "#c9843f",
       "interactive": true,
       "state": {
@@ -44,252 +198,392 @@ export const INLINE_SMALLVILLE: Sandbox = {
       }
     },
     {
-      "id": "rose-and-crown-pub",
-      "name": "玫瑰与王冠酒馆",
-      "kind": "place",
-      "x": 53,
-      "y": 20,
-      "w": 10,
-      "h": 7,
-      "color": "#8e4b3a",
-      "interactive": true,
-      "state": {
-        "open": true
-      }
-    },
-    {
-      "id": "harvey-oak-supply-store",
-      "name": "哈维橡树五金店",
-      "kind": "place",
-      "x": 57,
-      "y": 42,
-      "w": 14,
-      "h": 12,
-      "color": "#7a6a55",
-      "interactive": true,
-      "state": {
-        "open": true
-      }
-    },
-    {
-      "id": "johnson-park",
-      "name": "约翰逊公园",
-      "kind": "place",
-      "x": 21,
-      "y": 41,
-      "w": 15,
-      "h": 11,
-      "color": "#5f8f4a",
-      "interactive": true,
-      "state": {
-        "open": true
-      }
-    },
-    {
-      "id": "willows-market-pharmacy",
-      "name": "柳树超市与药房",
-      "kind": "place",
-      "x": 75,
-      "y": 42,
-      "w": 19,
-      "h": 12,
-      "color": "#6f8fa8",
-      "interactive": true,
-      "state": {
-        "open": true
-      }
-    },
-    {
-      "id": "oak-hill-college",
-      "name": "橡树山学院",
-      "kind": "place",
-      "x": 108,
-      "y": 19,
-      "w": 17,
-      "h": 16,
-      "color": "#9a7bb0",
-      "interactive": true,
-      "state": {
-        "open": true
-      }
-    },
-    {
-      "id": "dorm-oak-hill",
-      "name": "橡树山学院宿舍",
-      "kind": "place",
-      "x": 106,
-      "y": 44,
-      "w": 27,
-      "h": 19,
-      "color": "#b08fc4",
-      "interactive": true,
-      "state": {
-        "open": true
-      }
-    },
-    {
-      "id": "artists-co-living",
-      "name": "艺术家合居空间",
-      "kind": "place",
-      "x": 15,
-      "y": 17,
-      "w": 28,
-      "h": 18,
-      "color": "#c46a8a",
-      "interactive": true,
-      "state": {
-        "open": true
-      }
-    },
-    {
-      "id": "lin-house",
-      "name": "林家宅",
-      "kind": "place",
-      "x": 87,
-      "y": 65,
-      "w": 12,
-      "h": 18,
-      "color": "#d08b6a",
-      "interactive": true,
-      "state": {
-        "open": true
-      }
-    },
-    {
-      "id": "moreno-house",
-      "name": "莫雷诺家",
-      "kind": "place",
-      "x": 69,
-      "y": 65,
-      "w": 12,
-      "h": 18,
-      "color": "#c07a5f",
-      "interactive": true,
-      "state": {
-        "open": true
-      }
-    },
-    {
-      "id": "moore-house",
-      "name": "摩尔家",
-      "kind": "place",
-      "x": 36,
-      "y": 58,
-      "w": 5,
-      "h": 13,
-      "color": "#a8846a",
-      "interactive": true,
-      "state": {
-        "open": true
-      }
-    },
-    {
-      "id": "smith-house",
-      "name": "亚当·史密斯宅",
-      "kind": "place",
-      "x": 20,
-      "y": 58,
-      "w": 5,
-      "h": 13,
-      "color": "#8f8a72",
-      "interactive": true,
-      "state": {
-        "open": true
-      }
-    },
-    {
-      "id": "yamamoto-house",
+      "id": "place-13",
       "name": "山本宅",
       "kind": "place",
       "x": 28,
-      "y": 58,
-      "w": 5,
-      "h": 13,
-      "color": "#7f9a8a",
+      "y": 46,
+      "w": 14,
+      "h": 9,
+      "color": "#c9843f",
       "interactive": true,
       "state": {
         "open": true
       }
     },
     {
-      "id": "taylor-ortiz-house",
+      "id": "place-14",
+      "name": "哈维橡树五金店",
+      "kind": "place",
+      "x": 64,
+      "y": 48,
+      "w": 14,
+      "h": 12,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-15",
+      "name": "柳树超市与药房",
+      "kind": "place",
+      "x": 84,
+      "y": 48,
+      "w": 19,
+      "h": 12,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-16",
+      "name": "店面 1",
+      "kind": "place",
+      "x": 129,
+      "y": 46,
+      "w": 7,
+      "h": 5,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-17",
+      "name": "后厨 1",
+      "kind": "place",
+      "x": 121,
+      "y": 50,
+      "w": 8,
+      "h": 9,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-18",
+      "name": "仓库 1",
+      "kind": "place",
+      "x": 109,
+      "y": 51,
+      "w": 6,
+      "h": 4,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-19",
+      "name": "店面 2",
+      "kind": "place",
+      "x": 131,
+      "y": 54,
+      "w": 3,
+      "h": 7,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-20",
+      "name": "后厨 2",
+      "kind": "place",
+      "x": 125,
+      "y": 55,
+      "w": 6,
+      "h": 6,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-21",
+      "name": "仓库 2",
+      "kind": "place",
+      "x": 109,
+      "y": 59,
+      "w": 6,
+      "h": 7,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-22",
+      "name": "店面 3",
+      "kind": "place",
+      "x": 117,
+      "y": 59,
+      "w": 6,
+      "h": 7,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-23",
+      "name": "亚当·史密斯宅",
+      "kind": "place",
+      "x": 22,
+      "y": 65,
+      "w": 5,
+      "h": 12,
+      "color": "#c9843f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-24",
+      "name": "摩尔家",
+      "kind": "place",
+      "x": 30,
+      "y": 65,
+      "w": 5,
+      "h": 12,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-25",
       "name": "泰勒与奥尔蒂斯之家",
       "kind": "place",
-      "x": 51,
+      "x": 38,
       "y": 65,
-      "w": 12,
-      "h": 18,
-      "color": "#c2a05e",
-      "interactive": true,
-      "state": {
-        "open": true
-      }
-    },
-    {
-      "id": "burton-apartment",
-      "name": "亚瑟·伯顿公寓",
-      "kind": "place",
-      "x": 53,
-      "y": 13,
-      "w": 10,
-      "h": 7,
-      "color": "#9c5f4f",
-      "interactive": true,
-      "state": {
-        "open": true
-      }
-    },
-    {
-      "id": "park-apartment",
-      "name": "瑞恩·帕克公寓",
-      "kind": "place",
-      "x": 65,
-      "y": 13,
       "w": 5,
-      "h": 14,
-      "color": "#6a8fa8",
+      "h": 12,
+      "color": "#a8623f",
       "interactive": true,
       "state": {
         "open": true
       }
     },
     {
-      "id": "rodriguez-apartment",
-      "name": "伊莎贝拉公寓",
+      "id": "place-26",
+      "name": "莫雷诺家",
+      "kind": "place",
+      "x": 54,
+      "y": 68,
+      "w": 7,
+      "h": 6,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-27",
+      "name": "林家宅",
+      "kind": "place",
+      "x": 61,
+      "y": 67,
+      "w": 3,
+      "h": 5,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-28",
+      "name": "卧室 1",
       "kind": "place",
       "x": 72,
-      "y": 13,
-      "w": 12,
+      "y": 68,
+      "w": 7,
       "h": 6,
-      "color": "#d4a04a",
+      "color": "#a8623f",
       "interactive": true,
       "state": {
         "open": true
       }
     },
     {
-      "id": "rossi-apartment",
-      "name": "罗西公寓",
+      "id": "place-29",
+      "name": "书房 1",
       "kind": "place",
-      "x": 86,
-      "y": 12,
-      "w": 5,
-      "h": 14,
-      "color": "#7f7aa8",
+      "x": 79,
+      "y": 67,
+      "w": 3,
+      "h": 5,
+      "color": "#a8623f",
       "interactive": true,
       "state": {
         "open": true
       }
     },
     {
-      "id": "gomez-apartment",
-      "name": "戈麦斯公寓",
+      "id": "place-30",
+      "name": "起居室 2",
+      "kind": "place",
+      "x": 90,
+      "y": 68,
+      "w": 7,
+      "h": 6,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-31",
+      "name": "厨房 2",
+      "kind": "place",
+      "x": 97,
+      "y": 67,
+      "w": 3,
+      "h": 5,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-32",
+      "name": "卧室 2",
+      "kind": "place",
+      "x": 53,
+      "y": 74,
+      "w": 5,
+      "h": 3,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-33",
+      "name": "书房 2",
+      "kind": "place",
+      "x": 60,
+      "y": 74,
+      "w": 6,
+      "h": 3,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-34",
+      "name": "起居室 3",
+      "kind": "place",
+      "x": 71,
+      "y": 74,
+      "w": 5,
+      "h": 3,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-35",
+      "name": "厨房 3",
+      "kind": "place",
+      "x": 78,
+      "y": 74,
+      "w": 6,
+      "h": 3,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-36",
+      "name": "卧室 3",
+      "kind": "place",
+      "x": 89,
+      "y": 74,
+      "w": 5,
+      "h": 3,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-37",
+      "name": "书房 3",
+      "kind": "place",
+      "x": 96,
+      "y": 74,
+      "w": 6,
+      "h": 3,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-38",
+      "name": "起居室 4",
+      "kind": "place",
+      "x": 57,
+      "y": 80,
+      "w": 10,
+      "h": 5,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-39",
+      "name": "厨房 4",
+      "kind": "place",
+      "x": 75,
+      "y": 80,
+      "w": 10,
+      "h": 5,
+      "color": "#a8623f",
+      "interactive": true,
+      "state": {
+        "open": true
+      }
+    },
+    {
+      "id": "place-40",
+      "name": "卧室 4",
       "kind": "place",
       "x": 93,
-      "y": 12,
-      "w": 5,
-      "h": 14,
-      "color": "#8a6a9c",
+      "y": 80,
+      "w": 10,
+      "h": 5,
+      "color": "#a8623f",
       "interactive": true,
       "state": {
         "open": true

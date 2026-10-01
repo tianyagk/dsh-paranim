@@ -10,6 +10,7 @@
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { inflateSync } from 'node:zlib'
+import { execSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -150,6 +151,66 @@ for (const cell of bikeCells) {
 }
 if (bikeCells.length === 0) { console.error('  ✗ 没有自行车贴图'); bad++ }
 else console.log(`  自行车贴图 ${bikeCells.length} 张,轮圈行均呈现前后两个轮子`)
+
+// 注释里声称的"实测色"必须真的对得上。mapStyle.ts 靠这些色值说明每格取材依据,
+// 色值一旦漂移(比如图集被重新归一),注释就成了误导——比没有注释更糟。
+{
+  const styleText = readFileSync(join(root, 'src', 'client', 'mapStyle.ts'), 'utf8')
+  const claims = [...styleText.matchAll(/·\s*([^ ]+)\s*(#[0-9a-fA-F]{6})/g)].map((m) => [m[1], m[2].toLowerCase()])
+  if (claims.length > 0) {
+    // 抽样核对:草地那一格是 ground 的主力,它的色值写错的话整片地面都解释错了
+    const groundText = styleText.slice(styleText.indexOf('export const GROUND'))
+    const groundRefs = new Map()
+    for (const gm of groundText.split('\n').slice(0, 40).join('\n').matchAll(/^\s*([a-zA-Z]+):\s*\[(.*)\]/gm)) {
+      const cells = []
+      for (const c of gm[2].matchAll(/at\(('[a-z-]+'|[A-Za-z][A-Za-z-]*)\s*,\s*(\d+)\s*,\s*(\d+)\)/g)) {
+        const rawSheet = c[1]
+        const sheet = rawSheet.startsWith("'") ? rawSheet.replaceAll("'", '') + '.png' : ALIAS.get(rawSheet)
+        cells.push({ sheet: sheet ?? rawSheet, col: +c[2], row: +c[3] })
+      }
+      groundRefs.set(gm[1], cells)
+      if (gm[1] === 'void') break
+    }
+    const grass = groundRefs.get('grassPlain') ?? []
+    const cell = grass[0]
+    if (cell !== undefined) {
+      const meta = sheets.get(cell.sheet)
+      let R = 0, G = 0, B = 0, n = 0
+      for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+        const o = ((cell.row * 16 + y) * meta.w + cell.col * 16 + x) * 4
+        if (meta.px[o + 3] < 128) continue
+        n++; R += meta.px[o]; G += meta.px[o + 1]; B += meta.px[o + 2]
+      }
+      const actual = '#' + [R / n, G / n, B / n].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
+      const claimed = claims.find(([label]) => label === '草地')
+      if (claimed !== undefined && claimed[1] !== actual) {
+        console.error(`  ✗ 注释声称草地是 ${claimed[1]},实测 ${actual}(图集被改过?改注释或改槽位)`)
+        bad++
+      } else {
+        console.log(`  草地色值与注释一致:${actual}`)
+      }
+    }
+  }
+}
+
+// 生成物必须与它的源同步。fallback.ts 是"镜像读不到时"的降级路径,
+// 它一旦落后于镜像,玩家正常路径看到新小镇、降级时看到旧小镇——而这
+// 只在磁盘镜像损坏时才暴露,平时根本发现不了。
+// 判据不用解析 TS 字面量(键没引号,不是合法 JSON),而是重跑一次生成
+// 脚本、比对产物有没有变化:变了就说明签入的是陈旧副本。
+{
+  const fbPath = join(root, 'src', 'host', 'fallback.ts')
+  const before = readFileSync(fbPath, 'utf8')
+  execSync('node scripts/gen-fallback.mjs', { cwd: root, stdio: 'pipe' })
+  const after = readFileSync(fbPath, 'utf8')
+  if (before !== after) {
+    console.error('  ✗ fallback.ts 与 assets/smallville.json 不同步(刚由脚本重新生成,请签入新产物)')
+    bad++
+  } else {
+    const mirror = JSON.parse(readFileSync(join(root, 'assets', 'smallville.json'), 'utf8'))
+    console.log(`  兜底小镇与镜像同步:${mirror.places.length} 地标 / ${mirror.objects.length} 物件`)
+  }
+}
 
 if (bad > 0) { console.error(`❌ 素材校验失败:${bad} 处`); process.exit(1) }
 console.log('✅ 素材自治校验通过')

@@ -25,7 +25,7 @@ function parseAuthority(authority: string): URL | undefined {
 }
 
 /** Whether a normalized URL hostname names the local loopback authority. */
-export function isLoopbackHostname(hostname: string): boolean {
+function isLoopbackHostname(hostname: string): boolean {
   if (hostname === 'localhost' || hostname === '[::1]') return true
   const parts = hostname.split('.')
   return (

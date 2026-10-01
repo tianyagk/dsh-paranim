@@ -6,7 +6,7 @@
  *
  * 素材分工（按确认的方案）：
  *  · tiny-town / tiny-farm / tiny-battle —— 主素材（地面、建筑、道路、物件）
- *  · city —— 镇上物件与设施的补充（1036 格，城市题材）
+ *  · city —— 镇上物件与设施的补充（城市题材）；第 38–41 列是本仓补绘的自行车/摩托/轮胎/手推车
  *  · onebit —— **后备**：Tiny 系列缺的标记/状态/事件符号从这里取
  *  · characters —— 角色（4 向，16×16）
  *
@@ -80,4 +80,3 @@ export const SHEETS: Record<string, SheetMeta> = {
 /** 图集键名（与 SHEETS 的键一致）。 */
 export type SheetKey = "tiny-town" | "tiny-farm" | "tiny-battle" | "onebit" | "city" | "characters"
 
-export const TOTAL_BYTES = 112833
