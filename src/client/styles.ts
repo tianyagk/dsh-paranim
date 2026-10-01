@@ -226,6 +226,17 @@ const CSS = `
 }
 .pa-scroll { overflow: auto; min-height: 0; overscroll-behavior: contain; }
 
+/**
+ * 世界页的左右分栏：地图在左，推演日志在右。
+ * 两列都必须是 min-width: 0，否则 flex 子项不肯收缩、长文本会把它们撑破。
+ */
+.pa-split { display: flex; gap: 8px; flex: 1; min-height: 0; }
+.pa-split-main { flex: 1 1 auto; min-width: 0; overflow: auto; }
+.pa-split-feed {
+  flex: 0 0 40%; min-width: 0; overflow: auto;
+  border-left: 1px solid var(--pa-border); padding-left: 8px;
+}
+
 /* ── 列表项 ───────────────────────────────────────────────────────── */
 .pa-list { margin: 0; padding: 0; list-style: none; }
 .pa-item {

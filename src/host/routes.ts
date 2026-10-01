@@ -1068,6 +1068,13 @@ const writeQueues = new Map<string, Promise<unknown>>()
                 // 角色时报错，等于"点新增偶尔会失败、只闪一下底栏错误"。
                 // 调用方**显式**指定了 id 才该报冲突——那时冲突是它自己的意图问题。
                 const explicitId = typeof raw.id === 'string' && raw.id.trim() !== ''
+                /**
+                 * 带进来的 id 若是沙盒模板里的某一位，那这就是"把待入场的居民
+                 * 放进小镇"，而不是"凭空造一个新居民"——origin 据此区分。
+                 * 混同的后果是：沙盒自带的角色一入场就顶着「你加的」标签，
+                 * 看不出它其实是这个镇子设定的一部分。
+                 */
+                const fromPreset = explicitId && view.sandbox.agents.some((t) => t.id === raw.id)
                 let template = normalizeAgentFromBody(raw, view.sandbox)
                 if (explicitId) {
                   if (view.run.agents.some((a) => a.id === template.id)) {
@@ -1087,7 +1094,9 @@ const writeQueues = new Map<string, Promise<unknown>>()
                 const agent = {
                   ...template,
                   spawnTick: view.run.tick,
-                  origin: 'user' as const,
+                  // 见上面 fromPreset 的说明：从模板入场的标 preset，
+                  // 凭空新建的才是 user，界面据此决定要不要显示「你加的」
+                  origin: (fromPreset ? 'preset' : 'user') as 'preset' | 'user',
                   memory: [{ tick: view.run.tick, kind: 'summary' as const, text: template.backstory === '' ? `${template.name}刚刚来到镇上。` : template.backstory, ts: Date.now() }],
                   lastUpdateTick: view.run.tick,
                   stepsTaken: 0,
@@ -1110,6 +1119,16 @@ const writeQueues = new Map<string, Promise<unknown>>()
               if (agent === undefined) throw new HttpError(`找不到智能体 ${agentId}`, 404)
               const patch = (body.patch ?? {}) as Record<string, unknown>
               if (typeof patch.name === 'string' && patch.name.trim() !== '') agent.name = patch.name.trim()
+              /**
+               * 身份/外貌/性格/来历——这四项客户端一直在提交，而服务端**只认
+               * name**，其余静默丢弃：界面上改完点保存，值又回去了，看起来就是
+               * "身份标签无法编辑"（用户反馈）。
+               * 它们是自由文本，空串有意义（表示"清掉"），所以不做非空判断。
+               */
+              if (typeof patch.concept === 'string') agent.concept = patch.concept.trim().slice(0, 40)
+              if (typeof patch.appearance === 'string') agent.appearance = patch.appearance.trim().slice(0, 120)
+              if (typeof patch.persona === 'string') agent.persona = patch.persona.trim().slice(0, 400)
+              if (typeof patch.backstory === 'string') agent.backstory = patch.backstory.trim().slice(0, 600)
               for (const key of ['concept', 'appearance', 'persona', 'backstory', 'goal', 'color', 'portrait'] as const) {
                 if (typeof patch[key] === 'string') agent[key] = patch[key] as string
               }

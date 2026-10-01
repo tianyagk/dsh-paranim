@@ -112,7 +112,7 @@ export function apply(ctx: {
   }, 'dsh-paranim: 他化自在天 tab')
 }
 
-type PageKey = 'world' | 'agents' | 'sandbox' | 'events'
+type PageKey = 'world' | 'agents' | 'sandbox'
 
 /**
  * 当前想法：取最近一条"心里想的"记忆。
@@ -321,10 +321,9 @@ function ParanimApp(props: TabProps): React.ReactElement {
         'div',
         { className: 'pa-tabs' },
         ...[
-          { key: 'world' as PageKey, label: '世界', title: '地图与事件流' },
+          { key: 'world' as PageKey, label: '世界', title: '地图 + 右侧推演日志' },
           { key: 'agents' as PageKey, label: '智能体', title: '编排智能体：外貌/性格/六维/驱动模型/指令' },
           { key: 'sandbox' as PageKey, label: '世界沙盒', title: '载入 / 另存 / 新建 / 重置沙盒' },
-          { key: 'events' as PageKey, label: '事件流', title: '每一件事与每一次判定' },
         ].map((tab) =>
           React.createElement('button', { key: tab.key, className: 'pa-tab', 'data-on': page === tab.key, title: tab.title, onClick: () => setPage(tab.key) }, tab.label),
         ),
@@ -409,16 +408,35 @@ function ParanimApp(props: TabProps): React.ReactElement {
         'div',
         { className: 'pa-side pa-col' },
         page === 'world'
-          ? React.createElement(WorldPage, {
-              world,
-              feedMode,
-              onSelect: (id) => { setSelected(id); setPage('agents') },
-              busy,
-              api,
-              run,
-              applyWorld,
-              flash,
-            })
+          ? React.createElement(
+              'div',
+              { className: 'pa-split' },
+              React.createElement(
+                'div',
+                { className: 'pa-split-main pa-col' },
+                React.createElement(WorldPage, {
+                  world,
+                  feedMode,
+                  onSelect: (id) => { setSelected(id); setPage('agents') },
+                  busy,
+                  api,
+                  run,
+                  applyWorld,
+                  flash,
+                }),
+              ),
+              /**
+               * 事件流并到世界页的右侧，不再单独占一个页签。
+               *
+               * 看地图和"刚才发生了什么"本来就是同一件事的两面：来回切页签时
+               * 地图的缩放与选中状态都在，切回去反而像换了个地方。
+               */
+              React.createElement(
+                'div',
+                { className: 'pa-split-feed pa-col' },
+                React.createElement(EventsPage, { world, selected, feedMode }),
+              ),
+            )
           : page === 'agents'
             ? React.createElement(AgentsPage, {
                 world,
@@ -847,12 +865,21 @@ function AgentsPage(props: AgentsPageProps): React.ReactElement {
             'data-tiny': 'true',
             onClick: () =>
               void run('新增智能体', async () => {
+                /**
+                 * 把沙盒里"还没入场"的居民逐个放进来；模板用完了才新建一个。
+                 *
+                 * **必须把模板的 id 一起传**：服务端在没给 id 时会生成一个新的，
+                 * 于是这里的 `used.has(t.id)` 永远为假——每次点新增都放**同一个**
+                 * 模板，屏幕上出现一排同名的"沈砚"（用户截图里正是这个）。
+                 * 传了 id 之后，"同一个人被加两次"会撞 409，那正是我们想要的。
+                 */
                 const used = new Set(world.run.agents.map((a) => a.id))
                 const templates = world.sandbox.agents.filter((t) => !used.has(t.id))
                 const template: Partial<SandboxAgent> = templates[0] ?? {}
                 const next = await api.agent({
                   op: 'add',
                   agent: {
+                    ...(templates.length > 0 && template.id !== undefined ? { id: template.id } : {}),
                     name: template.name ?? `新居民 ${world.run.agents.length + 1}`,
                     concept: template.concept ?? '居民',
                     appearance: template.appearance ?? '（未描述）',
