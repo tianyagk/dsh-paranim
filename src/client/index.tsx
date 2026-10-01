@@ -1162,20 +1162,8 @@ function AgentEditor(props: {
 
     // 目标（需求 3）：一个角色只需要"它想要什么"。恐惧 / 隐瞒这类内在属性不做字段
     // ——它们是小说家写人物时才需要的东西，放在这里只会让每张卡都背上两个填空，
-    // 且和"计划 / 目标 / 性格"的语义互相覆盖。想让某个角色有所忌惮或有所隐瞒，
+    // 且和"计划 / 性格"的语义互相覆盖。想让某个角色有所忌惮或有所隐瞒，
     // 写进「性格」或「来历」即可，模型照样读得到。
-    React.createElement('h4', { style: { marginTop: 10 } }, '目标'),
-    React.createElement(
-      'div',
-      { className: 'pa-form' },
-
-    ),
-    React.createElement(
-      'div',
-      { className: 'pa-dim', style: { marginTop: 3 }, title: '「性格」「来历」「想要」都会进模型提示词；忌惮或隐瞒写进前两者即可，不必单设字段。' },
-      '驱动它做事的动机。',
-    ),
-
     // 心情：指数可手改，词可留空按指数自动取
     React.createElement('h4', { style: { marginTop: 10 } }, '心情'),
     React.createElement(

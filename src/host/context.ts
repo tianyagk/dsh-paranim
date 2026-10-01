@@ -23,10 +23,6 @@ export interface PluginWebServer {
   register(route: PluginWebRoute): () => void
 }
 
-/** webRuntime 服务面：/api 网关的信任来源（Host 回环 / 已配置的受信域）。 */
-export interface PluginWebRuntime {
-  trustedHosts: readonly string[]
-}
 
 // ── 模型服务（@deepseek-ai/dsh-llm 的结构子集）───────────────────────────
 

@@ -108,22 +108,7 @@ export function passAt(map: SandboxMap, x: number, y: number): Pass {
   return 'walk'
 }
 
-/** 这一格是不是门（用于"与门互动后开关"的判定）。 */
-export function isDoorAt(map: SandboxMap, x: number, y: number): boolean {
-  return tileAt(map, map.layers.object, x, y)?.note?.use === 'door'
-}
 
-/** 该沙盒里所有已标注的瓦片，按 "图集:格" 列出（编辑器与统计用）。 */
-export function annotatedTiles(map: SandboxMap): Array<{ tileset: Tileset; col: number; row: number; note: TileNote }> {
-  const out: Array<{ tileset: Tileset; col: number; row: number; note: TileNote }> = []
-  for (const tileset of map.tilesets) {
-    for (const [key, note] of Object.entries(tileset.notes)) {
-      const [col, row] = key.split(',').map(Number)
-      if (Number.isInteger(col) && Number.isInteger(row)) out.push({ tileset, col, row, note })
-    }
-  }
-  return out
-}
 
 /** 图集能切出多少格。 */
 export function gridOf(tileset: Pick<Tileset, 'imageW' | 'imageH' | 'tileW' | 'tileH' | 'margin' | 'spacing'>): { cols: number; rows: number } {
@@ -140,15 +125,6 @@ export function tileOrigin(tileset: Pick<Tileset, 'tileW' | 'tileH' | 'margin' |
   }
 }
 
-/** 统计每层有多少格有东西（界面显示与自检用）。 */
-export function layerCounts(map: SandboxMap): Record<keyof MapLayers, number> {
-  const count = (layer: TileLayer): number => layer.cells.reduce((n, c) => n + (c === null ? 0 : 1), 0)
-  return {
-    background: count(map.layers.background),
-    structure: count(map.layers.structure),
-    object: count(map.layers.object),
-  }
-}
 
 // ── 物件视图 ──────────────────────────────────────────────────────────────
 //
@@ -273,7 +249,3 @@ export const LAYER_LABEL: Record<'background' | 'structure' | 'object', string> 
   object: '物件图层',
 }
 
-/** 图层名的类型守卫（入参可能来自请求体）。 */
-export function isLayerName(value: unknown): value is 'background' | 'structure' | 'object' {
-  return value === 'background' || value === 'structure' || value === 'object'
-}

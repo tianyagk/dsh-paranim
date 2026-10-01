@@ -136,21 +136,4 @@ export function drawTile(
   ctx.drawImage(s.image, sx, sy, sw, sh, Math.round(cx - dw / 2), Math.round(bottomY - dh), dw, dh)
 }
 
-/** 画一个整格地面瓦片（左上角锚定，避免平铺时出现 1px 缝）。 */
-export function drawGroundTile(
-  ctx: CanvasRenderingContext2D,
-  ref: TileRef,
-  x: number,
-  y: number,
-  size: number,
-): void {
-  const s = sheet(ref.sheet)
-  if (s === undefined) return
-  const tile = s.tile
-  const sx = ref.col * tile
-  const sy = ref.row * tile
-  if (sx < 0 || sy < 0 || sx + tile > s.width || sy + tile > s.height) return
-  ctx.imageSmoothingEnabled = false
-  ctx.drawImage(s.image, sx, sy, tile, tile, Math.round(x), Math.round(y), Math.ceil(size), Math.ceil(size))
-}
 

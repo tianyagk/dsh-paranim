@@ -48,12 +48,6 @@ export interface RenderInput {
   showGrid?: boolean
 }
 
-/** 一图层有多少格有东西（界面显示用）。 */
-export function countLayer(layer: TileLayer): number {
-  let n = 0
-  for (const c of layer.cells) if (c !== null) n += 1
-  return n
-}
 
 /** 地图的像素尺寸（缩放与平移的基准）。 */
 export function mapPixelSize(sandbox: Sandbox): { w: number; h: number } {
@@ -353,11 +347,6 @@ export function tilesetImage(tileset: { id: string; image: string }): CanvasImag
   return undefined
 }
 
-/** 用户图集是否全部就绪（用于判断要不要再渲染一帧）。 */
-export function userImagesReady(): boolean {
-  for (const img of userImages.values()) if (!img.complete) return false
-  return true
-}
 
 /** 收集一个沙盒要用的所有图片。没就绪的图集会被跳过并开始加载。 */
 export function collectImages(sandbox: Sandbox): Map<string, CanvasImageSource> {

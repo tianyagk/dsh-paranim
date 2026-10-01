@@ -155,16 +155,6 @@ export function pathBlocked(
   return undefined
 }
 
-/**
- * 走到目标格的路上是否被挡（只查落点，不做寻路）。
- *
- * 用瓦片之后不需要再判"从室内到室外"这种情形：墙就是墙那一格，
- * 中间隔着墙时落点本身就会落在墙上或墙外，判定自然成立。
- */
-export function blockedAt(sandbox: Sandbox, x: number, y: number): string | undefined {
-  const r = canEnter(sandbox, x, y)
-  return r.ok ? undefined : r.reason
-}
 
 /**
  * 目标格进不去时，在附近找一格能站的（由近及远）。

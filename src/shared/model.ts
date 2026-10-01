@@ -354,10 +354,7 @@ export interface WorldObject {
    * 这样同一类建筑在地图上是同一个色系——这正是原版地图"一眼能分出住宅区与商业区"的原因。
    */
   roofSlot?: string
-  /**
-   * 物件用哪张贴图（对应 mapStyle.PROPS 的槽位名，见 OBJECT_LIBRARY）。
-   * 显式字段优先于按名字推断：玩家在「物件资源池」里挑了哪张，就该用哪张。
-   */
+  /** 用地标自己的贴图（瓦片引用），没给就不画。 */
   sprite?: string
   /** 修改者与时间，用于复盘「谁在什么时候动了这盏灯」。 */
   lastEditedBy?: string
@@ -536,17 +533,6 @@ export interface SandboxRelation {
   affinity: number
 }
 
-/** 地面材质：background layer 里每一格的取值。 */
-export type GroundKind = 'grass' | 'dirt' | 'stone' | 'concrete' | 'sand' | 'water' | 'field' | 'wood'
-
-/**
- * 一格瓦片的注释——**由人在图集编辑器里标**，不是代码猜的。
- *
- * 为什么必须人标：早先用"按平均色反查格子"来选贴图，那对纯色地面有效
- * （草地、石板整格同色），对**有形状的东西**完全无效——一棵树和一片灌木的
- * 平均色可以一模一样。于是出现"把路面当树画出来"这类错误，而且不报错。
- * 现在改成：图集切片后逐格标注，代码只读标注结果。
- */
 export interface TileNote {
   /** 显示名，如"草地"、"木门"。 */
   name?: string
