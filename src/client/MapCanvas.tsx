@@ -212,19 +212,14 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
           best = { object, px, py }
         }
       }
-      if (best !== null) return best
-      for (const place of sandbox.places) {
-        const halfW = (place.w ?? 4) / 2
-        const halfH = (place.h ?? 4) / 2
-        const dx = Math.max(0, Math.abs(world.x - place.x) - halfW)
-        const dy = Math.max(0, Math.abs(world.y - place.y) - halfH)
-        const d = Math.hypot(dx, dy)
-        if (d <= radius && d < bestDistance) {
-          bestDistance = d
-          best = { object: place, px, py }
-        }
-      }
+      /**
+       * 只命中 object 层上的物件。**地标不参与右键编辑**：它是"某个地方在
+       * 哪儿"这个逻辑概念，没有可改的运行时状态——之前把它也放进来，于是
+       * 点一块空地也会弹出"修改物体状态"，而里面那些名目既不属于地图上
+       * 任何东西、也改不动任何东西。要改地标请到【世界】页的列表里改。
+       */
       return best
+
     },
     [sandbox.map, sandbox.places, toWorld, view.scale],
   )

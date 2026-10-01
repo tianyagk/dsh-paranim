@@ -1305,6 +1305,15 @@ function TilesetPanel(props: {
     })
   }, [noteTarget, note?.name, note?.pass, note?.use, note?.desc, note?.states])
 
+  /**
+   * 编辑卡片默认在网格**下方**——一张 12×11 的图集有 132 格，右键之后卡片
+   * 落在屏幕外，看起来就是"右键没反应"。这里让它在出现时滚进视野。
+   */
+  const cardRef = React.useRef<HTMLDivElement | null>(null)
+  React.useEffect(() => {
+    if (noteTarget !== undefined) cardRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [noteTarget])
+
   const cellRef = (col: number, row: number): string => makeTileRef(tileset.id, col, row)
 
   return React.createElement(
@@ -1371,7 +1380,10 @@ function TilesetPanel(props: {
     noteTarget !== undefined
       ? React.createElement(
           'div',
-          { style: { border: '1px solid var(--pa-border)', borderRadius: 6, padding: 8, marginTop: 4 } },
+          {
+            ref: cardRef,
+            style: { border: '1px solid var(--pa-gold)', borderRadius: 6, padding: 8, marginTop: 4, background: 'var(--pa-layer3)' },
+          },
           React.createElement('div', { className: 'pa-line', style: { marginBottom: 4 } },
             React.createElement('b', null, `编辑瓦片 ${tileset.name} ${noteTarget}`),
             React.createElement('span', { className: 'pa-spacer' }),
@@ -1701,8 +1713,6 @@ function SandboxPage(props: {
         '图层与笔刷',
         React.createElement('span', { className: 'pa-chip' }, LAYER_LABEL[editLayer]),
       ),
-      React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
-        '先选图层，再从下面选一个瓦片当笔刷，然后在地图上涂抹。改动写进**沙盒镜像**；正在跑的世界要「重置推演」才会用上新样子。'),
       React.createElement(
         'div',
         { className: 'pa-line', style: { marginBottom: 6 } },
@@ -1744,8 +1754,6 @@ function SandboxPage(props: {
         '图集与瓦片注释',
         React.createElement('span', { className: 'pa-chip' }, `${world.sandbox.map.tilesets.length} 张`),
       ),
-      React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
-        '**左键**点一个瓦片＝选它当笔刷；**右键**＝告诉程序它是什么（名字、能不能走、是不是门）。'),
       React.createElement(
         'div',
         { className: 'pa-line', style: { marginBottom: 5 } },

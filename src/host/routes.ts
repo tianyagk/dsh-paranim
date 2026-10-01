@@ -605,11 +605,17 @@ const writeQueues = new Map<string, Promise<unknown>>()
            * 改动必须留下线索：只落盘不写事件的话，复盘时"这一步地图怎么变的"
            * 就断了，而这正是事件流存在的意义。
            */
-          const logMutate = (view: { run: RunState }, text: string, by: string, targetId?: string): void => {
-            view.run.events.push({
-              id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate',
-              actor: 'gm', actorName: by, text, targetId,
-            })
+          /**
+           * 镜像编辑的留痕：**只写宿主日志，不进事件流**。
+           *
+           * 事件流是给"世界推演"看的——谁在哪一步做了什么、判定了什么。
+           * "有人在图集里把 5,5 标注成墙""在地图图层上画了 12 格"这类是
+           * **编辑动作**，它们发生在这个世界之外（改的是镜像，正在跑的世界
+           * 要重置推演才会用上）。混在一起的结果是：推演日志被刷得看不出
+           * 哪几行才是真的发生过的事（用户要求"日志只记录世界推演的内容"）。
+           */
+          const logMutate = (_view: { run: RunState }, text: string, by: string, targetId?: string): void => {
+            log(`mirror edit by ${by}: ${text}${targetId === undefined ? '' : ` [${targetId}]`}`)
           }
 
           const routeTable: Record<string, () => Promise<void>> = {

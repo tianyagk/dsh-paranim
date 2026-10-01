@@ -752,13 +752,18 @@ ok(
   }))
   ok(erased.sandbox.map.layers.object.cells[5 * 40 + 5] === null, 'ref=null 是橡皮：那一格被清空')
 
-  // 布局改动必须同时进事件流**并落盘**:只 save 沙盒的话,重启后这条线索就没了。
+  /**
+   * 编辑动作**不进事件流**（用户要求："日志只用于记录世界推演的内容"）。
+   *
+   * 改的是镜像，正在跑的世界要重置推演才会用上——把它写进推演日志，只会
+   * 让"哪几行才是真的发生过的事"看不出来。留痕改走宿主日志。
+   */
   const eventsAfter = erased.run.events.filter((e) => e.kind === 'mutate')
-  ok(eventsAfter.length > 0, '改布局会写 mutate 事件', `${eventsAfter.length} 条`)
+  ok(eventsAfter.length === 0, '编辑镜像不写 mutate 事件（事件流只留世界推演）', `${eventsAfter.length} 条`)
   const persisted = await new RunStore(ws).load('alpha')
   ok(
-    (persisted?.events ?? []).some((e) => e.kind === 'mutate'),
-    'mutate 事件落盘了（重启后还在）',
+    (persisted?.events ?? []).every((e) => e.kind !== 'mutate'),
+    '落盘的运行态里也没有编辑痕迹（不会重启后又冒出来）',
     `盘上 ${persisted?.events.length ?? 0} 条`,
   )
   await rm(home, { recursive: true, force: true })
@@ -804,7 +809,7 @@ section('图层：三层编辑')
   const bg = painted.sandbox.map.layers.background.cells
   ok(bg[1 * W + 1] === 'tiny-town:9,1' && bg[1 * W + 2] === 'tiny-town:9,1' && bg[1 * W + 3] === 'tiny-town:9,1',
     '一笔刷过去三格都变成了同一个瓦片引用', `${bg[1 * W + 1]} / ${bg[1 * W + 2]}`)
-  ok(painted.run.events.some((e) => e.kind === 'mutate' && e.text.includes('3 格')), 'paint 记了 mutate 事件')
+  ok(!painted.run.events.some((e) => e.kind === 'mutate'), 'paint 同样不进事件流（它是编辑，不是推演）')
 
   // ③ 非法引用与非法图层要报 400，不能静默
   const badRef = await call(route, 'POST', `/paranim/paint?workspace=${encodeURIComponent(ws)}`, { layer: 'background', ref: '不存在的图集:0,0', cells: [{ x: 0, y: 0 }] })
