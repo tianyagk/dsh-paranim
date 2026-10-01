@@ -18,7 +18,7 @@ import {
   type WorldEvent,
   type WorldObject,
 } from '../shared/model.ts'
-import { TILE_PX, collectImages, mapPixelSize, renderTown, screenToWorld, worldToScreen, type View } from './town.ts'
+import { TILE_PX, collectImages, mapPixelSize, renderTown, screenToWorld, stepOf, worldToScreen, type View } from './town.ts'
 import { objectsOf, objectIdAt } from '../shared/tilemap.ts'
 import { allSheetsReady, loadSheets } from './tiles.ts'
 
@@ -132,16 +132,7 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     }
   }, [size, sandbox, zoom])
 
-  /**
-   * 画布像素 → 世界格坐标。
-   *
-   * 分母必须是 **一格占多少屏幕像素**，也就是 `TILE_PX * scale`。
-   * 此前写的是 `view.scale`，整整差了一个 TILE_PX（16 倍）：
-   * 点在画布正中会算出 (255,191)，而地图只有 32×24，于是每一次点击都被
-   * "格子越界"挡掉——笔刷没反应、右键点不中物件、悬停不亮，全是这一个原因。
-   * 之所以一直没被发现：画布上"看起来"有响应（比如地图本身画得对），
-   * 只有真的去点才暴露，而错得又不报错。
-   */
+  // 换算的坑（曾经漏乘 TILE_PX 差 16 倍）统一封在 town.ts 的 stepOf/screenToWorld 里
   const toWorld = useCallback((px: number, py: number) => screenToWorld(px, py, view), [view])
 
   // ── 绘制 ──────────────────────────────────────────────────────────────
@@ -184,7 +175,7 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
       ctx.textBaseline = 'top'
       // 一格占多少屏幕像素：所有"格坐标 → 画布像素"的换算都得用它，
       // 直接乘 scale 会差 16 倍（与 toWorld 修正前同一个错误）。
-      const step = TILE_PX * view.scale
+      const step = stepOf(view)
       for (const object of objectsOf(sandbox.map)) {
         const label = String(object.state.status ?? '')
         if (label === '' || label === '正常') continue
@@ -201,7 +192,7 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
       const world = toWorld(px, py)
       // 命中半径：屏幕 12px 折成多少格。此前写作 `12 / (scale*16/16)` = 12/scale，
       // 缩放 0.7 时半径有 17 格——整个地图都算"点中了"，右键永远命中最近的那个。
-      const radius = Math.max(1.2, 12 / (TILE_PX * view.scale))
+      const radius = Math.max(1.2, 12 / stepOf(view))
       let best: Hit | null = null
       let bestDistance = Number.POSITIVE_INFINITY
       for (const object of objectsOf(sandbox.map)) {
@@ -234,7 +225,7 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
       let best: { id: string; d: number } | undefined
       for (const agent of agents) {
         const d = Math.hypot(agent.x - world.x, agent.y - world.y)
-        if (d <= Math.max(1.6, 11 / (TILE_PX * view.scale)) && (best === undefined || d < best.d)) best = { id: agent.id, d }
+        if (d <= Math.max(1.6, 11 / stepOf(view)) && (best === undefined || d < best.d)) best = { id: agent.id, d }
       }
       return best?.id
     },

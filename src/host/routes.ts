@@ -30,7 +30,7 @@ import {
   type RunState,
 } from '../shared/model.ts'
 import { findObject } from '../shared/rules.ts'
-import { emptyLayers, makeBuiltinTileset, objectsOf, parseRef, positionOfObjectId, resolveRef, setObjectState } from '../shared/tilemap.ts'
+import { LAYER_LABEL, emptyLayers, makeBuiltinTileset, objectsOf, parseRef, positionOfObjectId, resolveRef, setObjectState } from '../shared/tilemap.ts'
 import { isTrustedApiRequest } from './fence.ts'
 import { messageOf, type LlmMessage, type PluginLlm, type PluginWebRoute } from './context.ts'
 import { log } from './context.ts'
@@ -538,13 +538,6 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
 
 /** 每个工作区一条写队列，见 handler 里的 serialize。 */
 const writeQueues = new Map<string, Promise<unknown>>()
-
-/** 图层的中文名（事件流里用）。 */
-const LAYER_LABEL: Record<string, string> = {
-  background: '地图图层',
-  structure: '建筑图层',
-  object: '物件图层',
-}
 
   const routes: PluginWebRoute[] = [
     {

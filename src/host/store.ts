@@ -43,7 +43,7 @@ import {
   type Tileset,
 } from '../shared/model.ts'
 import { log } from './context.ts'
-import { INLINE_SMALLVILLE } from './fallback.ts'
+import { FALLBACK_GROUND, INLINE_SMALLVILLE } from './fallback.ts'
 
 const SANDBOX_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i
 
@@ -522,6 +522,18 @@ export class SandboxStore {
       const fallback = normalizeSandbox(INLINE_SMALLVILLE, 'smallville')
       fallback.id = 'smallville'
       fallback.builtin = true
+      /**
+       * 兜底小镇不内联地形（那会让产物从 300KB 涨到 1MB），所以这里铺一层
+       * 默认地面——不铺的话降级时地图是一片深色，能站人但看不出是座镇子，
+       * 而兜底的意义正是"镜像读不到时仍然像样"。
+       *
+       * 用 FALLBACK_GROUND 这个显式常量而不是按名字在 notes 里找"草地"：
+       * 名字是给人看的，会被改；引用是机器用的。
+       */
+      const set = fallback.map.tilesets[0]
+      if (set !== undefined && set.notes[FALLBACK_GROUND] !== undefined) {
+        fallback.map.layers.background.cells.fill(`${set.id}:${FALLBACK_GROUND}`)
+      }
       out.push(fallback)
       log('no mirror asset found on disk — using the inline fallback')
     }

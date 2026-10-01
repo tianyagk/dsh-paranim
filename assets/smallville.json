@@ -811,7 +811,7 @@
         "spacing": 0,
         "notes": {
           "0,0": {
-            "name": "木地板",
+            "name": "草地",
             "pass": "walk"
           },
           "9,1": {
@@ -828,6 +828,18 @@
           },
           "2,0": {
             "name": "石板",
+            "pass": "walk"
+          },
+          "1,0": {
+            "name": "水泥地面",
+            "pass": "walk"
+          },
+          "3,3": {
+            "name": "田垄",
+            "pass": "walk"
+          },
+          "5,3": {
+            "name": "木地板",
             "pass": "walk"
           },
           "3,0": {
@@ -43282,9 +43294,8 @@
     }
   ],
   "license": "Apache-2.0",
-  "mirrorVersion": "3",
+  "mirrorVersion": "2",
   "desc": "复刻斯坦福 generative_agents 的 Smallville：地点外接框与路网全部按原版 140×100 栅格还原。",
   "attribution": "地点外接框与路网解自 joonspk-research/generative_agents 的 arena_maze.csv（Stanford Generative Agents, UIST 2023, Apache-2.0）；居民设定取自 storage/base_the_ville_n25/personas/<Name>/bootstrap_memory/scratch.json；像素图集取自 Kenney（kenney.nl）CC0。",
-  "migratedTo": "tilemap-v1",
-  "builtin": true
+  "migratedTo": "tilemap-v1"
 }

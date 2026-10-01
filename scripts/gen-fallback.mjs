@@ -19,6 +19,8 @@ import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..')
+/** 草地的图集格——与 migrate-mirrors.mjs 里 CHAR_MAP.g 一致。 */
+const GRASS_KEY = '0,0'
 const raw = JSON.parse(readFileSync(join(root, 'assets', 'smallville.json'), 'utf8'))
 
 const clip = (text, max) => {
@@ -105,6 +107,15 @@ const out = `/**
  */
 import type { Sandbox } from '../shared/model.ts'
 
+/**
+ * 兜底小镇往 background 铺的默认地面（图集里的"草地"格）。
+ *
+ * 兜底不内联 15000 格地形（那会让产物从 300KB 涨到 1MB），只在运行时按
+ * 这一格铺满。用引用而不是名字——名字会改，引用不会。
+ * 具体取值来自迁移映射里 'g'（草地）对应的格子。
+ */
+export const FALLBACK_GROUND = ${JSON.stringify(GRASS_KEY)}
+
 export const INLINE_SMALLVILLE: Sandbox = {
   v: 1,
   id: 'smallville',
@@ -115,7 +126,21 @@ export const INLINE_SMALLVILLE: Sandbox = {
   builtin: true,
   createdAt: 0,
   updatedAt: 0,
-  map: ${json(raw.map)},
+  /**
+   * 降级路径**不带完整地形**：15000 格瓦片引用内联进来会让 lib/index.js
+   * 从 300KB 涨到 1MB，而兜底只需要在"镜像读不到"时给出一座能站人的镇子。
+   * 图集定义保留（瓦片的语义来自它的标注），地面交给 store 按 ground 铺默认值。
+   */
+  map: ${json({
+    width: raw.map.width,
+    height: raw.map.height,
+    tilesets: raw.map.tilesets,
+    layers: {
+      background: { cells: [] },
+      structure: { cells: [] },
+      object: { cells: [] },
+    },
+  })},
   places: ${json(places)},
   relations: ${json(relations)},
   agents: ${json(agents)},

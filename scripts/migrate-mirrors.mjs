@@ -23,18 +23,26 @@ const assetsDir = join(root, 'assets')
  * 取材（草地 r0、土路 r1 等），但语义注释是**这里**定的——迁移产物里的
  * 每个瓦片都要带着它的通行性，这是新模型能直接跑的前提。
  */
+/**
+ * 字符 → [col, row, 注释]。
+ *
+ * **每个字符必须占一个独立的格子**。曾经让 z/f/o 共用草地的格子，结果后写的
+ * 注释把"草地"覆盖成了"木地板"——于是 11445 格地面在语义上全变成了木地板，
+ * 而画面上看不出任何异常（贴图还是那一张）。语义错了必须能被机器查出来，
+ * 所以下面这张表保证一对一，并用 GRID_KEY 自检。
+ */
 const CHAR_MAP = {
   g: [0, 0, { name: '草地', pass: 'walk' }],
   r: [9, 1, { name: '土路', pass: 'walk' }],
   w: [4, 10, { name: '水面', pass: 'water' }],
   s: [4, 3, { name: '沙地', pass: 'walk' }],
-  p: [2, 23 - 23, { name: '石板', pass: 'walk' }],   // city 2:23 不在 tiny-town，用占位
-  z: [0, 0, { name: '空地', pass: 'walk' }],
-  f: [0, 0, { name: '田垄', pass: 'walk' }],
-  o: [0, 0, { name: '木地板', pass: 'walk' }],
+  p: [2, 0, { name: '石板', pass: 'walk' }],
+  z: [1, 0, { name: '水泥地面', pass: 'walk' }],
+  f: [3, 3, { name: '田垄', pass: 'walk' }],
+  o: [5, 3, { name: '木地板', pass: 'walk' }],
 }
-// tiny-town 没有石板/田垄/木地板，统一落到草地的格子上但保留各自的名字注释。
-// 这不完美——但迁移的底线是"地形语义对"，外观差异以后在切片器里换。
+/** 迁出来的"草地"引用——兜底铺地面与自检都用它，不靠名字猜。 */
+const GRASS_KEY = '0,0'
 
 const TILESET = {
   id: 'tiny-town',
@@ -43,9 +51,17 @@ const TILESET = {
   imageW: 192, imageH: 176,
   tileW: 16, tileH: 16,
   margin: 0, spacing: 0,
-  notes: Object.fromEntries(
-    Object.entries(CHAR_MAP).map(([ch, [col, row, note]]) => [`${col},${row}`, note]),
-  ),
+  notes: (() => {
+    const seen = new Map()
+    for (const [ch, [col, row, note]] of Object.entries(CHAR_MAP)) {
+      const key = `${col},${row}`
+      if (seen.has(key)) {
+        throw new Error(`字符 '${ch}' 与 '${seen.get(key)}' 共用了格子 ${key}——注释会被覆盖，地形语义就错了`)
+      }
+      seen.set(key, ch)
+    }
+    return Object.fromEntries(Object.entries(CHAR_MAP).map(([, [col, row, note]]) => [`${col},${row}`, note]))
+  })(),
 }
 // 同一格子可能被多个字符引用（都是草地格），notes 只要一份。
 
@@ -126,11 +142,29 @@ function migrate(file) {
   return raw
 }
 
+const force = process.argv.includes('--force')
 for (const name of readdirSync(assetsDir)) {
   if (!name.endsWith('.json') || name.startsWith('.')) continue
   const file = join(assetsDir, name)
   const before = JSON.parse(readFileSync(file, 'utf8'))
-  if (before.migratedTo === 'tilemap-v1') {
+  /**
+   * 拒绝"对已迁移的镜像再迁一次"。
+   *
+   * 这不只是幂等问题：迁移会**删掉旧字段**，第二次跑时源里的字符画已经
+   * 不在了，于是整张图被刷成默认草地——路网原地消失，而且不报错。
+   * （实测踩过：smallville 的 2555 格土路就是这么没的。）
+   * 真要重来，请从版本库取回原始字符画，或让脚本显式带上 --from-tiles。
+   */
+  if (before.migratedTo === 'tilemap-v1' && !Array.isArray(before.map?.tiles)) {
+    if (!force) {
+      console.log(`  · ${name}: 已是瓦片格式，跳过`)
+      continue
+    }
+    console.error(`  ✗ ${name}: 已迁移过且源里已无字符画——再跑会把整张图刷成草地，已拒绝`)
+    process.exitCode = 1
+    continue
+  }
+  if (!force && before.migratedTo === 'tilemap-v1') {
     console.log(`  · ${name}: 已是瓦片格式，跳过`)
     continue
   }

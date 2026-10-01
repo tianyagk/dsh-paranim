@@ -143,11 +143,11 @@ const REQUIRED_SPRITE_MARKERS = [
   'loadSheets',
   'drawTile',
   'drawLayer',
-  // 语义槽位表：地面/建筑/物件/符号/角色
-  'GROUND',
-  'BUILDING',
-  'PROPS',
-  'SYMBOLS',
+  // 瓦片渲染链：按引用从图集取格；被 tree-shaking 摘掉会静默变成空白地图
+  'drawLayer',
+  'collectImages',
+  // 角色表（唯一的语义槽位表了）
+  'CHARACTER',
   'CHARACTER',
 ]
 

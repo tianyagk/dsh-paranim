@@ -24,7 +24,7 @@
         "spacing": 0,
         "notes": {
           "0,0": {
-            "name": "木地板",
+            "name": "草地",
             "pass": "walk"
           },
           "9,1": {
@@ -43,8 +43,16 @@
             "name": "石板",
             "pass": "walk"
           },
-          "3,0": {
-            "name": "物件",
+          "1,0": {
+            "name": "水泥地面",
+            "pass": "walk"
+          },
+          "3,3": {
+            "name": "田垄",
+            "pass": "walk"
+          },
+          "5,3": {
+            "name": "木地板",
             "pass": "walk"
           }
         }
@@ -1792,7 +1800,6 @@
           null,
           null,
           null,
-          "tiny-town:3,0",
           null,
           null,
           null,
@@ -1893,21 +1900,18 @@
           null,
           null,
           null,
-          "tiny-town:3,0",
           null,
           null,
           null,
           null,
           null,
           null,
-          "tiny-town:3,0",
           null,
           null,
           null,
           null,
           null,
           null,
-          "tiny-town:3,0",
           null,
           null,
           null,
@@ -1924,7 +1928,6 @@
           null,
           null,
           null,
-          "tiny-town:3,0",
           null,
           null,
           null,
@@ -1940,7 +1943,12 @@
           null,
           null,
           null,
-          "tiny-town:3,0",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
           null,
           null,
           null,
@@ -2029,7 +2037,6 @@
           null,
           null,
           null,
-          "tiny-town:3,0",
           null,
           null,
           null,
@@ -2048,16 +2055,12 @@
           null,
           null,
           null,
-          "tiny-town:3,0",
           null,
           null,
           null,
           null,
-          "tiny-town:3,0",
-          "tiny-town:3,0",
           null,
           null,
-          "tiny-town:3,0",
           null,
           null,
           null,
@@ -2066,7 +2069,6 @@
           null,
           null,
           null,
-          "tiny-town:3,0",
           null,
           null,
           null,
@@ -2092,7 +2094,6 @@
           null,
           null,
           null,
-          "tiny-town:3,0",
           null,
           null,
           null,
@@ -2117,7 +2118,6 @@
           null,
           null,
           null,
-          "tiny-town:3,0",
           null,
           null,
           null,
@@ -2133,7 +2133,6 @@
           null,
           null,
           null,
-          "tiny-town:3,0",
           null,
           null,
           null,
@@ -2149,8 +2148,10 @@
           null,
           null,
           null,
-          "tiny-town:2,0",
-          "tiny-town:3,0",
+          null,
+          null,
+          null,
+          null,
           null,
           null,
           null,
@@ -2170,6 +2171,7 @@
           null,
           null,
           null,
+          "tiny-town:2,0",
           null,
           null,
           null,
@@ -2227,13 +2229,13 @@
           null,
           null,
           null,
-          "tiny-town:3,0",
           null,
           null,
           null,
           null,
           null,
           null,
+          "tiny-town:2,0",
           null,
           null,
           null,
@@ -2322,7 +2324,13 @@
           null,
           null,
           null,
-          "tiny-town:3,0",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
           null,
           null,
           null,
@@ -2367,27 +2375,6 @@
           null
         ],
         "states": {
-          "195": {
-            "status": "正常"
-          },
-          "296": {
-            "status": "正常",
-            "made": true
-          },
-          "303": {
-            "status": "正常",
-            "made": true
-          },
-          "310": {
-            "status": "正常",
-            "made": false
-          },
-          "327": {
-            "status": "正常"
-          },
-          "343": {
-            "status": "正常"
-          },
           "369": {
             "open": true
           },
@@ -2397,44 +2384,8 @@
           "394": {
             "open": true
           },
-          "432": {
-            "status": "正常",
-            "on": true
-          },
-          "451": {
-            "status": "正常",
-            "locked": true
-          },
-          "456": {
-            "status": "正常",
-            "on": false
-          },
-          "457": {
-            "status": "正常"
-          },
-          "460": {
-            "status": "正常",
-            "occupied": false
-          },
-          "469": {
-            "status": "正常"
-          },
-          "495": {
-            "status": "正常"
-          },
-          "520": {
-            "status": "正常",
-            "hot": true
-          },
-          "536": {
-            "status": "正常"
-          },
           "552": {
             "open": true
-          },
-          "553": {
-            "status": "正常",
-            "power": true
           },
           "559": {
             "open": true
@@ -2443,11 +2394,7 @@
             "open": true
           },
           "630": {
-            "status": "正常"
-          },
-          "725": {
-            "status": "正常",
-            "lit": true
+            "open": true
           }
         }
       }

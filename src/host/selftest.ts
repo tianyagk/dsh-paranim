@@ -237,14 +237,15 @@ const outOfBounds = (smallville?.agents ?? []).filter(
 )
 ok(outOfBounds.length === 0, '所有智能体坐标都在地图内', outOfBounds.map((a) => a.id).join(','))
 /**
- * 路灯现在住在 object 层的格子里。旧断言找的是 objects 数组；新模型下
- * 从格子里找——名字来自图集注释，状态挂在格上。迁移把旧物件都落到
- * "物件格"上，名字丢了，所以这里改查一个**有状态**的格子（迁移会带上
- * 旧物件的状态槽），断言语义是"物件及其状态都进了 object 层"。
+ * 物件住在 object 层的格子里，状态挂在同一格上。
+ *
+ * 迁移会把每个地标南墙中开的那道门放进 object 层，并带上 `open: true`——
+ * 所以这里查"有没有带状态的格子"，断言的是"物件与它的状态一起迁过来了"。
+ * （旧断言查的是 status 槽；现在门的默认状态是 open。）
  */
 const objLayer = smallville?.map.layers.object
-const lampCell = objLayer === undefined ? undefined : Object.entries(objLayer.states ?? {}).find(([, st]) => 'status' in st)
-ok(lampCell !== undefined, 'object 层有带 status 状态槽的物件（迁移把状态也带过来了）', '')
+const lampCell = objLayer === undefined ? undefined : Object.entries(objLayer.states ?? {}).find(([, st]) => Object.keys(st).length > 0)
+ok(lampCell !== undefined, 'object 层有带状态槽的物件（迁移把状态也带过来了）', '')
 const fileOnDisk = await readFile(join(sandboxDir(), 'smallville.json'), 'utf8').catch(() => '')
 ok(fileOnDisk.includes('"id": "smallville"'), '沙盒是明文 JSON 且已落盘（玩家可手改）', sandboxDir())
 ok(dataHome().startsWith(tempHome), '自检数据写在临时 DSH_HOME 内，未污染真实目录', dataHome())

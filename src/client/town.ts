@@ -61,27 +61,36 @@ export function mapPixelSize(sandbox: Sandbox): { w: number; h: number } {
 }
 
 /**
- * 画布像素 → 世界格坐标。
+ * 一格占多少屏幕像素。
  *
- * 分母必须是一格占多少屏幕像素（TILE_PX * scale）。这里曾经写成 scale，
- * 整整差 16 倍：点画布正中算出 (255,191)，而地图只有 32×24——每次点击都被
- * "格子越界"丢掉。笔刷没反应、右键点不中、悬停不亮都是这一个原因。
+ * **所有"格 ↔ 像素"的换算都必须走它**。曾经各处直接写 `TILE_PX * scale`，
+ * 于是有的地方漏乘了——那一处把分母写成了 scale，整整差 16 倍：点画布正中
+ * 算出 (255,191)，而地图只有 32×24，每次点击都被"格子越界"丢掉。笔刷没反应、
+ * 右键点不中、悬停不亮全是这一个原因，而且画面上完全看不出异常（地图画得对，
+ * 只有真的去点才暴露）。抽成一个函数是防它复发：新手写错的机会只剩一处。
+ */
+export function stepOf(view: View): number {
+  return TILE_PX * view.scale
+}
+
+/**
+ * 画布像素 → 世界格坐标（分母见 stepOf）。
  */
 export function screenToWorld(px: number, py: number, view: View): { x: number; y: number } {
-  const step = TILE_PX * view.scale
+  const step = stepOf(view)
   return { x: (px - view.offsetX) / step, y: (py - view.offsetY) / step }
 }
 
 /** 世界格坐标 → 画布像素（左上角）。与 screenToWorld 互逆。 */
 export function worldToScreen(x: number, y: number, view: View): { px: number; py: number } {
-  const step = TILE_PX * view.scale
+  const step = stepOf(view)
   return { px: view.offsetX + x * step, py: view.offsetY + y * step }
 }
 
 /** 一层的可见格范围（视口裁剪，别去画屏幕外的几千格）。 */
 function visibleRange(input: RenderInput): { minX: number; maxX: number; minY: number; maxY: number } {
   const { sandbox, view, size } = input
-  const step = TILE_PX * view.scale
+  const step = stepOf(view)
   return {
     minX: Math.max(0, Math.floor(-view.offsetX / step) - 1),
     maxX: Math.min(sandbox.map.width - 1, Math.ceil((size.w - view.offsetX) / step) + 1),
@@ -93,7 +102,7 @@ function visibleRange(input: RenderInput): { minX: number; maxX: number; minY: n
 /** 画一层瓦片。上层的透明像素会露出下层，所以顺序就是层叠顺序。 */
 function drawLayer(ctx: CanvasRenderingContext2D, input: RenderInput, which: LayerName): void {
   const { sandbox, view, images } = input
-  const step = TILE_PX * view.scale
+  const step = stepOf(view)
   if (step <= 0.05) return
   const layer = sandbox.map.layers[which]
   const { minX, maxX, minY, maxY } = visibleRange(input)
@@ -119,7 +128,7 @@ function drawLayer(ctx: CanvasRenderingContext2D, input: RenderInput, which: Lay
  */
 function drawGrid(ctx: CanvasRenderingContext2D, input: RenderInput): void {
   const { sandbox, view, size } = input
-  const step = TILE_PX * view.scale
+  const step = stepOf(view)
   if (step < 6) return   // 格子太小时画线会糊成一片
   const { minX, maxX, minY, maxY } = visibleRange(input)
   const left = view.offsetX + minX * step
@@ -148,7 +157,7 @@ function drawGrid(ctx: CanvasRenderingContext2D, input: RenderInput): void {
 function drawHoverCell(ctx: CanvasRenderingContext2D, input: RenderInput): void {
   const { view, hover } = input
   if (hover?.x === undefined || hover.y === undefined) return
-  const step = TILE_PX * view.scale
+  const step = stepOf(view)
   const { px, py } = worldToScreen(hover.x, hover.y, view)
   ctx.strokeStyle = '#ffc861'
   ctx.lineWidth = Math.max(1.5, step * 0.12)

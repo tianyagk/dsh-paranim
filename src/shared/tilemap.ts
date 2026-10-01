@@ -260,3 +260,20 @@ export function makeBuiltinTileset(id: string): Tileset {
     notes: {},
   }
 }
+
+/**
+ * 三个图层的中文名。
+ *
+ * 放在共享层而不是各自抄一份：客户端界面与服务端事件流文案用的是同一套
+ * 说法，分开写就会像之前那样一个带英文后缀、一个不带，改一处忘一处。
+ */
+export const LAYER_LABEL: Record<'background' | 'structure' | 'object', string> = {
+  background: '地图图层',
+  structure: '建筑图层',
+  object: '物件图层',
+}
+
+/** 图层名的类型守卫（入参可能来自请求体）。 */
+export function isLayerName(value: unknown): value is 'background' | 'structure' | 'object' {
+  return value === 'background' || value === 'structure' || value === 'object'
+}

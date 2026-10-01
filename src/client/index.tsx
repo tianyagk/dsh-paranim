@@ -38,9 +38,7 @@ import {
 import { createApi, type ParanimApi, type SandboxSummary, type WorldView } from './api.ts'
 import { MapCanvas } from './MapCanvas.tsx'
 import { tilesetImage } from './town.ts'
-import { gridOf, makeTileRef, noteKey, objectsOf, positionOfObjectId, tileOrigin } from '../shared/tilemap.ts'
-import { PENDING_SLOTS, SpriteButton, SpritePalette } from './SpritePalette.tsx'
-import { SLOT_LABEL, OBJECT_LIBRARY } from './mapStyle.ts'
+import { gridOf, LAYER_LABEL, makeTileRef, noteKey, objectsOf, positionOfObjectId, tileOrigin } from '../shared/tilemap.ts'
 import {
   DEFAULT_FEED_MODE,
   DEFAULT_THEME,
@@ -782,17 +780,6 @@ function WorldPage(props: {
 
 // ── 页 2：智能体编排（需求 3）─────────────────────────────────────────────
 
-/** 三个图层的中文名与说明。 */
-const LAYER_LABEL: Record<'background' | 'structure' | 'object', string> = {
-  background: '地图图层 background',
-  structure: '建筑图层 structure',
-  object: '物件图层 object',
-}
-
-/**
- * background 层的可选材质。字符沿用 store 里的 GROUND_CHARS 约定，
- * 但对玩家显示的是"草地/土地/石头地面/水泥地面"这类名字。
- */
 interface AgentsPageProps {
   world: WorldView
   models: ModelChoice[]
