@@ -1293,8 +1293,23 @@ function TileThumb(props: {
       ref,
       width: 26, height: 26,
       style: {
+        /**
+         * **透明通道必须看得见**：底色用棋盘格而不是实心深色。
+         *
+         * 挡板、门窗、树这些东西本来就是透明底的一小块像素；铺一个实心
+         * 深色底的话，它和"整格不透明的地面瓦片"在缩略图上长得一模一样，
+         * 挑不出哪张能叠在别的东西上面（用户看到的就是"tile 不是透明底"）。
+         */
         border: `1px solid ${active ? '#ffc861' : hasNote ? '#7fc98b' : 'var(--pa-border)'}`,
-        borderRadius: 3, cursor: 'pointer', display: 'block', background: '#0b0e13',
+        borderRadius: 3, cursor: 'pointer', display: 'block',
+        backgroundColor: '#151a22',
+        backgroundImage:
+          'linear-gradient(45deg, #2b3240 25%, transparent 25%),'
+          + 'linear-gradient(-45deg, #2b3240 25%, transparent 25%),'
+          + 'linear-gradient(45deg, transparent 75%, #2b3240 75%),'
+          + 'linear-gradient(-45deg, transparent 75%, #2b3240 75%)',
+        backgroundSize: '8px 8px',
+        backgroundPosition: '0 0, 0 4px, 4px -4px, -4px 0',
       },
       title: `${tileset.name} ${col},${row}${hasNote ? `（${tileset.notes[`${col},${row}`]?.name ?? '已标注'}）` : ''}`,
       onClick: onPick,
@@ -1372,7 +1387,10 @@ function SandboxPage(props: {
     ),
     React.createElement(
       'div',
-      { className: 'pa-sec pa-scroll', style: { flex: 1, minHeight: 0 } },
+      // 这一节**不能**再要 flex:1：整栏已经是 pa-scroll 了，这里再抢剩余高度
+      // 就会把自己压成一条缝隙，卡片内容被裁掉（截图里的"显示不全"）。
+      // 按内容高度排，条目真的多起来时用 maxHeight 兜住。
+      { className: 'pa-sec pa-scroll', style: { maxHeight: 280 } },
       React.createElement('h4', null, `沙盒库（${sandboxes.length}）`),
       ...sandboxes.map((item) =>
         React.createElement(

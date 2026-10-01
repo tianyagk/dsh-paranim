@@ -44,6 +44,21 @@ const CHAR_MAP = {
 /** 迁出来的"草地"引用——兜底铺地面与自检都用它，不靠名字猜。 */
 const GRASS_KEY = '0,0'
 
+/**
+ * 墙体与门的瓦片。
+ *
+ * 原先把墙画成 `tiny-town:1,0`——事后实测那一格是**纯绿草地且 100% 不透明**
+ * （迁移映射里把它写成"水泥地面"是错的），于是 structure 层是一整片实心绿块，
+ * 把下面的地面全遮住了，看不出房子摆在哪。
+ * 现在改用 city 图集里**透明底**的灰色格：叠在草地上仍然透得出地面，
+ * 这也是用户要的"tile 应该是透明底"。
+ *
+ * ⚠️ 这两格是按"透明底 + 中性灰"挑的**占位**，不是确认过的墙件。
+ * 要换成真正的墙，在【图集与瓦片注释】里点一下即可（或改这里的常量）。
+ */
+const WALL_REF = 'city:35,2'
+const DOOR_REF = 'city:12,20'
+
 const TILESET = {
   id: 'tiny-town',
   name: 'Tiny Town',
@@ -64,6 +79,20 @@ const TILESET = {
   })(),
 }
 // 同一格子可能被多个字符引用（都是草地格），notes 只要一份。
+
+/** city 图集的登记（只存 id 与尺寸，像素在客户端包里）。 */
+const CITY_TILESET = {
+  id: 'city',
+  name: 'City',
+  image: '',
+  imageW: 672, imageH: 448,
+  tileW: 16, tileH: 16,
+  margin: 0, spacing: 0,
+  notes: {
+    '35,2': { name: '墙（占位）', pass: 'block' },
+    '12,20': { name: '门（占位）', use: 'door' },
+  },
+}
 
 function tileRef(ch) {
   const [col, row] = CHAR_MAP[ch] ?? CHAR_MAP.g
@@ -101,18 +130,18 @@ function migrate(file) {
     const h = place.h ?? 5
     // 四面墙（沿矩形边一圈）
     for (let dx = 0; dx < w; dx += 1) {
-      stCells[y * W + (x + dx)] = 'tiny-town:1,0'            // 上墙
-      stCells[(y + h - 1) * W + (x + dx)] = 'tiny-town:1,0'  // 下墙
+      stCells[y * W + (x + dx)] = WALL_REF            // 上墙
+      stCells[(y + h - 1) * W + (x + dx)] = WALL_REF  // 下墙
     }
     for (let dy = 0; dy < h; dy += 1) {
-      stCells[(y + dy) * W + x] = 'tiny-town:1,0'            // 左墙
-      stCells[(y + dy) * W + (x + w - 1)] = 'tiny-town:1,0'  // 右墙
+      stCells[(y + dy) * W + x] = WALL_REF            // 左墙
+      stCells[(y + dy) * W + (x + w - 1)] = WALL_REF  // 右墙
     }
     // 南墙正中开一道门（放进 object 层，标 use: door，默认开）
     const doorX = x + Math.floor(w / 2)
     const doorY = y + h - 1
     stCells[doorY * W + doorX] = null
-    objCells[doorY * W + doorX] = 'tiny-town:2,0'
+    objCells[doorY * W + doorX] = DOOR_REF
     objStates[String(doorY * W + doorX)] = { open: true }
   }
 
@@ -129,7 +158,8 @@ function migrate(file) {
   raw.map = {
     width: W,
     height: H,
-    tilesets: [TILESET],
+    // 墙面用 city 的格子，所以两张图集都要登记（内置图集只存 id）
+    tilesets: [TILESET, CITY_TILESET],
     layers: {
       background: { cells: bgCells },
       structure: { cells: stCells },

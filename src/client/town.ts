@@ -250,6 +250,29 @@ function drawBubble(ctx: CanvasRenderingContext2D, text: string, cx: number, top
  * "地图数据"变成"某一帧的快照"。用户要求的"智能体属于最上层"是视觉层级，
  * 所以这里用绘制顺序表达，而不是数据位置。
  */
+/** 图层的叠放次序（下 → 上）。 */
+export const LAYER_ORDER: readonly LayerName[] = ['background', 'structure', 'object']
+
+/**
+ * 这一帧该画哪些层、各自的透明度是多少。
+ *
+ * 抽成纯函数是为了能单测：它决定了"编辑时看不看得见参照"，而这件事
+ * 错了在画面上不一定看得出来（少一层就是少一层，不会报错）。
+ *
+ * 规则：当前层不透明；**它下面的层以 0.3 淡显当参照**；它上面的层不画
+ * （还没轮到，而且会盖住正在编辑的东西）。
+ * 已编辑 background 时没有下层，所以最底层永远是 1.0。
+ */
+export function layerDrawPlan(only?: LayerName): Array<{ layer: LayerName; alpha: number }> {
+  if (only === undefined) return LAYER_ORDER.map((layer) => ({ layer, alpha: 1 }))
+  const editing = LAYER_ORDER.indexOf(only)
+  if (editing < 0) return LAYER_ORDER.map((layer) => ({ layer, alpha: 1 }))
+  return LAYER_ORDER.slice(0, editing + 1).map((layer, i) => ({
+    layer,
+    alpha: i === editing ? 1 : 0.3,
+  }))
+}
+
 export function renderTown(ctx: CanvasRenderingContext2D, input: RenderInput): void {
   const { size, agents, selectedId, bubbles, only, showGrid } = input
   const tick = input.tick ?? 0
@@ -259,15 +282,19 @@ export function renderTown(ctx: CanvasRenderingContext2D, input: RenderInput): v
   ctx.fillRect(0, 0, size.w, size.h)
   ctx.imageSmoothingEnabled = false
 
-  // 图层自下而上。只画某一层时（编辑器），其余层不出现——
-  // 否则地面被建筑盖住，刷了也看不见。
-  if (only === undefined) {
-    drawLayer(ctx, input, 'background')
-    drawLayer(ctx, input, 'structure')
-    drawLayer(ctx, input, 'object')
-  } else {
-    drawLayer(ctx, input, only)
+  /**
+   * 图层自下而上。
+   *
+   * 编辑某一层时，**下层以低透明度显出来当参照**，上层完全不画。
+   * 只画当前层是不行的：一片纯色地面上没有墙也没有路，根本判断不出
+   * 这栋房子该摆在哪；而把上层也画出来又会盖住正在编辑的东西。
+   * 上层（only 之上的那些）反正是"还没轮到画"的，保持不画即可。
+   */
+  for (const { layer, alpha } of layerDrawPlan(only)) {
+    ctx.globalAlpha = alpha
+    drawLayer(ctx, input, layer)
   }
+  ctx.globalAlpha = 1
 
   if (showGrid === true) drawGrid(ctx, input)
   drawHoverCell(ctx, input)

@@ -89,6 +89,27 @@ export const INLINE_SMALLVILLE: Sandbox = {
             "pass": "walk"
           }
         }
+      },
+      {
+        "id": "city",
+        "name": "City",
+        "image": "",
+        "imageW": 672,
+        "imageH": 448,
+        "tileW": 16,
+        "tileH": 16,
+        "margin": 0,
+        "spacing": 0,
+        "notes": {
+          "35,2": {
+            "name": "墙（占位）",
+            "pass": "block"
+          },
+          "12,20": {
+            "name": "门（占位）",
+            "use": "door"
+          }
+        }
       }
     ],
     "layers": {
