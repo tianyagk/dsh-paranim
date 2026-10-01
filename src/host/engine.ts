@@ -95,7 +95,8 @@ export interface TickResult {
 
 // ── 观察（喂给模型的世界快照）───────────────────────────────────────────
 
-function objLine(o: WorldObject, agent: RunAgent): string {
+/** 物件行：WorldObject（地标）与 TileObject（格子物件）的公共部分就够用。 */
+function objLine(o: { name: string; x: number; y: number; state: Record<string, unknown>; desc?: string; id?: string; kind?: string }, agent: RunAgent): string {
   const stateText = Object.entries(o.state)
     .map(([k, v]) => `${k}=${v === null ? '—' : Array.isArray(v) ? v.join('/') : String(v)}`)
     .join(' ')

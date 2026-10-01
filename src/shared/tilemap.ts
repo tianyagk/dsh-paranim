@@ -222,3 +222,41 @@ export function setObjectState(map: SandboxMap, x: number, y: number, patch: Rec
   else states[key] = cur
   return changed
 }
+
+/** 解析引用字符串（"setId:col,row"）；格式不对返回 undefined。 */
+export function parseRef(ref: string): { setId: string; col: number; row: number } | undefined {
+  const m = /^([A-Za-z0-9._-]{1,64}):(\d{1,3}),(\d{1,3})$/.exec(ref)
+  if (m === null) return undefined
+  return { setId: m[1], col: Number(m[2]), row: Number(m[3]) }
+}
+
+/**
+ * 内置图集的登记（像素在客户端包里，只存元信息）。
+ *
+ * tiny-town 等 6 张的尺寸与 sheetData.ts 一致；其余 id 给一个占位登记
+ * （用户图集要带 data URI 走 /sandbox 上传，这里不处理）。
+ */
+const BUILTIN_SIZES: Record<string, { w: number; h: number }> = {
+  'tiny-town': { w: 192, h: 176 },
+  'tiny-farm': { w: 192, h: 176 },
+  'tiny-battle': { w: 288, h: 176 },
+  'onebit': { w: 784, h: 176 },
+  'city': { w: 672, h: 448 },
+  'characters': { w: 864, h: 96 },
+}
+
+export function makeBuiltinTileset(id: string): Tileset {
+  const size = BUILTIN_SIZES[id] ?? { w: 256, h: 256 }
+  return {
+    id,
+    name: id,
+    image: '',
+    imageW: size.w,
+    imageH: size.h,
+    tileW: 16,
+    tileH: 16,
+    margin: 0,
+    spacing: 0,
+    notes: {},
+  }
+}

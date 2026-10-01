@@ -30,7 +30,7 @@ import {
   type RunState,
 } from '../shared/model.ts'
 import { findObject } from '../shared/rules.ts'
-import { objectsOf, resolveRef } from '../shared/tilemap.ts'
+import { emptyLayers, makeBuiltinTileset, objectsOf, parseRef, positionOfObjectId, resolveRef, setObjectState } from '../shared/tilemap.ts'
 import { isTrustedApiRequest } from './fence.ts'
 import { messageOf, type LlmMessage, type PluginLlm, type PluginWebRoute } from './context.ts'
 import { log } from './context.ts'
@@ -264,10 +264,10 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
     })
     if (args.persist !== false) {
       await deps.runOf(args.workspace).save(view.run)
-      // 沙盒上的对象状态可能被这一 step 改过（智能体动了灯），一起落盘，
+      // 这一步可能改过某个物件的状态（智能体动了灯），沙盒一起落盘，
       // 否则刷新页面后"灯还亮着"，而事件流里写着它坏了。
-      const dirty = view.sandbox.objects.some((o) => (o.lastEditedAt ?? 0) > view.sandbox.updatedAt)
-      if (dirty) await deps.store.save(view.sandbox)
+      // 状态现在挂在 object 层的 states 上，没有"最后改动时间"可比，索性总是存。
+      await deps.store.save(view.sandbox)
     }
     return { ...result, world: await world({ workspace: args.workspace, sandboxId: args.sandboxId, create: true }) }
   }
@@ -620,7 +620,7 @@ const LAYER_LABEL: Record<string, string> = {
                     license: s.license,
                     updatedAt: s.updatedAt,
                     places: s.places.length,
-                    objects: s.objects.length,
+                    objects: objectsOf(s.map).length,
                     agents: s.agents.length,
                   })),
                 },
@@ -651,9 +651,8 @@ const LAYER_LABEL: Record<string, string> = {
                   id,
                   name,
                   desc: String(body.desc ?? '空沙盒：自己摆一座镇。'),
-                  map: { width: 120, height: 90, ground: '#1f2430' },
+                  map: { width: 120, height: 90, tilesets: [], layers: emptyLayers(120, 90) },
                   places: [],
-                  objects: [],
                   agents: [],
                   relations: [],
                 }, id)
@@ -715,8 +714,18 @@ const LAYER_LABEL: Record<string, string> = {
               const H = view.sandbox.map.height
               // null / 空串 = 橡皮
               const ref = body.ref === null || body.ref === undefined || body.ref === '' ? null : String(body.ref)
-              if (ref !== null && resolveRef(view.sandbox.map, ref) === undefined) {
-                throw new HttpError(`瓦片引用无效或图集不存在：${ref}`, 400)
+              if (ref !== null) {
+                const parsed = parseRef(ref)
+                if (parsed === undefined) throw new HttpError(`瓦片引用格式无效：${ref}`, 400)
+                /**
+                 * 画上去的瓦片，它的图集必须跟着进沙盒——渲染时要从沙盒自己的
+                 * tilesets 里找像素。直接拒掉的话，"换了一支笔就画不上"会很
+                 * 莫名其妙；自动登记的话，笔从哪来图集就从哪来。
+                 * 内置图集只存 id（像素在客户端包里），不重复内嵌。
+                 */
+                if (!view.sandbox.map.tilesets.some((t) => t.id === parsed.setId)) {
+                  view.sandbox.map.tilesets.push(makeBuiltinTileset(parsed.setId))
+                }
               }
               const list = Array.isArray(body.cells) ? body.cells.slice(0, 4096) : []
               let painted = 0
@@ -797,25 +806,22 @@ const LAYER_LABEL: Record<string, string> = {
               return
             },
 
-            // POST /paranim/object —— 修改物体状态（需求 5 的右键菜单落点）
+            /**
+             * POST /paranim/object —— 改一格物件的状态，或改地标。
+             *
+             * 物件与地标是两种东西，走同一条路由只因为都是"右键改状态"：
+             *  · 物件的 id 形如 `obj:x,y`（由格坐标推出），状态挂在 object 层
+             *    那一格上（setObjectState），名字/贴图/能不能动都来自图集注释；
+             *  · 地标是逻辑概念（WorldObject），可以直接改它的字段。
+             */
             'POST /object': async () => {
               const view = await world({ workspace, sandboxId, create: true })
               const objectId = String(body.objectId ?? '')
-              const target = findObject(view.sandbox, objectId) ?? findObject({ ...view.sandbox, objects: [...view.sandbox.objects, ...[]] }, objectId)
-              if (target === undefined) throw new HttpError(`找不到物体 ${objectId}`, 404)
               const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
               const changes: string[] = []
+              const statePatch: Record<string, StateValue | null> = {}
 
-              if (typeof body.name === 'string' && body.name.trim() !== '' && body.name !== target.name) {
-                changes.push(`名称「${target.name}」→「${body.name.trim()}」`)
-                target.name = body.name.trim()
-              }
-              if (typeof body.desc === 'string') target.desc = body.desc
-              if (typeof body.color === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(body.color)) target.color = body.color
-              if (typeof body.interactive === 'boolean') target.interactive = body.interactive
-              if (body.x !== undefined && Number.isFinite(Number(body.x))) target.x = Math.max(0, Math.min(view.sandbox.map.width, Math.round(Number(body.x))))
-              if (body.y !== undefined && Number.isFinite(Number(body.y))) target.y = Math.max(0, Math.min(view.sandbox.map.height, Math.round(Number(body.y))))
-
+              // 状态统一先收集到 statePatch，物件与地标最后各自落笔
               if (body.state !== null && typeof body.state === 'object' && !Array.isArray(body.state)) {
                 for (const [key, rawValue] of Object.entries(body.state as Record<string, unknown>)) {
                   if (key === '' || key.length > 60) continue
@@ -823,27 +829,61 @@ const LAYER_LABEL: Record<string, string> = {
                   if (value === undefined) {
                     throw new HttpError(`状态「${key}」的值类型不支持（只接受字符串/数字/布尔/null/短数组）`, 400)
                   }
-                  const before = target.state[key] ?? null
-                  if (before === value) continue
-                  if (value === null) delete target.state[key]
-                  else target.state[key] = value
-                  changes.push(`${key}「${before === null ? '（无）' : String(before)}」→「${value === null ? '（清除）' : String(value)}」`)
+                  statePatch[key] = value
                 }
               }
-              if (changes.length === 0) throw new HttpError('没有任何要改的内容', 400)
 
-              target.lastEditedBy = by
-              target.lastEditedAt = Date.now()
-              view.run.events.push({
-                id: shortId('ev'),
-                tick: view.run.tick,
-                kind: 'mutate',
-                ts: Date.now(),
-                actor: 'gm',
-                actorName: by,
-                text: `${by}把「${target.name}」的 ${changes.join('，')}。`,
-                targetId: target.id,
-              })
+              let name = ''
+              const pos = positionOfObjectId(objectId)
+              if (pos !== undefined) {
+                // ── 物件：object 层上的一格 ──
+                const idx = pos.y * view.sandbox.map.width + pos.x
+                const tile = resolveRef(view.sandbox.map, view.sandbox.map.layers.object.cells[idx])
+                if (tile === undefined) throw new HttpError(`(${pos.x},${pos.y}) 这一格上没有物件`, 404)
+                name = tile.note?.name ?? '物件'
+                const before = view.sandbox.map.layers.object.states?.[String(idx)] ?? {}
+                for (const [k, v] of Object.entries(statePatch)) {
+                  const old = before[k] ?? null
+                  if (old === v) continue
+                  changes.push(`${k}「${old === null ? '（无）' : String(old)}」→「${v === null ? '（清除）' : String(v)}」`)
+                }
+                if (changes.length === 0) throw new HttpError('没有任何要改的内容', 400)
+                setObjectState(view.sandbox.map, pos.x, pos.y, statePatch)
+                view.run.events.push({
+                  id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate',
+                  actor: 'gm', actorName: by, text: `${by}把「${name}」的 ${changes.join('，')}。`, targetId: objectId,
+                })
+              } else {
+                // ── 地标：WorldObject ──
+                const target = view.sandbox.places.find((p) => p.id === objectId)
+                if (target === undefined) throw new HttpError(`找不到物体 ${objectId}`, 404)
+                name = target.name
+                if (typeof body.name === 'string' && body.name.trim() !== '' && body.name !== target.name) {
+                  changes.push(`名称「${target.name}」→「${body.name.trim()}」`)
+                  target.name = body.name.trim()
+                }
+                if (typeof body.desc === 'string') target.desc = body.desc
+                if (body.x !== undefined && Number.isFinite(Number(body.x))) target.x = Math.max(0, Math.min(view.sandbox.map.width, Math.round(Number(body.x))))
+                if (body.y !== undefined && Number.isFinite(Number(body.y))) target.y = Math.max(0, Math.min(view.sandbox.map.height, Math.round(Number(body.y))))
+                const targetPatch: Record<string, StateValue | null> = {}
+                for (const [k, v] of Object.entries(statePatch)) {
+                  const old = target.state[k] ?? null
+                  if (old === v) continue
+                  changes.push(`${k}「${old === null ? '（无）' : String(old)}」→「${v === null ? '（清除）' : String(v)}」`)
+                  targetPatch[k] = v
+                }
+                if (changes.length === 0) throw new HttpError('没有任何要改的内容', 400)
+                for (const [k, v] of Object.entries(targetPatch)) {
+                  if (v === null) delete target.state[k]
+                  else target.state[k] = v
+                }
+                target.lastEditedBy = by
+                target.lastEditedAt = Date.now()
+                view.run.events.push({
+                  id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate',
+                  actor: 'gm', actorName: by, text: `${by}把「${target.name}」的 ${changes.join('，')}。`, targetId: target.id,
+                })
+              }
               if (view.run.events.length > 3000) view.run.events = view.run.events.slice(-3000)
               await commit(view, workspace)
               return send(res, 200, {

@@ -142,7 +142,7 @@ const REQUIRED_SPRITE_MARKERS = [
   'data:image/png;base64,',
   'loadSheets',
   'drawTile',
-  'drawGroundTile',
+  'drawLayer',
   // 语义槽位表：地面/建筑/物件/符号/角色
   'GROUND',
   'BUILDING',

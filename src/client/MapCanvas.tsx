@@ -18,7 +18,8 @@ import {
   type WorldEvent,
   type WorldObject,
 } from '../shared/model.ts'
-import { TILE_PX, mapPixelSize, renderTown, screenToWorld, worldToScreen, type View } from './town.ts'
+import { TILE_PX, collectImages, mapPixelSize, renderTown, screenToWorld, worldToScreen, type View } from './town.ts'
+import { objectsOf, objectIdAt } from '../shared/tilemap.ts'
 import { allSheetsReady, loadSheets } from './tiles.ts'
 
 export interface MapCanvasProps {
@@ -38,20 +39,17 @@ export interface MapCanvasProps {
    * 运行时与编辑时是两种心智：前者问"这盏灯现在怎么样"，后者问"这里该是什么"。
    * 用同一个交互承载两者的话，玩家想改状态会不小心把地面刷掉。
    */
-  edit?: MapEditMode
+  /** 编辑哪一层（不传 = 运行模式，不落笔）。 */
+  edit?: { layer: 'background' | 'structure' | 'object' }
+  /** 当前笔刷的瓦片引用。null = 橡皮；undefined = 还没选。 */
+  dropRef?: string | null
   /** 笔刷落下：一次给一串格子（拖动时连续），宿主按这一笔刷新。 */
   onPaint?: (cells: Array<{ x: number; y: number }>) => void
-  /** 在 object layer 放一个物件实例。 */
-  onDropProp?: (x: number, y: number) => void
 }
 
-export type MapEditMode =
-  | { layer: 'background'; kind: string }
-  | { layer: 'object'; sprite: string; name: string }
-  | { layer: 'structure' }
-
 interface Hit {
-  object: WorldObject
+  /** 可能是地标（WorldObject）也可能是格子上的物件（TileObject）。 */
+  object: { id: string; name: string; x: number; y: number; state: Record<string, unknown> }
   /** 画布像素坐标，用来放菜单。 */
   px: number
   py: number
@@ -62,7 +60,7 @@ const STATUS_PRESETS = ['正常', '故障', '损坏', '维修中', '锁住', '�
 const BOOL_KEYS = ['open', 'lit', 'running', 'full', 'locked', 'on', 'spinning', 'flowing', 'occupied', 'tuned']
 
 export function MapCanvas(props: MapCanvasProps): React.ReactElement {
-  const { sandbox, agents, events, tick, selectedId, onSelectAgent, onPatchObject, onRemoveObject, edit, onPaint, onDropProp } = props
+  const { sandbox, agents, events, tick, selectedId, onSelectAgent, onPatchObject, onRemoveObject, edit, dropRef, onPaint } = props
   /** 一笔还没上传的格子。攒着是为了不让每一格都打一次请求。 */
   const strokeRef = useRef<Array<{ x: number; y: number }>>([])
   const paintingRef = useRef(false)
@@ -74,7 +72,7 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
   const [size, setSize] = useState({ w: 480, h: 320 })
   const [zoom, setZoom] = useState(1)
   const [hit, setHit] = useState<Hit | null>(null)
-  const [hover, setHover] = useState<{ object?: WorldObject; agentId?: string }>({})
+  const [hover, setHover] = useState<{ x?: number; y?: number; agentId?: string }>({})
 
   // 容器尺寸。只在真的变了才 setState：ResizeObserver 回调与 React 渲染是两条
   // 独立回路，无条件 setState 会互相喂养。
@@ -170,8 +168,9 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
       view,
       size,
       agents,
+      images: collectImages(sandbox),
       selectedId,
-      hover: { objectId: hover.object?.id, agentId: hover.agentId },
+      hover: { x: hover.x, y: hover.y, agentId: hover.agentId },
       bubbles,
       tick,
       // 编辑某一层时只画那一层：不然地面被建筑/物件盖住，刷了也看不见
@@ -186,7 +185,7 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
       // 一格占多少屏幕像素：所有"格坐标 → 画布像素"的换算都得用它，
       // 直接乘 scale 会差 16 倍（与 toWorld 修正前同一个错误）。
       const step = TILE_PX * view.scale
-      for (const object of sandbox.objects) {
+      for (const object of objectsOf(sandbox.map)) {
         const label = String(object.state.status ?? '')
         if (label === '' || label === '正常') continue
         const { px, py } = worldToScreen(object.x, object.y, view)
@@ -205,7 +204,7 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
       const radius = Math.max(1.2, 12 / (TILE_PX * view.scale))
       let best: Hit | null = null
       let bestDistance = Number.POSITIVE_INFINITY
-      for (const object of sandbox.objects) {
+      for (const object of objectsOf(sandbox.map)) {
         const d = Math.hypot(world.x - object.x, world.y - object.y)
         if (d <= radius && d < bestDistance) {
           bestDistance = d
@@ -226,7 +225,7 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
       }
       return best
     },
-    [sandbox.objects, sandbox.places, toWorld, view.scale],
+    [sandbox.map, sandbox.places, toWorld, view.scale],
   )
 
   const agentAt = useCallback(
@@ -311,12 +310,7 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
   const onPointerDown = (event: React.MouseEvent<HTMLCanvasElement>): void => {
     if (edit === undefined) return
     const { px, py } = localPoint(event)
-    if (edit.layer === 'object' && onDropProp !== undefined) {
-      const c = cellAt(px, py)
-      if (c.x >= 0 && c.y >= 0 && c.x < sandbox.map.width && c.y < sandbox.map.height) onDropProp(c.x, c.y)
-      return
-    }
-    if (edit.layer === 'background') {
+    {
       paintingRef.current = true
       strokeRef.current = []
       pendingRef.current = []
@@ -354,12 +348,26 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
       }
       return
     }
+    if (edit !== undefined) {
+      // 编辑态：hover 记格子——渲染层用它画"下一笔落在哪"的高亮
+      const c = cellAt(px, py)
+      setHover((prev) => (prev.x === c.x && prev.y === c.y && prev.agentId === undefined ? prev : { x: c.x, y: c.y }))
+      return
+    }
     const agentId = agentAt(px, py)
-    const object = agentId === undefined ? hitTest(px, py)?.object : undefined
-    setHover((prev) => (prev.object?.id === object?.id && prev.agentId === agentId ? prev : { object, agentId }))
+    const c = cellAt(px, py)
+    setHover((prev) => (prev.x === c.x && prev.y === c.y && prev.agentId === agentId ? prev : { x: c.x, y: c.y, agentId }))
   }
 
   const hoverAgent = hover.agentId === undefined ? undefined : agents.find((a) => a.id === hover.agentId)
+  /** 悬停格上的物件（有名字才显示，没标注的瓦片只显示坐标）。 */
+  const hoverTile = hover.x === undefined || hover.y === undefined
+    ? undefined
+    : objectsOf(sandbox.map).find((o) => o.x === hover.x && o.y === hover.y)
+  const hoverTileName = hoverTile?.name ?? '（空格）'
+  const hoverTileState = hoverTile === undefined
+    ? ''
+    : Object.entries(hoverTile.state).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('/') : String(v)}`).join('　')
 
   return React.createElement(
     'div',
@@ -402,15 +410,12 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     React.createElement(
       'div',
       { className: 'pa-legend' },
-      hover.object !== undefined
+      hover.x !== undefined && hover.y !== undefined && hover.agentId === undefined
         ? React.createElement(
             'span',
             null,
-            React.createElement('b', null, hover.object.name),
-            `（${OBJECT_KIND_LABEL[hover.object.kind] ?? hover.object.kind}）@${hover.object.x},${hover.object.y}`,
-            Object.keys(hover.object.state).length === 0
-              ? ''
-              : `　${Object.entries(hover.object.state).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('/') : String(v)}`).join('　')}`,
+            React.createElement('b', null, hoverTileName),
+            `　@${hover.x},${hover.y}${hoverTileState === '' ? '' : `　${hoverTileState}`}`,
           )
         : hoverAgent !== undefined
           ? React.createElement('span', null, React.createElement('b', null, hoverAgent.name), `　${hoverAgent.concept}　@${Math.round(hoverAgent.x)},${Math.round(hoverAgent.y)}`)
@@ -488,7 +493,7 @@ function ObjectMenu(props: ObjectMenuProps): React.ReactElement {
     React.createElement(
       'div',
       { className: 'pa-dim' },
-      `${OBJECT_KIND_LABEL[object.kind] ?? object.kind}｜id=${object.id}｜@${object.x},${object.y}${object.affordances === undefined ? '' : `｜可用：${object.affordances.join(' / ')}`}`,
+      `id=${object.id}｜@${object.x},${object.y}${Object.keys(object.state).length === 0 ? '' : `｜${Object.entries(object.state).map(([k, v]) => `${k}=${String(v)}`).join(' ')}`}`,
     ),
     React.createElement('div', { className: 'pa-row' }, React.createElement('span', { className: 'pa-dim' }, '名称'), React.createElement('input', { value: name, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value) })),
     React.createElement(

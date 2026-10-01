@@ -23,7 +23,7 @@ import {
   type WorldObject,
 } from '../shared/model.ts'
 import { distance, findObject } from '../shared/rules.ts'
-import { emptyLayers, objectsOf, positionOfObjectId, resolveRef } from '../shared/tilemap.ts'
+import { emptyLayers, makeBuiltinTileset, objectsOf, positionOfObjectId, resolveRef } from '../shared/tilemap.ts'
 import { issueDirective, listModelChoices } from './engine.ts'
 import { normalizeObject } from './store.ts'
 import type { ParanimRoutes } from './routes.ts'
@@ -335,12 +335,29 @@ export function makeTools(deps: ToolDeps): {
       if (op === 'add') {
         const kindRaw = String(args.kind ?? 'prop')
         /**
-         * 只允许加地标。**往地图上放瓦片是编辑器的事**——模型工具凭空写一格
-         * 需要先知道"用哪张图集的哪一格"，那是人在切片器里标过的东西，
-         * 不该由一个字符串参数决定。
+         * 模型可以"放一个东西"，但**不指定它的样子**：瓦片固定用问号占位格
+         * （tiny-town:3,0），名字写进状态。外观由人在编辑器里换——选哪张图
+         * 是视觉判断，模型给不了。这样"摆一把长椅"这个叙事能力保留了，
+         * 而图集选择权还在人手里。
          */
         if (kindRaw !== 'place') {
-          throw new Error('物件请在地图编辑器的 object 图层里放置；模型工具只处理地标（kind=place）')
+          const px = Math.max(0, Math.min(sandbox.map.width - 1, Math.round(Number(args.x ?? sandbox.map.width / 2))))
+          const py = Math.max(0, Math.min(sandbox.map.height - 1, Math.round(Number(args.y ?? sandbox.map.height / 2))))
+          if (!sandbox.map.tilesets.some((t) => t.id === 'tiny-town')) {
+            sandbox.map.tilesets.push(makeBuiltinTileset('tiny-town'))
+          }
+          const idx = py * sandbox.map.width + px
+          sandbox.map.layers.object.cells[idx] = 'tiny-town:3,0'
+          const states = sandbox.map.layers.object.states ?? (sandbox.map.layers.object.states = {})
+          states[String(idx)] = { ...(states[String(idx)] ?? {}), ...(typeof args.state === 'object' && args.state !== null ? args.state as Record<string, never> : {}), label: String(args.name ?? '物件') }
+          sandbox.updatedAt = Date.now()
+          view.run.events.push({
+            id: `ev-${Date.now().toString(36)}`, tick: view.run.tick, ts: Date.now(), kind: 'mutate',
+            actor: 'gm', actorName: String(args.by ?? '模型'),
+            text: `${String(args.by ?? '模型')}在 (${px},${py}) 摆了「${String(args.name ?? '物件')}」（外观待定，占位显示）。`,
+          })
+          await deps.store.save(sandbox)
+          return { text: `已在 (${px},${py}) 摆了「${String(args.name ?? '物件')}」——目前是问号占位，外观请在地图编辑器里换。` }
         }
         const bucket = sandbox.places
         const parsed = normalizeObject(
@@ -619,7 +636,7 @@ export function makeTools(deps: ToolDeps): {
         return {
           text: [
             `沙盒库（${list.length} 个，当前：${current.sandbox.id}）`,
-            ...list.map((s) => `- ${s.name}（id=${s.id}${s.builtin === true ? '｜发货镜像' : ''}）：${s.places.length} 地标 / ${s.objects} 物件 / ${s.agents.length} 智能体\n    ${s.desc}${s.attribution === undefined ? '' : `\n    出处：${s.attribution}（${s.license ?? '许可见素材索引'}）`}`),
+            ...list.map((s) => `- ${s.name}（id=${s.id}${s.builtin === true ? '｜发货镜像' : ''}）：${s.places.length} 地标 / ${objectsOf(s.map).length} 物件 / ${s.agents.length} 智能体\n    ${s.desc}${s.attribution === undefined ? '' : `\n    出处：${s.attribution}（${s.license ?? '许可见素材索引'}）`}`),
           ].join('\n'),
         }
       }

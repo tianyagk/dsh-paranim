@@ -106,12 +106,11 @@ export function createApi(scopeRef: () => Scope) {
     /** structure layer 增删改（建筑 + 门窗）。 */
     place: (body: Record<string, unknown>): Promise<WorldView> => post('/place', body),
     /**
-     * background layer 涂抹。入参是一串格子而不是单格：
-     * 一笔刷过去可以连着涂几十格，一次请求一格会打出上百个请求。
+     * 在某一层的一格上放/清一个瓦片（ref=null 是橡皮）。
+     * cells 是一串格子：一笔拖过去会连着涂几十格，一次一格会打出上百个请求。
      */
-    tile: (kind: string, cells: Array<{ x: number; y: number }>): Promise<WorldView> =>
-      post('/tile', { kind, cells }),
-    mapObject: (body: Record<string, unknown>): Promise<WorldView> => post('/map', body),
+    paint: (layer: 'background' | 'structure' | 'object', ref: string | null, cells: Array<{ x: number; y: number }>): Promise<WorldView> =>
+      post('/paint', { layer, ref, cells }),
     agent: (body: Record<string, unknown>): Promise<WorldView> => post('/agent', body),
     directive: (agentId: string, text: string): Promise<{ directive: Directive; world: WorldView }> =>
       post('/directive', { agentId, text }),

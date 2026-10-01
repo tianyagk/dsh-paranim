@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { adjudicate, resolveCheck, normalizeAttrs, clampAttr, HUMAN_MID } from './model.ts'
 import { coerceAction, extractJson, resolveAction, placeAt, seqRng, moveDifficulty, canEnter, nearestOpen } from './rules.ts'
-import { makeTileRef, emptyLayers } from './tilemap.ts'
+import { makeTileRef, emptyLayers, stateAt } from './tilemap.ts'
 import type { Tileset } from './model.ts'
 import type { RunAgent, RunState, Sandbox, WorldObject } from './model.ts'
 
@@ -44,11 +44,23 @@ function mkSandbox(): Sandbox {
     updatedAt: 0,
     map: { width: 100, height: 100, tilesets: [TILESET], layers: emptyLayers(100, 100) },
     places: [place('cafe', '咖啡馆', 20, 20, 12, 10), place('park', '公园', 70, 70, 20, 20)],
-    objects: [lamp],
     relations: [],
     agents: [],
   }
 }
+
+/**
+ * 摆一个"路灯"在 object 层 (20,22)，带初始状态——状态护栏那组测试全靠它。
+ * 新模型下物件就是格子上的一张瓦片：名字与可动性来自图集注释，
+ * 状态挂在格子上。id 由格坐标推出（obj:20,22），与状态永远指向同一格。
+ */
+const LAMP = makeTileRef('test-set', 2, 0)
+function putLamp(sb: Sandbox): void {
+  sb.map.layers.object.cells[22 * 100 + 20] = LAMP
+  sb.map.layers.object.states = { [String(22 * 100 + 20)]: { status: '正常' } }
+}
+const LAMP_ID = 'obj:20,22'
+const lampState = (sb: Sandbox): Record<string, unknown> => stateAt(sb.map, 20, 22) ?? {}
 
 /**
  * 测试用图集：四格分别代表草地、墙、门、水。
@@ -250,13 +262,14 @@ test('移动成功把坐标落到目标，失败原地留下代价', () => {
 
 test('玩家（gm）改状态直接生效并留下前后值', () => {
   const sandbox = mkSandbox()
+  putLamp(sandbox)
   const agent = mkAgent('a', 20, 22)
   const run = mkRun([agent])
   const out = resolveAction(
-    { thought: '', kind: 'act', text: '把路灯改成故障', mutations: [{ objectId: 'lamp-1', key: 'status', value: '故障' }] },
+    { thought: '', kind: 'act', text: '把路灯改成故障', mutations: [{ objectId: LAMP_ID, key: 'status', value: '故障' }] },
     { sandbox, run, agent, rng: seqRng([6]), ts: 5, operator: 'gm' },
   )
-  assert.equal(sandbox.objects[0].state.status, '故障')
+  assert.equal(lampState(sandbox).status as string, '故障')
   assert.equal(out.mutations.length, 1)
   assert.equal(out.mutations[0].before, '正常')
   assert.equal(out.mutations[0].after, '故障')
@@ -265,53 +278,57 @@ test('玩家（gm）改状态直接生效并留下前后值', () => {
 
 test('智能体够不着物体时改不动（距离护栏）', () => {
   const sandbox = mkSandbox()
+  putLamp(sandbox)
   const agent = mkAgent('a', 90, 90) // 距离路灯 20,22 很远
   const run = mkRun([agent])
   const out = resolveAction(
-    { thought: '', kind: 'act', text: '把路灯改成故障', mutations: [{ objectId: 'lamp-1', key: 'status', value: '故障' }] },
+    { thought: '', kind: 'act', text: '把路灯改成故障', mutations: [{ objectId: LAMP_ID, key: 'status', value: '故障' }] },
     { sandbox, run, agent, rng: seqRng([6]), ts: 5 },
   )
-  assert.equal(sandbox.objects[0].state.status, '正常')
+  assert.equal(lampState(sandbox).status as string, '正常')
   assert.equal(out.mutations.length, 0)
   assert.ok(out.memory.some((m) => m.text.includes('够不着')))
 })
 
 test('智能体动手要先过 DEX 判定，失败则状态不变', () => {
   const sandbox = mkSandbox()
+  putLamp(sandbox)
   // DEX 6 + 骰面 2 = 8 < 9（就地动手难度）→ 必失手；DEX 7 时同一骰面会成功，
   // 所以这里刻意用 6 —— 断言要钉的是"没过判定就不许改状态"。
   const agent = mkAgent('a', 20, 22, { attrs: normalizeAttrs({ dex: 6 }) })
   const run = mkRun([agent])
   const out = resolveAction(
-    { thought: '', kind: 'act', text: '把路灯改成故障', mutations: [{ objectId: 'lamp-1', key: 'status', value: '故障' }] },
+    { thought: '', kind: 'act', text: '把路灯改成故障', mutations: [{ objectId: LAMP_ID, key: 'status', value: '故障' }] },
     { sandbox, run, agent, rng: seqRng([2]), ts: 5 },
   )
-  assert.equal(sandbox.objects[0].state.status, '正常')
+  assert.equal(lampState(sandbox).status as string, '正常')
   assert.equal(out.rolls.length, 1)
   assert.equal(out.rolls[0].ok, false)
 })
 
 test('智能体动手且过了判定时状态才改', () => {
   const sandbox = mkSandbox()
+  putLamp(sandbox)
   const agent = mkAgent('a', 20, 22, { attrs: normalizeAttrs({ dex: 7 }) })
   const run = mkRun([agent])
   const out = resolveAction(
-    { thought: '', kind: 'act', text: '把路灯改成故障', mutations: [{ objectId: 'lamp-1', key: 'status', value: '故障' }] },
+    { thought: '', kind: 'act', text: '把路灯改成故障', mutations: [{ objectId: LAMP_ID, key: 'status', value: '故障' }] },
     { sandbox, run, agent, rng: seqRng([3]), ts: 5 },
   )
-  assert.equal(sandbox.objects[0].state.status, '故障')
+  assert.equal(lampState(sandbox).status as string, '故障')
   assert.equal(out.mutations.length, 1)
 })
 
 test('状态值为 null 表示清除该键', () => {
   const sandbox = mkSandbox()
+  putLamp(sandbox)
   const agent = mkAgent('a', 20, 22)
   const run = mkRun([agent])
   resolveAction(
-    { thought: '', kind: 'act', text: '清掉状态', mutations: [{ objectId: 'lamp-1', key: 'status', value: null }] },
+    { thought: '', kind: 'act', text: '清掉状态', mutations: [{ objectId: LAMP_ID, key: 'status', value: null }] },
     { sandbox, run, agent, rng: seqRng([6]), ts: 5, operator: 'gm' },
   )
-  assert.equal('status' in sandbox.objects[0].state, false)
+  assert.equal('status' in lampState(sandbox), false)
 })
 
 // ── 动作清洗 ─────────────────────────────────────────────────────────────
@@ -339,10 +356,10 @@ test('coerceAction 收下 mutations 并丢掉脏条目', () => {
     kind: 'act',
     text: 'x',
     mutations: [
-      { objectId: 'lamp-1', key: 'status', value: '故障' },
+      { objectId: LAMP_ID, key: 'status', value: '故障' },
       { id: 'lamp-1', state: 'lit', to: true },
       { objectId: '', key: 'k', value: 1 },
-      { objectId: 'lamp-1', key: 'obj', value: { nested: 1 } },
+      { objectId: LAMP_ID, key: 'obj', value: { nested: 1 } },
     ],
   })
   assert.equal(a.mutations?.length, 2)

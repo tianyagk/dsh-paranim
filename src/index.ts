@@ -1,3 +1,4 @@
+import { objectsOf } from './shared/tilemap.ts'
 /**
  * dsh-paranim（他化自在天）— 宿主半边。
  *
@@ -142,7 +143,7 @@ export function apply(ctx: PluginContext): void {
       .then((list) => {
         log(`sandbox library ready at ${dataHome()} — ${list.length} sandbox(es)`)
         for (const sandbox of list) {
-          log(`  · ${sandbox.id}: ${sandbox.name} — ${sandbox.places.length} places / ${sandbox.objects.length} objects / ${sandbox.agents.length} agents${sandbox.attribution === undefined ? '' : ` (${sandbox.attribution})`}`)
+          log(`  · ${sandbox.id}: ${sandbox.name} — ${sandbox.places.length} places / ${objectsOf(sandbox.map).length} objects / ${sandbox.agents.length} agents${sandbox.attribution === undefined ? '' : ` (${sandbox.attribution})`}`)
         }
       })
       .catch((error) => log('sandbox library init failed:', String(error)))

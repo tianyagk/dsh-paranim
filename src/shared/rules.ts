@@ -36,7 +36,7 @@ import {
   type WorldEvent,
   type WorldObject,
 } from './model.ts'
-import { passAt } from './tilemap.ts'
+import { objectsOf, passAt, positionOfObjectId, setObjectState } from './tilemap.ts'
 
 /** 判定用的随机源；注入以便测试确定化。 */
 export interface Rng {
@@ -82,9 +82,21 @@ export function placeAt(sandbox: Sandbox, x: number, y: number): WorldObject | u
   return best
 }
 
-export function findObject(sandbox: Sandbox, id: string | undefined): WorldObject | undefined {
+/**
+ * 按 id 找"一个东西"：地标（WorldObject）或格子上的物件（TileObject）。
+ *
+ * 两者的形状不同但引擎只关心 name/x/y/state，所以统一成一个宽视图。
+ * 物件 id 形如 obj:x,y，由格坐标反解——状态就挂在那格上，永不错位。
+ */
+export function findObject(
+  sandbox: Sandbox,
+  id: string | undefined,
+): { name: string; x: number; y: number; state: Record<string, unknown>; id: string; desc?: string; color?: string; interactive?: boolean; lastEditedBy?: string; lastEditedAt?: number } | undefined {
   if (id === undefined || id === '') return undefined
-  return sandbox.places.find((p) => p.id === id) ?? sandbox.objects.find((o) => o.id === id)
+  const place = sandbox.places.find((p) => p.id === id)
+  if (place !== undefined) return place
+  const tileObj = objectsOf(sandbox.map).find((o) => o.id === id)
+  return tileObj
 }
 
 function findAgent(run: RunState, id: string | undefined): RunAgent | undefined {
@@ -221,6 +233,14 @@ function mkEvent(partial: Omit<WorldEvent, 'id' | 'ts' | 'tick'> & { tick?: numb
   }
 }
 
+/**
+ * 落一条状态改动。
+ *
+ * 物件的状态挂在 object 层的格子上（setObjectState 直写那格），所以不存在
+ * "改了临时副本、写不回地图"的问题——旧版 objectsOf 返回的是新数组，
+ * 直接在上面临时对象上改等于白改，这类错只能在运行时暴露，所以这里
+ * 刻意只走 setObjectState 这一条路。
+ */
 function applyMutation(
   sandbox: Sandbox,
   objectId: string,
@@ -229,12 +249,18 @@ function applyMutation(
 ): { objectId: string; key: string; before: StateValue; after: StateValue } | undefined {
   const target = findObject(sandbox, objectId)
   if (target === undefined) return undefined
-  const before = target.state[key] ?? null
+  const pos = positionOfObjectId(objectId)
+  const isTile = pos !== undefined
+  const before = (target.state[key] ?? null) as StateValue
   const after = value
-  // `null` 表示删除该键——「把故障标记清掉」需要一个出口，否则只能写成
-  // 空字符串，状态槽里会攒下一堆语义不明的占位值。
-  if (after === null) delete target.state[key]
-  else target.state[key] = after
+  if (before === after) return undefined
+  if (isTile) {
+    setObjectState(sandbox.map, pos.x, pos.y, { [key]: value })
+  } else {
+    // 地标：WorldObject 的 state 直接改
+    if (after === null) delete target.state[key]
+    else target.state[key] = after
+  }
   return { objectId, key, before, after }
 }
 
@@ -332,8 +358,6 @@ export function resolveAction(action: AgentAction, ctx: ActionContext): ActionOu
       const record = applyMutation(sandbox, objectId, key, value)
       if (record === undefined) continue
       mutations.push(record)
-      target.lastEditedBy = agent.name
-      target.lastEditedAt = ts
       const text = `${agent.name}把「${target.name}」的「${key}」改为「${record.after === null ? '（清除）' : String(record.after)}」。`
       events.push(mkEvent({ kind: 'mutate', actor: agent.id, actorName: agent.name, text, targetId: objectId, mutations: [record] }, run, ts))
       memory.push({ tick: run.tick, kind: 'event', text, ts })

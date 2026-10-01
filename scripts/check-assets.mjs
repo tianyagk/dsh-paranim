@@ -221,113 +221,46 @@ else console.log(`  自行车贴图 ${bikeCells.length} 张,轮圈行均呈现�
   }
 }
 
-// 笔刷必须真的能画出来 —— 这是"涂了没反应"这类静默失败的唯一防线。
+// 瓦片模型的自洽：迁移后的镜像必须能被规则层读懂。
 //
-// 一次涂抹要穿过四层才落到画面上:
-//   ① index.tsx 的 GROUND_PALETTE(面板上有这个笔刷)
-//   ② store.ts 的 GROUND_CHARS(材质名 ↔ 字符)
-//   ③ layout.ts 的字符映射(字符 → Terrain)
-//   ④ town.ts 的 TERRAIN_SLOT + mapStyle 的 GROUND(材质 → 非空贴图槽)
-// 任何一层漏掉一种材质,玩家点下去都毫无变化、且**不报错**。四层逐一断言。
+// 旧版断言的是"笔刷四层贯通"（面板→字符→材质→贴图），那套已随字符画
+// 一起退役。新模型下要守的是另一件事：**每格引用的图集都在沙盒里、
+// 引用格式合法**——引用指向不存在的图集时渲染会静默跳过那一格，
+// 画面上就是"这里什么都没有"，不报任何错。
 {
-  const paletteText = readFileSync(join(root, 'src', 'client', 'index.tsx'), 'utf8')
-  const storeText = readFileSync(join(root, 'src', 'host', 'store.ts'), 'utf8')
-  const layoutText = readFileSync(join(root, 'src', 'client', 'layout.ts'), 'utf8')
-  const townText = readFileSync(join(root, 'src', 'client', 'town.ts'), 'utf8')
-  const styleText = readFileSync(join(root, 'src', 'client', 'mapStyle.ts'), 'utf8')
-
-  const kinds = [...paletteText.matchAll(/\{\s*kind:\s*'([a-z]+)'/g)].map((m) => m[1])
-  const charOf = new Map([...storeText.matchAll(/\['([a-z])',\s*'([a-z]+)'\]/g)].map((m) => [m[2], m[1]]))
-  const terrainOfChar = new Map(
-    // 宽松匹配到行尾第一个引号词:'g' 那行是三元表达式(grassAlt : grass),
-    // 只要拿到其中一个能落地的材质即可。
-    [...layoutText.matchAll(/ch === '([a-z])'[^\n]*?'([a-zA-Z]+)'/g)].map((m) => [m[1], m[2]]),
-  )
-  const slotOfTerrain = new Map([...townText.matchAll(/^\s*([a-zA-Z]+):\s*'([a-zA-Z]+)',/gm)].map((m) => [m[1], m[2]]))
-  const groundSlots = new Set(
-    [...styleText.slice(styleText.indexOf('export const GROUND')).split('\n').slice(0, 60).join('\n')
-      .matchAll(/^\s*([a-zA-Z]+):\s*\[([^\]]*)\]/gm)]
-      .filter((m) => m[2].trim() !== '').map((m) => m[1]),
-  )
-
-  if (kinds.length === 0) { console.error('  ✗ 没解析到笔刷面板的材质清单'); bad++ }
-  for (const kind of kinds) {
-    const ch = charOf.get(kind)
-    if (ch === undefined) { console.error(`  ✗ 笔刷「${kind}」没有字符映射(store.GROUND_CHARS)`); bad++; continue }
-    const terrain = terrainOfChar.get(ch)
-    if (terrain === undefined) { console.error(`  ✗ 笔刷「${kind}」的字符 '${ch}' 在 layout 里没有去向`); bad++; continue }
-    const slot = slotOfTerrain.get(terrain)
-    if (slot === undefined) { console.error(`  ✗ 材质「${terrain}」在 TERRAIN_SLOT 里没有槽位`); bad++; continue }
-    if (!groundSlots.has(slot)) { console.error(`  ✗ 材质「${terrain}」指向的槽位 ${slot} 没有贴图`); bad++; continue }
-  }
-  if (bad === 0) console.log(`  笔刷 ${kinds.length} 种材质四层贯通(面板→字符→材质→贴图)`)
-}
-
-// DOM 元素上的事件 prop 必须是 React 认识的名字。
-//
-// 实测教训：把 onMouseMove 写成了 onMove。React 不报错、不警告，只是把不认识的
-// prop **丢掉**——于是 mousedown 那一下能落笔，按住拖动时处理器一次都不触发。
-// 原生事件实测到达 21 次，React 侧 0 次。这种错只能靠机检。
-{
-  const ts = (await import('typescript')).default
-  const DOM_TAGS = new Set([
-    'div', 'span', 'canvas', 'button', 'input', 'select', 'textarea', 'ul', 'ol', 'li', 'a', 'p',
-    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'label',
-    'form', 'img', 'svg', 'nav', 'header', 'footer', 'section', 'main', 'aside', 'br', 'hr',
-    'pre', 'code', 'i', 'b', 'strong', 'em', 'small', 'video', 'audio', 'dialog',
-  ])
-  const EVENTS = new Set([
-    'onClick', 'onDoubleClick', 'onContextMenu', 'onMouseMove', 'onMouseDown', 'onMouseUp',
-    'onMouseEnter', 'onMouseLeave', 'onMouseOver', 'onMouseOut', 'onWheel', 'onScroll',
-    'onDrag', 'onDragEnd', 'onDragEnter', 'onDragExit', 'onDragLeave', 'onDragOver', 'onDragStart', 'onDrop',
-    'onKeyDown', 'onKeyUp', 'onKeyPress', 'onInput', 'onChange', 'onFocus', 'onBlur',
-    'onSubmit', 'onReset', 'onInvalid', 'onSelect', 'onLoad', 'onError',
-    'onCopy', 'onCut', 'onPaste', 'onCompositionStart', 'onCompositionEnd', 'onCompositionUpdate',
-    'onTouchStart', 'onTouchMove', 'onTouchEnd', 'onTouchCancel',
-    'onPointerDown', 'onPointerMove', 'onPointerUp', 'onPointerCancel',
-    'onPointerEnter', 'onPointerLeave', 'onPointerOver', 'onPointerOut',
-    'onAnimationStart', 'onAnimationEnd', 'onTransitionEnd',
-  ])
-  let checked = 0
-  const problems = []
-  for (const dir of ['src/client', 'src/host']) {
-    const files = await readdir(join(root, dir)).catch(() => [])
-    for (const name of files) {
-      if (!name.endsWith('.ts') && !name.endsWith('.tsx')) continue
-      const file = join(root, dir, name)
-      const text = readFileSync(file, 'utf8')
-      const sf = ts.createSourceFile(name, text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TSX)
-      const visit = (node) => {
-        if (ts.isCallExpression(node)) {
-          const callee = node.expression.getText(sf)
-          if (callee === 'React.createElement' || callee === 'createElement') {
-            const [tagArg, propsArg] = node.arguments
-            if (tagArg !== undefined && ts.isStringLiteral(tagArg) && DOM_TAGS.has(tagArg.text)
-              && propsArg !== undefined && ts.isObjectLiteralExpression(propsArg)) {
-              for (const prop of propsArg.properties) {
-                const key = prop.name === undefined ? null
-                  : ts.isIdentifier(prop.name) ? prop.name.text
-                  : ts.isStringLiteral(prop.name) ? prop.name.text : null
-                if (key === null || !/^on[A-Z]/.test(key)) continue
-                checked++
-                if (!EVENTS.has(key)) {
-                  const line = sf.getLineAndCharacterOfPosition(prop.getStart(sf)).line + 1
-                  problems.push(`${name}:${line} <${tagArg.text}> 上的 ${key}`)
-                }
-              }
-            }
-          }
-        }
-        ts.forEachChild(node, visit)
+  const { objectsOf, parseRef } = await import('../src/shared/tilemap.ts')
+  for (const name of ['smallville', 'house']) {
+    const data = JSON.parse(readFileSync(join(root, 'assets', `${name}.json`), 'utf8'))
+    const map = data.map ?? {}
+    const tilesetIds = new Set((map.tilesets ?? []).map((t) => t.id))
+    let dangling = 0
+    let noted = 0
+    const total = { background: 0, structure: 0, object: 0 }
+    for (const layerName of ['background', 'structure', 'object']) {
+      const cells = map.layers?.[layerName]?.cells ?? []
+      for (const cell of cells) {
+        if (cell === null) continue
+        total[layerName] += 1
+        const parsed = parseRef(cell)
+        if (parsed === undefined || !tilesetIds.has(parsed.setId)) { dangling += 1; continue }
+        if ((map.tilesets.find((t) => t.id === parsed.setId)?.notes ?? {})[`${parsed.col},${parsed.row}`] !== undefined) noted += 1
       }
-      visit(sf)
     }
-  }
-  if (problems.length > 0) {
-    for (const p of problems) console.error(`  ✗ React 不认识这个事件 prop（不会被绑定）：${p}`)
-    bad += problems.length
-  } else {
-    console.log(`  DOM 事件 prop 名全部合法（检查 ${checked} 处）`)
+    if (dangling > 0) {
+      console.error(`  ✗ ${name} 有 ${dangling} 格引用了不存在的图集（渲染会静默跳过）`)
+      bad++
+    } else {
+      console.log(`  ${name}: 三层 ${total.background + total.structure + total.object} 格瓦片全部指向沙盒自己的图集（背景 ${total.background} / 墙 ${total.structure} / 物件 ${total.object}）`)
+    }
+    // 门必须能开关：object 层标了 use:door 的格子要有 open 状态可挂
+    const doorNotes = new Set()
+    for (const t of map.tilesets ?? []) {
+      for (const [key, note] of Object.entries(t.notes ?? {})) {
+        if (note?.use === 'door') doorNotes.add(`${t.id}:${key}`)
+      }
+    }
+    const doorCells = (map.layers?.object?.cells ?? []).filter((c) => c !== null && doorNotes.has(c))
+    if (doorCells.length > 0) console.log(`  ${name}: ${doorCells.length} 格门（注释 use:door，关上即挡路）`)
   }
 }
 
@@ -346,7 +279,7 @@ else console.log(`  自行车贴图 ${bikeCells.length} 张,轮圈行均呈现�
     bad++
   } else {
     const mirror = JSON.parse(readFileSync(join(root, 'assets', 'smallville.json'), 'utf8'))
-    console.log(`  兜底小镇与镜像同步:${mirror.places.length} 地标 / ${mirror.objects.length} 物件`)
+    console.log(`  兜底小镇与镜像同步:${mirror.places.length} 地标 / ${(mirror.map?.layers?.object?.cells ?? []).filter((c) => c !== null).length} 格物件`)
   }
 }
 

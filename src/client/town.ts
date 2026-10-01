@@ -12,6 +12,7 @@ import type { Sandbox, SandboxAgent, TileLayer, Tileset } from '../shared/model.
 import { resolveRef, tileOrigin } from '../shared/tilemap.ts'
 import { hash2 } from './grid.ts'
 import { CHARACTER, pickSlot } from './mapStyle.ts'
+import { sheet as builtinSheet } from './tiles.ts'
 import { drawTile } from './tiles.ts'
 
 /** 一格地图像素（素材瓦片原始尺寸的基准）。 */
@@ -265,4 +266,54 @@ export function renderTown(ctx: CanvasRenderingContext2D, input: RenderInput): v
   for (const agent of agents) {
     drawAgent(ctx, input.view, agent, tick, agent.id === selectedId, bubbles?.get(agent.id))
   }
+}
+
+// ── 图集图片的取得 ────────────────────────────────────────────────────────
+
+/** 内置图集的 key（sheetData 里登记过的）。 */
+import type { SheetKey } from './sheetData.ts'
+
+const SHEET_KEYS: readonly string[] = ['tiny-town', 'tiny-farm', 'tiny-battle', 'onebit', 'city', 'characters']
+
+export function builtinImage(key: string): CanvasImageSource | undefined {
+  if (!SHEET_KEYS.includes(key)) return undefined
+  return builtinSheet(key as SheetKey)?.image
+}
+
+/** 用户图集（data URI）的解码缓存。 */
+const userImages = new Map<string, HTMLImageElement>()
+
+/**
+ * 取某个图集的图片。内置的同步可得；用户载入的第一次可能还没解码完，
+ * 返回 undefined 并开始加载，加载完成后由调用方触发重绘。
+ */
+export function tilesetImage(tileset: { id: string; image: string }): CanvasImageSource | undefined {
+  if (tileset.image === '') return builtinImage(tileset.id)
+  const hit = userImages.get(tileset.id)
+  if (hit !== undefined) return hit
+  if (userImages.has(tileset.id)) return undefined
+  const img = new Image()
+  userImages.set(tileset.id, img)
+  img.onload = () => {
+    // 加载完成没有回调链：调用方（MapCanvas）靠 sheetsReady 轮询或重渲染触发
+    img.decode?.().catch(() => {})
+  }
+  img.src = tileset.image
+  return undefined
+}
+
+/** 用户图集是否全部就绪（用于判断要不要再渲染一帧）。 */
+export function userImagesReady(): boolean {
+  for (const img of userImages.values()) if (!img.complete) return false
+  return true
+}
+
+/** 收集一个沙盒要用的所有图片。没就绪的图集会被跳过并开始加载。 */
+export function collectImages(sandbox: Sandbox): Map<string, CanvasImageSource> {
+  const out = new Map<string, CanvasImageSource>()
+  for (const tileset of sandbox.map.tilesets) {
+    const img = tilesetImage(tileset)
+    if (img !== undefined) out.set(tileset.id, img)
+  }
+  return out
 }

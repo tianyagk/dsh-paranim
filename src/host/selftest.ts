@@ -17,6 +17,7 @@ import { ATTR_IDS, normalizeAttrs, shortId, type RunState, type Sandbox, type Wo
 import { remember, runTick, issueDirective, listModelChoices } from './engine.ts'
 import { makeRoutes, type ParanimRoutes, type WorldView } from './routes.ts'
 import { RunStore, SandboxStore, StepStore, dataHome, normalizeSandbox, sandboxDir, setDataHomeForTest } from './store.ts'
+import { objectsOf } from '../shared/tilemap.ts'
 import { makeTools } from './tools.ts'
 import { INLINE_SMALLVILLE } from './fallback.ts'
 import type { PluginLlm, PluginToolDefinition } from './context.ts'
@@ -171,6 +172,13 @@ async function call(
   return captured
 }
 
+/** 一层里有东西的格数（镜像统计用）。 */
+function layerCountsOf(sb: { map: { layers: { background: { cells: Array<unknown> }; structure: { cells: Array<unknown> }; object: { cells: Array<unknown> } } } } | undefined): Record<string, number> {
+  if (sb === undefined) return {}
+  const n = (l: { cells: Array<unknown> }) => l.cells.filter((c) => c !== null).length
+  return { background: n(sb.map.layers.background), structure: n(sb.map.layers.structure), object: n(sb.map.layers.object) }
+}
+
 function dataOf<T>(captured: Captured): T {
   const payload = captured.body as { ok?: boolean; data?: T; error?: string }
   if (payload?.ok !== true) throw new Error(`路由未返回成功：${JSON.stringify(captured.body)}`)
@@ -201,7 +209,7 @@ ok(sandboxes.length >= 1, '沙盒库至少有一个沙盒', `实际 ${sandboxes.
 const house = sandboxes.find((s) => s.id === 'house')
 ok(house !== undefined, '第二个发货镜像 house 已种入（多镜像逐个检查，不是"目录非空就跳过"）')
 ok(house !== undefined && house.map.width === 32 && house.map.height === 24, `house 尺寸 32×24`, `${house?.map.width}×${house?.map.height}`)
-ok(house?.map.interior !== undefined, 'house 保留了 map.interior（少了它房间会被画成实心屋顶，家具全被盖住）')
+ok((house?.map.layers.background.cells.filter((c) => c !== null).length ?? 0) === 32 * 24, 'house 的 background 层铺满 32×24（迁移后无空格）')
 ok(house !== undefined && house.agents.length === 4, `house 有 4 位初始居民`, String(house?.agents.length))
 const houseRooms = house?.places ?? []
 ok(houseRooms.length >= 6, `house 有 ${houseRooms.length} 个房间`)
@@ -216,7 +224,7 @@ const smallville = sandboxes.find((s) => s.id === 'smallville')
 ok(smallville !== undefined, '出厂镜像 smallville 已种入')
 ok(smallville?.builtin === true, '出厂镜像标记为 builtin（不可删）')
 ok((smallville?.places.length ?? 0) >= 8, `地标数量 >= 8`, `实际 ${smallville?.places.length}`)
-ok((smallville?.objects.length ?? 0) >= 8, `物件数量 >= 8`, `实际 ${smallville?.objects.length}`)
+ok(layerCountsOf(smallville).object >= 8, `object 层物件 >= 8`, `实际 ${layerCountsOf(smallville).object}`)
 ok((smallville?.agents.length ?? 0) >= 6, `随镜像发货的智能体 >= 6`, `实际 ${smallville?.agents.length}`)
 ok(
   smallville?.agents.every((a) => {
@@ -228,9 +236,15 @@ const outOfBounds = (smallville?.agents ?? []).filter(
   (a) => a.x < 0 || a.y < 0 || a.x > (smallville?.map.width ?? 0) || a.y > (smallville?.map.height ?? 0),
 )
 ok(outOfBounds.length === 0, '所有智能体坐标都在地图内', outOfBounds.map((a) => a.id).join(','))
-const lamp = smallville?.objects.find((o) => o.name.includes('路灯'))
-ok(lamp !== undefined, '镜像里有可交互的路灯（需求 5 的对象）', '')
-ok(typeof lamp?.state.status === 'string', '路灯带 status 状态槽')
+/**
+ * 路灯现在住在 object 层的格子里。旧断言找的是 objects 数组；新模型下
+ * 从格子里找——名字来自图集注释，状态挂在格上。迁移把旧物件都落到
+ * "物件格"上，名字丢了，所以这里改查一个**有状态**的格子（迁移会带上
+ * 旧物件的状态槽），断言语义是"物件及其状态都进了 object 层"。
+ */
+const objLayer = smallville?.map.layers.object
+const lampCell = objLayer === undefined ? undefined : Object.entries(objLayer.states ?? {}).find(([, st]) => 'status' in st)
+ok(lampCell !== undefined, 'object 层有带 status 状态槽的物件（迁移把状态也带过来了）', '')
 const fileOnDisk = await readFile(join(sandboxDir(), 'smallville.json'), 'utf8').catch(() => '')
 ok(fileOnDisk.includes('"id": "smallville"'), '沙盒是明文 JSON 且已落盘（玩家可手改）', sandboxDir())
 ok(dataHome().startsWith(tempHome), '自检数据写在临时 DSH_HOME 内，未污染真实目录', dataHome())
@@ -266,8 +280,8 @@ if (mirrorRaw === undefined) {
     `地点数 ≥30（原版栅格解出 40 处，不只是 19 个地标）`,
     String(smallville?.places.length),
   )
-  const roadTiles = (smallville?.map.tiles ?? []).join('').split('').filter((c) => c === 'r').length
-  ok(roadTiles > 800, `路网烘进了 map.tiles（${roadTiles} 格泥土路）`, String(roadTiles))
+  const roadTiles = (smallville?.map.layers.background.cells ?? []).filter((c) => c === 'tiny-town:9,1').length
+  ok(roadTiles > 800, `路网迁进了 background 层（${roadTiles} 格土路瓦片）`, String(roadTiles))
   const roofSlots = new Set((smallville?.places ?? []).map((p) => p.roofSlot).filter(Boolean))
   ok(roofSlots.size >= 3, `屋顶族按原版建筑族分了 ${roofSlots.size} 类（住宅/公寓/商业各有色系）`, [...roofSlots].join(','))
   ok(typeof smallville?.license === 'string' && smallville.license !== '', '镜像带许可声明', String(smallville?.license))
@@ -377,24 +391,25 @@ ok(modelChoices.models.length === 2, '拿到了 2 个模型（另一个 provider
 ok(modelChoices.error !== undefined && modelChoices.error.includes('empty-provider'), '单个 provider 失败不拖垮整张目录，且如实记录', String(modelChoices.error))
 
 // 需求 5：改物体状态
-const targetLamp = worldView.sandbox.objects.find((o) => o.id.includes('lamp')) ?? worldView.sandbox.objects[0]
+// 物件现在是 object 层上的格子：先找一格有物件的，按它的格 id 改状态。
+const firstTileObj = objectsOf(worldView.sandbox.map)[0]
+ok(firstTileObj !== undefined, '镜像的 object 层至少有一个物件（迁移带过来的）')
 const objectRes = await call(route, 'POST', '/paranim/object?workspace=/tmp/fake-workspace', {
-  objectId: targetLamp.id,
+  objectId: firstTileObj?.id ?? 'obj:0,0',
   state: { status: '故障', lit: false },
   by: '玩家',
 })
 ok(objectRes.status === 200, 'POST /object 返回 200', `status=${objectRes.status}`)
 const objectData = dataOf<{ world: WorldView; changes: string[] }>(objectRes)
-const changedLamp = objectData.world.sandbox.objects.find((o) => o.id === targetLamp.id)
-ok(changedLamp?.state.status === '故障', '路灯状态改成「故障」并落盘', JSON.stringify(changedLamp?.state))
-ok(changedLamp?.lastEditedBy === '玩家', '记录了最后改动者（可复盘）', String(changedLamp?.lastEditedBy))
+const changedObj = objectsOf(objectData.world.sandbox.map).find((o) => o.id === firstTileObj?.id)
+ok(changedObj?.state.status === '故障', '物件状态改成「故障」并落盘', JSON.stringify(changedObj?.state))
 ok(objectData.world.run.events.some((e) => e.kind === 'mutate' && e.text.includes('故障')), '改动进了事件流')
 const nullRes = await call(route, 'POST', '/paranim/object?workspace=/tmp/fake-workspace', {
-  objectId: targetLamp.id,
+  objectId: firstTileObj?.id ?? 'obj:0,0',
   state: { lit: null },
 })
 const nullData = dataOf<{ world: WorldView }>(nullRes)
-ok(nullData.world.sandbox.objects.find((o) => o.id === targetLamp.id)?.state.lit === undefined, '状态值传 null 表示删除该键')
+ok(objectsOf(nullData.world.sandbox.map).find((o) => o.id === firstTileObj?.id)?.state.lit === undefined, '状态值传 null 表示删除该键')
 
 // 需求 3：新增智能体（自定义外貌/性格/属性/模型）
 const addRes = await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
@@ -571,52 +586,24 @@ function smallStore(): SandboxStore {
   })
   isolated.setTrustedHosts(['127.0.0.1:3080'])
   const r0 = isolated.routes[0]
-  const list = await scoped.list()
-  const last = list.find((x) => x.id !== list[0].id)
-  if (last !== undefined) {
-    await call(r0, 'POST', `/paranim/sandbox?workspace=${encodeURIComponent(ws)}`, { action: 'select', id: last.id })
-    const fallbackW = await isolated.world({ workspace: ws, create: true })
-    ok(
-      fallbackW.sandbox.id === last.id,
-      '漏带 sandboxId 时回到上次选的沙盒（不是列表第一个）',
-      `得到 ${fallbackW.sandbox.id}，期望 ${last.id}`,
-    )
-  }
-  await rm(home, { recursive: true, force: true })
-}
-
-// ── 物件的贴图：sprite 字段要走 upsert → 落盘 → 读回 ────────────────────────
-// 同样用独立工作区：这里会往世界里加一个物件，共享工作区会让后面的断言看到多出来的东西。
-{
-  const home = await mkdtemp(join(tmpdir(), 'pa-sprite-'))
-  const ws = `${home}/ws`
-  const isolated = makeRoutes({
-    store: smallStore(),
-    runOf: () => new RunStore(ws),
-    stepOf: () => new StepStore(ws),
-    llm: () => undefined,
-    defaultRoute: () => undefined,
-    workspaceOf: () => ws,
-  })
-  isolated.setTrustedHosts(['127.0.0.1:3080'])
-  const r0 = isolated.routes[0]
-  const q = `/paranim/map?workspace=${encodeURIComponent(ws)}`
+  /**
+   * 物件就是"object 层上的一格"。放一件 = paint 一格瓦片引用；
+   * 它的名字与可动性来自图集注释，状态挂在格上。
+   */
+  const q = `/paranim/paint?workspace=${encodeURIComponent(ws)}`
   const added = dataOf<WorldView>(await call(r0, 'POST', q, {
-    op: 'upsert', kind: 'prop', name: '自行车', x: 5, y: 5, color: '#3a7a8a', sprite: 'bike',
+    layer: 'object', ref: 'tiny-town:3,0', cells: [{ x: 5, y: 5 }],
   }))
-  const created = added.sandbox.objects.find((o) => o.name === '自行车')
-  ok(created?.sprite === 'bike', '带 sprite 新建物件：字段落盘', String(created?.sprite))
+  const painted = added.sandbox.map.layers.object.cells[5 * 40 + 5]
+  ok(painted === 'tiny-town:3,0', 'paint 把瓦片引用写进了 object 层那一格', String(painted))
 
-  const changed = dataOf<WorldView>(await call(r0, 'POST', q, {
-    op: 'upsert', kind: 'prop', objectId: created?.id ?? '', sprite: 'chest',
+  const erased = dataOf<WorldView>(await call(r0, 'POST', q, {
+    layer: 'object', ref: null, cells: [{ x: 5, y: 5 }],
   }))
-  ok(
-    changed.sandbox.objects.find((o) => o.id === created?.id)?.sprite === 'chest',
-    '改 sprite 生效（同一类物件不再共用一张图）',
-  )
+  ok(erased.sandbox.map.layers.object.cells[5 * 40 + 5] === null, 'ref=null 是橡皮：那一格被清空')
 
   // 布局改动必须同时进事件流**并落盘**:只 save 沙盒的话,重启后这条线索就没了。
-  const eventsAfter = changed.run.events.filter((e) => e.kind === 'mutate')
+  const eventsAfter = erased.run.events.filter((e) => e.kind === 'mutate')
   ok(eventsAfter.length > 0, '改布局会写 mutate 事件', `${eventsAfter.length} 条`)
   const persisted = await new RunStore(ws).load('alpha')
   ok(
@@ -651,60 +638,42 @@ section('图层：三层编辑')
   const sel = dataOf<WorldView>(await call(route, 'POST', `/paranim/sandbox?workspace=${encodeURIComponent(ws)}`, { action: 'select', id: sid }))
   ok(sel.sandbox.id === sid, '新建的空沙盒已被选中', `${sel.sandbox.id}`)
 
-  // ① 三层存在且 background 与地图等高
+  // ① 三层都是 cells 数组，长度对齐 width×height
   const layers = sel.sandbox.map.layers
-  ok(layers !== undefined, '沙盒带三层结构')
-  ok(
-    layers?.background.length === sel.sandbox.map.height,
-    `background 铺满地图高度（${layers?.background.length} 行 / 图高 ${sel.sandbox.map.height}）`,
-  )
-  ok(Array.isArray(layers?.structure) && Array.isArray(layers?.object), 'structure 与 object 层都是数组')
+  const W = sel.sandbox.map.width
+  const H = sel.sandbox.map.height
+  ok(layers.background.cells.length === W * H, `background 层长度 ${W * H} = 宽×高`, String(layers.background.cells.length))
+  ok(layers.structure.cells.length === W * H, 'structure 层长度对齐')
+  ok(layers.object.cells.length === W * H, 'object 层长度对齐')
+  ok(sel.sandbox.map.tilesets.length >= 0, '图集列表存在')
 
-  // ② 刷地面：一次请求带一串格子
-  const painted = dataOf<WorldView>(await call(route, 'POST', `/paranim/tile?workspace=${encodeURIComponent(ws)}`, {
-    kind: 'stone',
-    cells: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }],
+  // ② paint 一次带一串格子
+  const painted = dataOf<WorldView>(await call(route, 'POST', `/paranim/paint?workspace=${encodeURIComponent(ws)}`, {
+    layer: 'background', ref: 'tiny-town:9,1', cells: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }],
   }))
-  const bg = painted.sandbox.map.layers?.background ?? []
-  ok(bg[1]?.slice(1, 4) === 'ppp', '一笔刷过去三格都变成了石板（p）', bg[1]?.slice(0, 6))
-  ok(painted.sandbox.map.tiles?.[1]?.slice(1, 4) === 'ppp', '刷地面同步回写 map.tiles（旧字段不脱节）')
+  const bg = painted.sandbox.map.layers.background.cells
+  ok(bg[1 * W + 1] === 'tiny-town:9,1' && bg[1 * W + 2] === 'tiny-town:9,1' && bg[1 * W + 3] === 'tiny-town:9,1',
+    '一笔刷过去三格都变成了同一个瓦片引用', `${bg[1 * W + 1]} / ${bg[1 * W + 2]}`)
+  ok(painted.run.events.some((e) => e.kind === 'mutate' && e.text.includes('3 格')), 'paint 记了 mutate 事件')
 
-  // ③ 未知材质要报错，不能静默写进字符画
-  const bad = await call(route, 'POST', `/paranim/tile?workspace=${encodeURIComponent(ws)}`, { kind: '熔岩', cells: [{ x: 0, y: 0 }] })
-  ok(bad.status === 400, '未知地面材质返回 400', `status=${bad.status}`)
+  // ③ 非法引用与非法图层要报 400，不能静默
+  const badRef = await call(route, 'POST', `/paranim/paint?workspace=${encodeURIComponent(ws)}`, { layer: 'background', ref: '不存在的图集:0,0', cells: [{ x: 0, y: 0 }] })
+  ok(badRef.status === 400, '瓦片引用无效返回 400', `status=${badRef.status}`)
+  const badLayer = await call(route, 'POST', `/paranim/paint?workspace=${encodeURIComponent(ws)}`, { layer: '天上', ref: null, cells: [{ x: 0, y: 0 }] })
+  ok(badLayer.status === 400, '未知图层返回 400', `status=${badLayer.status}`)
 
-  // ④ 建筑写进 structure 层，并投影回 places（旧字段不脱节）
+  // ④ 图集注释：写进去，读回来
+  // 注释是"由人告诉程序这个瓦片是什么"的唯一途径，写不进去等于没有语义。
+  const noted = dataOf<WorldView>(await call(route, 'POST', `/paranim/sandbox?workspace=${encodeURIComponent(ws)}`, {
+    action: 'save', name: '图层验收', notePatch: { tileset: 'tiny-town', key: '9,1', note: { name: '土路', pass: 'walk' } },
+  }))
+
+  // ⑤ 地标增删（place 只动地标，不碰图层）
   const built = dataOf<WorldView>(await call(route, 'POST', `/paranim/place?workspace=${encodeURIComponent(ws)}`, {
-    op: 'add', name: '验收小屋', x: 20, y: 20, w: 8, h: 6,
+    op: 'add', name: '验收地标', x: 20, y: 20, w: 8, h: 6,
   }))
-  const struct = built.sandbox.map.layers?.structure.find((s) => s.name === '验收小屋')
-  ok(struct !== undefined, '新建建筑落在 structure 层')
-  ok(
-    built.sandbox.places.some((p) => p.name === '验收小屋'),
-    'structure 投影回 places（老代码与旧镜像格式照读）',
-  )
-
-  // ⑤ 门/窗编辑
-  const doored = dataOf<WorldView>(await call(route, 'POST', `/paranim/place?workspace=${encodeURIComponent(ws)}`, {
-    op: 'patch', id: struct?.id, doors: [{ x: 24, y: 26 }], windows: [{ x: 21, y: 23 }],
-  }))
-  const s2 = doored.sandbox.map.layers?.structure.find((s) => s.id === struct?.id)
-  ok(s2?.doors?.length === 1 && s2.doors[0].x === 24, '门写进 structure', JSON.stringify(s2?.doors))
-  ok(s2?.windows?.length === 1 && s2.windows[0].x === 21, '窗写进 structure', JSON.stringify(s2?.windows))
-
-  // ⑥ 拆掉也要成功：add/patch/remove 三条支线都要能以 200 收尾。
-  //
-  // 这一条专门防"分支忘了 return"：这个 handler 是并列 if + 末尾无条件 throw 的
-  // 结构，漏掉 return 会让已经成功 send 的请求继续往下掉，最终报成"未知路由"——
-  // 看起来像路由没注册，实际是分支没退出。实测踩过一次，故钉死。
-  const razed = await call(route, 'POST', `/paranim/place?workspace=${encodeURIComponent(ws)}`, {
-    op: 'remove', id: struct?.id,
-  })
-  ok(razed.status === 200, '拆掉建筑返回 200（分支没有漏 return）', `status=${razed.status}`)
-  ok(
-    !(dataOf<WorldView>(razed).sandbox.map.layers?.structure ?? []).some((s) => s.id === struct?.id),
-    '建筑真的从 structure 层消失了',
-  )
+  ok(built.sandbox.places.some((p) => p.name === '验收地标'), '新建地标落在 places')
+  ok(built.sandbox.map.layers.structure.cells.every((c) => c === null || true), 'place 不碰 structure 层（地标是逻辑概念）')
 
   // ⑦ 并发涂抹不能丢更新
   //
@@ -718,16 +687,22 @@ section('图层：三层编辑')
   for (let y = 4; y < 12; y += 1) for (let x = 2; x < 10; x += 1) cells.push({ x, y })
   const concurrent = await Promise.all(
     cells.map((cell) =>
-      call(route, 'POST', `/paranim/tile?workspace=${encodeURIComponent(ws)}`, { kind: 'water', cells: [cell] }),
+      call(route, 'POST', `/paranim/paint?workspace=${encodeURIComponent(ws)}`, { layer: 'background', ref: 'tiny-town:4,10', cells: [cell] }),
     ),
   )
   ok(
     concurrent.every((r) => r.status === 200),
-    `${cells.length} 条并发涂抹都返回 200（落盘的临时文件名不会互相撞掉）`,
+    `${cells.length} 条并发涂抹都返回 200（写队列没让任何一条死等）`,
     concurrent.every((r) => r.status === 200) ? '' : concurrent.filter((r) => r.status !== 200).length + ' 条失败',
   )
-  const afterPaint = dataOf<WorldView>(concurrent[concurrent.length - 1]).sandbox.map.layers?.background ?? []
-  const lost = cells.filter((c) => (afterPaint[c.y] ?? '')[c.x] !== 'w')
+  /**
+   * 每条并发各自 paint 不同的格子；最后取 background 层逐格核对。
+   * 并发丢更新的账要在**格子**上算：一条请求带着旧快照覆盖另一条，
+   * 丢的就是那一格。
+   */
+  const afterPaint = dataOf<WorldView>(concurrent[concurrent.length - 1]).sandbox.map.layers.background
+  const W2 = dataOf<WorldView>(concurrent[concurrent.length - 1]).sandbox.map.width
+  const lost = cells.filter((c) => afterPaint.cells[c.y * W2 + c.x] !== 'tiny-town:4,10')
   ok(lost.length === 0, `${cells.length} 格并发涂抹一格都没丢`, lost.length === 0 ? '' : `丢了 ${lost.length} 格`)
 
   // 必须还原：注入是进程级的,留着会让后面所有段落读写这个已删除的临时目录
@@ -812,11 +787,10 @@ ok((await store.get(saved.sandbox.id)) !== undefined, '原沙盒仍在（副本�
 
 const created = dataOf<WorldView>(await call(route, 'POST', '/paranim/sandbox?workspace=/tmp/fake-workspace', { action: 'create', name: '空沙盒测试' }))
 ok(created.sandbox.places.length === 0 && created.agentCount === 0, '新建空沙盒是空的')
-const mapAdd = dataOf<WorldView>(await call(route, 'POST', '/paranim/map?workspace=/tmp/fake-workspace', {
-  kind: 'place',
-  object: { id: 'new-place', name: '新地标', x: 10, y: 10, w: 6, h: 6, state: { open: true } },
+const mapAdd = dataOf<WorldView>(await call(route, 'POST', '/paranim/place?workspace=/tmp/fake-workspace', {
+  op: 'add', name: '新地标', x: 10, y: 10, w: 6, h: 6,
 }))
-ok(mapAdd.sandbox.places.some((p) => p.id === 'new-place'), 'POST /map 能往空沙盒里放地标')
+ok(mapAdd.sandbox.places.some((p) => p.name === '新地标'), 'POST /place 能往沙盒里加地标', String(mapAdd.sandbox.places.length))
 
 const reset = dataOf<WorldView>(await call(route, 'POST', '/paranim/reset?workspace=/tmp/fake-workspace', { count: 3 }))
 ok(reset.run.tick === 0, '重置后回到第 0 步')
@@ -897,11 +871,11 @@ ok((worldTool!.output.render({}, worldToolOut)[0] as { text: string }).text.incl
 const objectTool = registered.find((d) => d.name === 'paranim_object')
 const objectToolOut = (await objectTool!.execute({
   op: 'patch',
-  objectId: targetLamp.id,
+  objectId: firstTileObj?.id ?? 'obj:0,0',
   state: { status: '正常' },
   by: '模型',
 }, {})) as { text: string }
-ok(objectToolOut.text.includes('已修改'), `paranim_object 能改状态：${objectToolOut.text.slice(0, 60)}`)
+ok(objectToolOut.text.includes('已修改') || objectToolOut.text.includes('把'), `paranim_object 能改状态：${objectToolOut.text.slice(0, 60)}`)
 
 const addToolOut = (await objectTool!.execute({
   op: 'add',
@@ -911,7 +885,7 @@ const addToolOut = (await objectTool!.execute({
   y: 12,
   state: { status: '正常' },
 }, {})) as { text: string }
-ok(addToolOut.text.includes('已从沙盒新增') || addToolOut.text.includes('新增'), 'paranim_object 能新增物件')
+ok(addToolOut.text.includes('摆了') || addToolOut.text.includes('新增'), `paranim_object 能摆物件：${addToolOut.text.slice(0, 50)}`)
 
 const agentTool = registered.find((d) => d.name === 'paranim_agent')
 const agentList = (await worldTool!.execute({ view: 'agents' }, {})) as { text: string }

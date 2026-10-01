@@ -32,11 +32,13 @@ import {
   type RunAgent,
   type SandboxAgent,
   type StateValue,
+  type Tileset,
   type WorldEvent,
 } from '../shared/model.ts'
 import { createApi, type ParanimApi, type SandboxSummary, type WorldView } from './api.ts'
 import { MapCanvas } from './MapCanvas.tsx'
-import { propSlotOf } from './town.ts'
+import { tilesetImage } from './town.ts'
+import { gridOf, makeTileRef, noteKey, objectsOf, positionOfObjectId, tileOrigin } from '../shared/tilemap.ts'
 import { PENDING_SLOTS, SpriteButton, SpritePalette } from './SpritePalette.tsx'
 import { SLOT_LABEL, OBJECT_LIBRARY } from './mapStyle.ts'
 import {
@@ -171,8 +173,13 @@ function ParanimApp(props: TabProps): React.ReactElement {
    * 的兄弟节点，而不同层的落笔行为不同（background 涂抹 / object 放置）。
    */
   const [editLayer, setEditLayer] = useState<'background' | 'structure' | 'object'>('background')
-  const [brushKind, setBrushKind] = useState<string>('grass')
-  const [dropSprite, setDropSprite] = useState<{ sprite: string; name: string } | undefined>(undefined)
+  /**
+   * 当前笔刷：一个瓦片引用（"图集:列,行"）。null = 橡皮；undefined = 未选。
+   *
+   * 三个图层共用同一种笔——选中的瓦片落在哪个图层，由 editLayer 决定。
+   * 这与 Godot/Unity 的 tilemap 编辑一致：先选层，再选瓦片，然后画。
+   */
+  const [brushRef, setBrushRef] = useState<string | null | undefined>(undefined)
   const [busy, setBusy] = useState<string>('')
   const [error, setError] = useState<string>('')
   const [notice, setNotice] = useState<string>('')
@@ -347,39 +354,40 @@ function ParanimApp(props: TabProps): React.ReactElement {
             applyWorld(result.world)
             flash(`已修改：${result.changes.join('，')}`)
           }),
-        onRemoveObject: (objectId: string) =>
-          void run('删物体', async () => {
-            applyWorld(await api.mapObject({ op: 'remove', id: objectId, kind: sandbox.objects.some((o) => o.id === objectId) ? 'prop' : 'place' }))
-            flash('已从沙盒移除该物体')
-          }),
         /**
          * 只有【世界沙盒】页才给地图挂编辑能力。
          *
          * 【世界】页看的是正在跑的那个世界——在那里点地图是为了查看与改状态；
          * 而"把这一格刷成水泥"是对**镜像**的编辑，两者混在一起会让人误以为
          * 自己的一笔已经改变了正在推演的世界。
+         *
+         * 三个图层共用同一种落笔：**往格上放一个瓦片引用**（dropRef 为 null
+         * 时是橡皮）。层与层的差别只在数据放哪一层，不在交互——这正是
+         * Godot/Unity 的 tilemap 编辑逻辑。
          */
-        edit:
-          page !== 'sandbox'
-            ? undefined
-            : editLayer === 'background'
-              ? { layer: 'background' as const, kind: brushKind }
-              : editLayer === 'object' && dropSprite !== undefined
-                ? { layer: 'object' as const, sprite: dropSprite.sprite, name: dropSprite.name }
-                : { layer: 'structure' as const },
+        onRemoveObject: (objectId: string) =>
+          void run('移走', async () => {
+            // 物件 id 就是格坐标（obj:x,y）——paint 一格 null 即清空那格
+            const pos = positionOfObjectId(objectId)
+            if (pos === undefined) {
+              applyWorld(await api.place({ op: 'remove', id: objectId }))
+            } else {
+              applyWorld(await api.paint('object', null, [pos]))
+            }
+            flash(objectId.startsWith('obj:') ? '已把那一格清空' : '已移走')
+          }),
+        edit: page === 'sandbox' ? { layer: editLayer } : undefined,
+        dropRef: page === 'sandbox' ? brushRef : undefined,
         onPaint: (cells) => {
-          if (editLayer !== 'background' || cells.length === 0) return
-          void run('刷地面', async () => {
-            applyWorld(await api.tile(brushKind, cells))
-          })
-        },
-        onDropProp: (x, y) => {
-          if (dropSprite === undefined) return
-          void run('放物件', async () => {
-            applyWorld(await api.mapObject({
-              op: 'upsert', kind: 'prop', name: dropSprite.name, x, y, sprite: dropSprite.sprite,
-            }))
-            flash(`已在 (${x},${y}) 放了一件「${dropSprite.name}」`)
+          if (cells.length === 0 || page !== 'sandbox') return
+          // 还没选笔刷就涂 = 什么都画不上，只会让人以为编辑器坏了。
+          // 宁可明确提示"先选一个瓦片"，也不静默无事发生。
+          if (brushRef === undefined) {
+            flash('还没选笔刷——先在「图集与瓦片注释」里点一个瓦片（或选橡皮）')
+            return
+          }
+          void run(editLayer === 'object' ? '摆物件' : editLayer === 'structure' ? '砌墙' : '铺地面', async () => {
+            applyWorld(await api.paint(editLayer, brushRef, cells))
           })
         },
       }),
@@ -422,10 +430,8 @@ function ParanimApp(props: TabProps): React.ReactElement {
                   flash,
                   editLayer,
                   setEditLayer,
-                  brushKind,
-                  setBrushKind,
-                  dropSprite,
-                  setDropSprite,
+                  brushRef,
+                  setBrushRef,
                 })
               : React.createElement(EventsPage, { world, selected, feedMode }),
       ),
@@ -616,7 +622,7 @@ function WorldPage(props: {
         React.createElement('span', null, '地标'),
         React.createElement('span', null, `${world.sandbox.places.length} 处`),
         React.createElement('span', null, '物件'),
-        React.createElement('span', null, `${world.sandbox.objects.length} 件`),
+        React.createElement('span', null, `${objectsOf(world.sandbox.map).length} 件`),
         React.createElement('span', null, '世界状态'),
         React.createElement('span', null, Object.entries(world.run.worldState).map(([k, v]) => `${k}=${String(v)}`).join(' ') || '（无）'),
       ),
@@ -635,14 +641,14 @@ function WorldPage(props: {
         'h4',
         null,
         '物件状态',
-        React.createElement('span', { className: 'pa-chip' }, `${world.sandbox.objects.length} 件`),
+        React.createElement('span', { className: 'pa-chip' }, `${objectsOf(world.sandbox.map).length} 件`),
       ),
       React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
         '改的是这个世界的当前状态，会立刻写进事件流。'),
       React.createElement(
         'div',
         { className: 'pa-scroll', style: { maxHeight: 200 } },
-        ...world.sandbox.objects.slice(0, 40).map((object) =>
+        ...objectsOf(world.sandbox.map).slice(0, 40).map((object) =>
           React.createElement(
             'div',
             { key: object.id, className: 'pa-item' },
@@ -787,17 +793,6 @@ const LAYER_LABEL: Record<'background' | 'structure' | 'object', string> = {
  * background 层的可选材质。字符沿用 store 里的 GROUND_CHARS 约定，
  * 但对玩家显示的是"草地/土地/石头地面/水泥地面"这类名字。
  */
-const GROUND_PALETTE: Array<{ kind: string; label: string; swatch: string }> = [
-  { kind: 'grass', label: '草地', swatch: '🟩' },
-  { kind: 'dirt', label: '土地', swatch: '🟫' },
-  { kind: 'stone', label: '石头地面', swatch: '⬜' },
-  { kind: 'concrete', label: '水泥地面', swatch: '🔲' },
-  { kind: 'sand', label: '沙地', swatch: '🟨' },
-  { kind: 'water', label: '水面', swatch: '🟦' },
-  { kind: 'field', label: '农田', swatch: '🌾' },
-  { kind: 'wood', label: '木地板', swatch: '🪵' },
-]
-
 interface AgentsPageProps {
   world: WorldView
   models: ModelChoice[]
@@ -1164,6 +1159,167 @@ function roll(): number {
 
 // ── 页 3：世界沙盒（需求 2）─────────────────────────────────────────────
 
+
+/** 笔刷引用的显示名（"图集名 · 名字或坐标"）。 */
+function refLabel(sandbox: { map: { tilesets: Array<{ id: string; name: string; notes: Record<string, { name?: string }> }> } }, ref: string): string {
+  const colon = ref.indexOf(':')
+  if (colon < 0) return ref
+  const ts = sandbox.map.tilesets.find((t) => t.id === ref.slice(0, colon))
+  const key = ref.slice(colon + 1)
+  const noteName = ts?.notes[key]?.name
+  return `${ts?.name ?? ref.slice(0, colon)} · ${noteName ?? key}`
+}
+
+/**
+ * 图集面板：把一张图集按网格铺开，点格子选笔刷，点「注」标语义。
+ *
+ * 这是"由人告诉程序每个瓦片是什么"的落点。此前用平均色反查来猜格子，
+ * 对纯色地面有效，对有形状的物件完全无效——一棵树和一片灌木的平均色
+ * 可以一模一样。注释是人给的，代码只读结果。
+ */
+function TilesetPanel(props: {
+  tileset: Tileset
+  brushRef: string | null | undefined
+  noteTarget: string | undefined
+  onPick: (ref: string) => void
+  onNote: (key: string) => void
+  onSaveNote: (key: string, note: { name?: string; pass?: string; use?: string }) => void
+}): React.ReactElement {
+  const { tileset, brushRef, noteTarget, onPick, onNote, onSaveNote } = props
+  const grid = gridOf(tileset)
+  const [draft, setDraft] = React.useState<{ name: string; pass: string; use: string }>({ name: '', pass: '', use: '' })
+  const note = noteTarget === undefined ? undefined : tileset.notes[noteTarget]
+
+  React.useEffect(() => {
+    setDraft({
+      name: note?.name ?? '',
+      pass: note?.pass ?? '',
+      use: note?.use ?? '',
+    })
+  }, [noteTarget, note?.name, note?.pass, note?.use])
+
+  const cellRef = (col: number, row: number): string => makeTileRef(tileset.id, col, row)
+
+  return React.createElement(
+    'div',
+    { style: { marginTop: 6 } },
+    React.createElement('div', { className: 'pa-dim' },
+      `${tileset.name}（${grid.cols}×${grid.rows} 格${tileset.image === '' ? '，内置' : ''}）`),
+    React.createElement(
+      'div',
+      { style: { display: 'flex', flexWrap: 'wrap', gap: 3, margin: '4px 0' } },
+      ...Array.from({ length: Math.min(grid.cols * grid.rows, 400) }, (_, i) => {
+        const col = i % grid.cols
+        const row = Math.floor(i / grid.cols)
+        const ref = cellRef(col, row)
+        const key = noteKey(col, row)
+        const hasNote = tileset.notes[key] !== undefined
+        return React.createElement(TileThumb, {
+          key: i,
+          tileset, col, row,
+          active: brushRef === ref,
+          hasNote,
+          onPick: () => onPick(ref),
+          onNote: () => onNote(key),
+        })
+      }),
+    ),
+    noteTarget !== undefined
+      ? React.createElement(
+          'div',
+          { style: { border: '1px solid var(--pa-border)', borderRadius: 6, padding: 8, marginTop: 4 } },
+          React.createElement('div', { className: 'pa-dim' }, `注释 ${tileset.name} ${noteTarget}`),
+          React.createElement('div', { className: 'pa-place-grid' },
+            React.createElement('label', { className: 'pa-place-cell' },
+              React.createElement('span', { className: 'pa-dim' }, '名字（如：木门）'),
+              React.createElement('input', { value: draft.name, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setDraft((d) => ({ ...d, name: e.target.value })) }),
+            ),
+            React.createElement('label', { className: 'pa-place-cell' },
+              React.createElement('span', { className: 'pa-dim' }, '通行性'),
+              React.createElement('select', {
+                value: draft.pass,
+                onChange: (e: React.ChangeEvent<HTMLSelectElement>) => setDraft((d) => ({ ...d, pass: e.target.value })),
+              },
+                ...[['', '（默认可走）'], ['walk', '可走'], ['block', '挡路（墙/栅栏）'], ['water', '水面'], ['lava', '岩浆']].map(([v, l]) =>
+                  React.createElement('option', { key: v, value: v }, l)),
+              ),
+            ),
+            React.createElement('label', { className: 'pa-place-cell' },
+              React.createElement('span', { className: 'pa-dim' }, '互动'),
+              React.createElement('select', {
+                value: draft.use,
+                onChange: (e: React.ChangeEvent<HTMLSelectElement>) => setDraft((d) => ({ ...d, use: e.target.value })),
+              },
+                ...[['', '（无）'], ['door', '门（可开关）'], ['window', '窗（隔窗相望）'], ['switch', '开关']].map(([v, l]) =>
+                  React.createElement('option', { key: v, value: v }, l)),
+              ),
+            ),
+          ),
+          React.createElement('div', { className: 'pa-line', style: { marginTop: 4 } },
+            React.createElement('button', {
+              className: 'pa-btn', 'data-tiny': 'true',
+              onClick: () => onSaveNote(noteTarget, draft),
+            }, '保存注释'),
+            React.createElement('button', {
+              className: 'pa-btn', 'data-tiny': 'true', 'data-danger': 'true',
+              onClick: () => onSaveNote(noteTarget, {}),
+            }, '清除'),
+            React.createElement('span', { className: 'pa-dim' },
+              note === undefined ? '未标注（按可走处理）' : `已标注：${note.name ?? '（无名）'}`),
+          ),
+        )
+      : null,
+  )
+}
+
+/**
+ * 一格瓦片的缩略图。内置图集直接从客户端包里的像素取；用户图集
+ * 从 data URI 解码（可能还没就绪，画个占位框）。
+ */
+function TileThumb(props: {
+  tileset: Tileset
+  col: number
+  row: number
+  active: boolean
+  hasNote: boolean
+  onPick: () => void
+  onNote: () => void
+}): React.ReactElement {
+  const { tileset, col, row, active, hasNote, onPick, onNote } = props
+  const ref = React.useRef<HTMLCanvasElement | null>(null)
+  React.useEffect(() => {
+    const cv = ref.current
+    if (cv === null) return
+    const ctx = cv.getContext('2d')
+    if (ctx === null) return
+    ctx.clearRect(0, 0, 26, 26)
+    const img = tilesetImage(tileset)
+    if (img === undefined) return
+    const o = tileOrigin(tileset, col, row)
+    ctx.imageSmoothingEnabled = false
+    ctx.drawImage(img, o.x, o.y, tileset.tileW, tileset.tileH, 1, 1, 24, 24)
+  }, [tileset, col, row])
+  return React.createElement(
+    'span',
+    { style: { display: 'inline-flex', alignItems: 'flex-end', gap: 0 } },
+    React.createElement('canvas', {
+      ref,
+      width: 26, height: 26,
+      style: {
+        border: `1px solid ${active ? '#ffc861' : hasNote ? '#7fc98b' : 'var(--pa-border)'}`,
+        borderRadius: 3, cursor: 'pointer', display: 'block', background: '#0b0e13',
+      },
+      title: `${tileset.name} ${col},${row}${hasNote ? `（${tileset.notes[`${col},${row}`]?.name ?? '已标注'}）` : ''}`,
+      onClick: onPick,
+    }),
+    React.createElement('button', {
+      style: { fontSize: 8, padding: '0 2px', marginLeft: -1, height: 14, border: 'none', background: 'transparent', color: hasNote ? '#7fc98b' : '#5a6577', cursor: 'pointer' },
+      title: '注释这个瓦片',
+      onClick: onNote,
+    }, '注'),
+  )
+}
+
 function SandboxPage(props: {
   world: WorldView
   sandboxes: SandboxSummary[]
@@ -1176,16 +1332,13 @@ function SandboxPage(props: {
   /** 以下由顶层持有：地图（MapCanvas）与本页面是兄弟节点，要共用同一份编辑态。 */
   editLayer: 'background' | 'structure' | 'object'
   setEditLayer: (layer: 'background' | 'structure' | 'object') => void
-  brushKind: string
-  setBrushKind: (kind: string) => void
-  dropSprite: { sprite: string; name: string } | undefined
-  setDropSprite: (value: { sprite: string; name: string } | undefined) => void
+  brushRef: string | null | undefined
+  setBrushRef: (ref: string | null | undefined) => void
 }): React.ReactElement {
-  const { world, sandboxes, api, run, applyWorld, setSandboxes, flash, editLayer, setEditLayer, brushKind, setBrushKind, dropSprite, setDropSprite } = props
+  const { world, sandboxes, api, run, applyWorld, setSandboxes, flash, editLayer, setEditLayer, brushRef, setBrushRef } = props
   /** 资源池要知道"现在是新建还是换贴图"，所以记一个选中态。 */
-  const [objectFocus, setObjectFocus] = React.useState<string | undefined>(undefined)
-  /** 被选中、准备换贴图的那件物件（没选就是 undefined）。 */
-  const focusedObject = objectFocus === undefined ? undefined : world.sandbox.objects.find((o) => o.id === objectFocus)
+  /** 正在注释哪个格子（"图集:列,行"）。 */
+  const [noteTarget, setNoteTarget] = React.useState<string | undefined>(undefined)
   /**
    * 正在编辑哪一层。
    *
@@ -1260,21 +1413,18 @@ function SandboxPage(props: {
         ),
       ),
     ),
-    // ── 图层编辑（这是"改镜像"，不是"改世界"）─────────────────────────────
-    //
-    // 三个图层用同一套坐标系，但画的不是同一种东西，所以要能单独锁定一层：
-    // 在 object 层上拖动物件时不该顺手把地面刷掉。
+    // ── 图层与笔刷（编辑镜像；三图层共用一种落笔）──────────────────────────
     React.createElement(
       'div',
       { className: 'pa-sec' },
       React.createElement(
         'h4',
         null,
-        '图层编辑',
+        '图层与笔刷',
         React.createElement('span', { className: 'pa-chip' }, LAYER_LABEL[editLayer]),
       ),
       React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
-        '切到哪一层，地图就只收那一层的编辑。改动写进**沙盒镜像**，已在跑的那个世界要「重置推演」才会用上新样子。'),
+        '先选图层，再从下面选一个瓦片当笔刷，然后在地图上涂抹。改动写进**沙盒镜像**；正在跑的世界要「重置推演」才会用上新样子。'),
       React.createElement(
         'div',
         { className: 'pa-line', style: { marginBottom: 6 } },
@@ -1283,240 +1433,65 @@ function SandboxPage(props: {
             key: layer,
             className: 'pa-btn', 'data-tiny': 'true',
             'data-on': editLayer === layer,
+            title: layer === 'background' ? '地面：水面/岩浆等地形会影响移动' : layer === 'structure' ? '墙体与障碍：限制移动，画四面墙即可，不画屋顶' : '门窗/家具/可互动的东西',
             onClick: () => setEditLayer(layer),
           }, LAYER_LABEL[layer]),
         ),
-        editLayer === 'structure'
-          ? React.createElement('button', {
-              className: 'pa-btn', 'data-tiny': 'true',
-              onClick: () => void run('新建建筑', async () => {
-                const n = world.sandbox.map.layers?.structure.length ?? 0
-                applyWorld(await api.place({
-                  op: 'add', name: `新建筑 ${n + 1}`,
-                  x: Math.round(world.sandbox.map.width / 2) + (n % 5) - 2,
-                  y: Math.round(world.sandbox.map.height / 2), w: 8, h: 6,
-                }))
-                flash('已建了一栋房；它的墙体现在会挡人，记得开一道门')
-              }),
-            }, '＋ 新建建筑')
-          : null,
-      ),
-      editLayer === 'background'
-        ? React.createElement(
-            'div',
-            { className: 'pa-line' },
-            ...GROUND_PALETTE.map((item) =>
-              React.createElement('button', {
-                key: item.kind,
-                className: 'pa-btn', 'data-tiny': 'true',
-                'data-on': brushKind === item.kind,
-                title: `${item.label}（${item.kind}）`,
-                onClick: () => {
-                  setBrushKind(item.kind)
-                  setObjectFocus(undefined)
-                  flash(`笔刷：${item.label}。在地图上按住拖动即可连续涂抹`)
-                },
-              }, `${item.swatch} ${item.label}`),
-            ),
-          )
-        : null,
-      // structure 层的建筑列表：改几何 + 开门开窗（这一步决定"人能不能进去"）
-      editLayer === 'structure'
-        ? React.createElement(
-            'div',
-            { className: 'pa-scroll', style: { maxHeight: 300 } },
-            ...(world.sandbox.map.layers?.structure ?? []).map((st) =>
-              React.createElement(
-                'div',
-                { key: st.id, className: 'pa-place' },
-                React.createElement(
-                  'div',
-                  { className: 'pa-line' },
-                  React.createElement('span', null, React.createElement('b', null, st.name)),
-                  React.createElement('span', { className: 'pa-dim pa-mono' }, `${st.w}×${st.h}`),
-                  React.createElement('span', { className: 'pa-chip' }, `${(st.doors ?? []).length} 门 / ${(st.windows ?? []).length} 窗`),
-                  React.createElement('span', { className: 'pa-spacer' }),
-                  React.createElement('button', {
-                    className: 'pa-btn', 'data-tiny': 'true',
-                    title: '在这栋楼南墙中点开一道门（没有门就没人进得去）',
-                    onClick: () => void run('开一道门', async () => {
-                      applyWorld(await api.place({
-                        op: 'patch', id: st.id,
-                        doors: [...(st.doors ?? []), { x: st.x + Math.floor(st.w / 2), y: st.y + st.h }],
-                      }))
-                      flash('已开一道门')
-                    }),
-                  }, '＋门'),
-                  React.createElement('button', {
-                    className: 'pa-btn', 'data-tiny': 'true',
-                    onClick: () => void run('开一扇窗', async () => {
-                      applyWorld(await api.place({
-                        op: 'patch', id: st.id,
-                        windows: [...(st.windows ?? []), { x: st.x + 1, y: st.y + Math.floor(st.h / 2) }],
-                      }))
-                      flash('已开一扇窗（窗只供隔窗相望，人过不去）')
-                    }),
-                  }, '＋窗'),
-                  React.createElement('button', {
-                    className: 'pa-btn', 'data-tiny': 'true', 'data-danger': 'true',
-                    onClick: () => void run('拆掉建筑', async () => {
-                      if (!window.confirm(`拆掉建筑「${st.name}」？`)) return
-                      applyWorld(await api.place({ op: 'remove', id: st.id }))
-                      flash(`已拆掉「${st.name}」`)
-                    }),
-                  }, '拆掉'),
-                ),
-                React.createElement(
-                  'div',
-                  { className: 'pa-place-grid' },
-                  ...([
-                    { key: 'name', label: '名', value: st.name, text: true },
-                    { key: 'x', label: 'x', value: st.x, text: false },
-                    { key: 'y', label: 'y', value: st.y, text: false },
-                    { key: 'w', label: '宽', value: st.w, text: false },
-                    { key: 'h', label: '高', value: st.h, text: false },
-                  ]).map((field) =>
-                    React.createElement('label', { key: field.key, className: 'pa-place-cell' },
-                      React.createElement('span', { className: 'pa-dim' }, field.label),
-                      React.createElement('input', {
-                        type: field.text === true ? 'text' : 'number',
-                        value: String(field.value),
-                        onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
-                          const value = field.text === true ? event.target.value : Number(event.target.value)
-                          void run('改建筑', async () => {
-                            applyWorld(await api.place({ op: 'patch', id: st.id, [field.key]: value }))
-                          })
-                        },
-                      }),
-                    ),
-                  ),
-                  React.createElement('label', { className: 'pa-place-cell' },
-                    React.createElement('span', { className: 'pa-dim' }, '屋顶'),
-                    React.createElement('select', {
-                      value: st.roofSlot ?? 'roofHome',
-                      onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
-                        void run('改屋顶', async () => {
-                          applyWorld(await api.place({ op: 'patch', id: st.id, roofSlot: event.target.value }))
-                        }),
-                    },
-                      ...[
-                        ['roofHome', '住宅'],
-                        ['roofWarm', '社交/餐饮'],
-                        ['roofCool', '商业/学术'],
-                        ['roofGreen', '公共/户外'],
-                      ].map(([slot, label]) => React.createElement('option', { key: slot, value: slot }, label)),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          )
-        : null,
-      editLayer === 'object'
-        ? React.createElement('div', { className: 'pa-dim' },
-            '从下面的「物件资源池」挑一张贴图，然后在地图上点一下就放一件进去。')
-        : null,
-    ),
-    // ── 物件资源池：**只是贴图工具箱**，不代表世界里已经有这些东西 ──────────
-    //
-    // 此前它和"镜像里实际有哪些物件"挤在同一个区块里，标题写着"资源池"，
-    // 下面却列着一堆带状态位的具体物件（双人床、旧沙发…），看起来像是资源池
-    // 的一部分。两者是两回事：这里是可选的素材，下面那节是已落在镜像里的实例。
-    React.createElement(
-      'div',
-      { className: 'pa-sec' },
-      React.createElement(
-        'h4',
-        null,
-        '物件资源池',
-        React.createElement('span', { className: 'pa-chip' }, `${OBJECT_LIBRARY.length} 种素材`),
-      ),
-      React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
-        '这里只是"可用的贴图"。点一张＝拿起这支笔，然后到地图上点一下就放一件；'
-        + '若先在下面选中了某件已存在的物件，点贴图则是换掉它的样子。'),
-      // 还缺哪些素材要看得见：不显示等于假装它们不存在，而地图上那些问号
-      // 就是它们。列出名字，用户才知道该去标注器里补哪几种。
-      PENDING_SLOTS.length === 0
-        ? null
-        : React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
-            React.createElement('span', { className: 'pa-chip', 'data-tone': 'warn' }, `待确认 ${PENDING_SLOTS.length} 种`),
-            `还缺贴图的素材：${PENDING_SLOTS.join('、')}。这些在地图上显示为问号占位；`
-            + '跑 npm run assets:annotate 打开标注器，点格子告诉程序它是什么。'),
-      React.createElement(
-        'div',
-        { className: 'pa-line', style: { marginBottom: 5 } },
-        React.createElement('span', { className: 'pa-dim' }, objectFocus === undefined
-          ? (dropSprite === undefined ? '当前：未选素材' : `当前笔刷：${dropSprite.name}（点地图放置）`)
-          : `当前：换掉「${focusedObject?.name ?? ''}」`),
-        objectFocus === undefined && dropSprite === undefined ? null : React.createElement('button', {
+        React.createElement('span', { className: 'pa-spacer' }),
+        React.createElement('button', {
           className: 'pa-btn', 'data-tiny': 'true',
-          onClick: () => { setObjectFocus(undefined); setDropSprite(undefined) },
-        }, '放下'),
+          'data-on': brushRef === null,
+          title: '把画到的格子清空',
+          onClick: () => setBrushRef(null),
+        }, '🧽 橡皮'),
       ),
-      React.createElement(SpritePalette, {
-        activeSlot: focusedObject === undefined ? dropSprite?.sprite : propSlotOf(focusedObject),
-        onPick: (slot: string, label: string) => {
-          if (focusedObject === undefined) {
-            setDropSprite({ sprite: slot, name: label })
-            setEditLayer('object')
-            flash(`已拿起「${label}」。在地图上点一下就放下一件`)
-            return
-          }
-          void run('换贴图', async () => {
-            applyWorld(await api.mapObject({ op: 'upsert', kind: 'prop', objectId: focusedObject.id, sprite: slot }))
-            flash(`「${focusedObject.name}」换成了「${label}」`)
-          })
-        },
-      }),
+      React.createElement('div', { className: 'pa-dim' },
+        brushRef === undefined
+          ? '还没选笔刷——下面点一个瓦片。'
+          : brushRef === null
+            ? '橡皮：涂到的格子会被清空。'
+            : `笔刷：${refLabel(world.sandbox, brushRef)}`),
     ),
-    // ── 镜像里已有的物件：改贴图、移走 ─────────────────────────────────────
+    // ── 图集与瓦片注释 ─────────────────────────────────────────────────────
+    //
+    // 瓦片的语义（叫什么、能不能走、是不是门）**由人在这里标**，不是代码按
+    // 颜色猜的。没标过的瓦片照样能画，只是引擎不知道它是什么——移动判定
+    // 把未标注一律当"可走"处理。
     React.createElement(
       'div',
       { className: 'pa-sec' },
       React.createElement(
         'h4',
         null,
-        '镜像里的物件',
-        React.createElement('span', { className: 'pa-chip' }, `${world.sandbox.objects.length} 件`),
+        '图集与瓦片注释',
+        React.createElement('span', { className: 'pa-chip' }, `${world.sandbox.map.tilesets.length} 张`),
       ),
       React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
-        '点一件选中它（再点上面的贴图即可换样子）。「用的图」是按名字推出来的——'
-        + '推得不对的，选中它换一张就会写死成你选的那张。'),
-      React.createElement(
-        'div',
-        { className: 'pa-scroll', style: { maxHeight: 220 } },
-        ...world.sandbox.objects.map((object) => {
-          const slot = propSlotOf(object)
-          return React.createElement(
-            'div',
-            { key: object.id, className: 'pa-item', 'data-on': object.id === objectFocus },
-            React.createElement(SpriteButton, {
-              slot,
-              title: object.name,
-              onClick: () => { setObjectFocus(object.id === objectFocus ? undefined : object.id); setDropSprite(undefined) },
-            }),
-            React.createElement(
-              'span',
-              { className: 'pa-main' },
-              React.createElement('b', null, object.name),
-              React.createElement('span', { className: 'pa-chip' }, OBJECT_KIND_LABEL[object.kind] ?? object.kind),
-              // 显示"实际会画成哪张图"：推断错了才能被发现（以前只显示 sprite 字段，
-              // 而绝大多数物件没有这个字段，于是永远是空白）
-              React.createElement('span', { className: 'pa-chip' }, `用的图：${SLOT_LABEL[slot] ?? slot}`),
-              React.createElement('div', { className: 'pa-dim pa-mono' }, `@${object.x},${object.y}${object.w === undefined ? '' : ` ${object.w}×${object.h ?? 1}`}`),
-              React.createElement(
-                'div',
-                { className: 'pa-line', style: { marginTop: 3 } },
-                React.createElement('button', {
-                  className: 'pa-btn', 'data-tiny': 'true', 'data-danger': 'true',
-                  onClick: () => void run('移走物件', async () => {
-                    applyWorld(await api.mapObject({ op: 'remove', id: object.id, kind: 'prop' }))
-                    flash(`已从镜像里移走「${object.name}」`)
-                  }),
-                }, '移走'),
-              ),
-            ),
-          )
+        '点一个瓦片＝选它当笔刷；点「注」＝告诉程序它是什么（名字、能不能走、是不是门）。'),
+      ...world.sandbox.map.tilesets.map((tileset) =>
+        React.createElement(TilesetPanel, {
+          key: tileset.id,
+          tileset,
+          brushRef,
+          noteTarget,
+          onPick: (ref: string) => { setBrushRef(ref); setNoteTarget(undefined) },
+          onNote: (key: string) => setNoteTarget(key === noteTarget ? undefined : key),
+          onSaveNote: (key: string, note: { name?: string; pass?: string; use?: string }) => {
+            void run('存注释', async () => {
+              // 注释直接写进沙盒的 tileset.notes，随后落盘
+              const ts = world.sandbox.map.tilesets.find((t) => t.id === tileset.id)
+              if (ts === undefined) return
+              const n: { name?: string; pass?: 'walk' | 'block' | 'water' | 'lava'; use?: 'door' | 'window' | 'switch' } = {}
+              if (note.name !== undefined && note.name !== '') n.name = note.name
+              if (note.pass === 'walk' || note.pass === 'block' || note.pass === 'water' || note.pass === 'lava') n.pass = note.pass
+              if (note.use === 'door' || note.use === 'window' || note.use === 'switch') n.use = note.use
+              if (Object.keys(n).length === 0) delete ts.notes[key]
+              else ts.notes[key] = n
+              world.sandbox.updatedAt = Date.now()
+              applyWorld(await api.sandbox({ action: 'save', name: world.sandbox.name }))
+              flash(n.name === undefined ? `已清除「${tileset.name} ${key}」的注释` : `已标注「${n.name}」`)
+            })
+          },
         }),
       ),
     ),
