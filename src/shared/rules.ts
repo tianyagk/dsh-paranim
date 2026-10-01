@@ -117,7 +117,25 @@ function findAgent(run: RunState, id: string | undefined): RunAgent | undefined 
  * 通行性完全来自图集里**人标过的**注释（见 TileNote.pass），所以"这里画的是
  * 水"与"这里过不去"是同一份数据，不会出现画了水却能走过去的错位。
  */
-export function canEnter(sandbox: Sandbox, x: number, y: number): { ok: boolean; reason?: string } {
+/**
+ * 站在地图上的人。
+ *
+ * 智能体是**不可穿透**的：一格只能站一个人。这不只是观感问题——两人重合
+ * 之后，之后所有基于"谁在哪"的判断（谁离这个东西近、谁先够得着、谁在场）
+ * 都会同时命中两个人，而那种错误一点都不显眼。
+ */
+export interface Occupancy {
+  cells: ReadonlyArray<{ id: string; x: number; y: number }>
+  /** 移动者自己：它正站在自己那一格上，不该把自己挡住。 */
+  except?: string
+}
+
+export function canEnter(
+  sandbox: Sandbox,
+  x: number,
+  y: number,
+  occupied?: Occupancy,
+): { ok: boolean; reason?: string } {
   if (x < 0 || y < 0 || x >= sandbox.map.width || y >= sandbox.map.height) {
     return { ok: false, reason: '在地图之外' }
   }
@@ -125,6 +143,10 @@ export function canEnter(sandbox: Sandbox, x: number, y: number): { ok: boolean;
   if (pass === 'block') return { ok: false, reason: '被墙或障碍挡住' }
   if (pass === 'water') return { ok: false, reason: '是一片水面' }
   if (pass === 'lava') return { ok: false, reason: '是滚烫的岩浆' }
+  if (occupied !== undefined) {
+    const other = occupied.cells.find((c) => c.id !== occupied.except && c.x === x && c.y === y)
+    if (other !== undefined) return { ok: false, reason: '已经有人站在那儿' }
+  }
   return { ok: true }
 }
 
@@ -143,13 +165,14 @@ export function pathBlocked(
   sandbox: Sandbox,
   from: { x: number; y: number },
   to: { x: number; y: number },
+  occupied?: Occupancy,
 ): string | undefined {
   const steps = Math.max(Math.abs(to.x - from.x), Math.abs(to.y - from.y))
   if (steps === 0) return undefined
   for (let i = 1; i <= steps; i += 1) {
     const x = Math.round(from.x + ((to.x - from.x) * i) / steps)
     const y = Math.round(from.y + ((to.y - from.y) * i) / steps)
-    const r = canEnter(sandbox, x, y)
+    const r = canEnter(sandbox, x, y, occupied)
     if (!r.ok) return `途中 (${x},${y}) ${r.reason}`
   }
   return undefined
@@ -163,15 +186,15 @@ export function pathBlocked(
  * 它可能压在柜台上、墙上，或者正好是门口那一格。"我要去咖啡馆"这个意图是
  * 合理的，不该因为落点差一格就整个失败，所以退到最近能站的格子。
  */
-export function nearestOpen(sandbox: Sandbox, x: number, y: number, radius = 4): { x: number; y: number } | undefined {
-  if (canEnter(sandbox, x, y).ok) return { x, y }
+export function nearestOpen(sandbox: Sandbox, x: number, y: number, radius = 4, occupied?: Occupancy): { x: number; y: number } | undefined {
+  if (canEnter(sandbox, x, y, occupied).ok) return { x, y }
   let best: { x: number; y: number } | undefined
   let bestD = Number.POSITIVE_INFINITY
   for (let dy = -radius; dy <= radius; dy += 1) {
     for (let dx = -radius; dx <= radius; dx += 1) {
       const nx = x + dx
       const ny = y + dy
-      if (!canEnter(sandbox, nx, ny).ok) continue
+      if (!canEnter(sandbox, nx, ny, occupied).ok) continue
       const d = dx * dx + dy * dy
       if (d < bestD) { bestD = d; best = { x: nx, y: ny } }
     }
@@ -450,7 +473,7 @@ export function resolveAction(action: AgentAction, ctx: ActionContext): ActionOu
        * 但"我要去咖啡馆"这个意图本身是合理的,人不该因为坐标语义就被卡在门外。
        * 所以先走到门口,进门那一步由引擎在下一 tick 继续完成。
        */
-      const target = nearestOpen(sandbox, Math.round(tx), Math.round(ty))
+      const target = nearestOpen(sandbox, Math.round(tx), Math.round(ty), 4, { cells: run.agents, except: agent.id })
       const goalX = target?.x ?? Math.round(tx)
       const goalY = target?.y ?? Math.round(ty)
       /**
@@ -465,14 +488,19 @@ export function resolveAction(action: AgentAction, ctx: ActionContext): ActionOu
        * 先查沿途、再查落点。只看落点的话，智能体会直接穿墙走到隔壁房间——
        * 那正是"行动与身边环境无关"的观感来源。
        */
-      const blockedOnTheWay = pathBlocked(sandbox, { x: agent.x, y: agent.y }, { x: goalX, y: goalY })
+      /**
+       * 智能体彼此是不可穿透的：把在场的人（除自己）算进通行性，
+       * 于是"目标格有人"和"路上有人"都会被挡住。
+       */
+      const occupied = { cells: run.agents, except: agent.id }
+      const blockedOnTheWay = pathBlocked(sandbox, { x: agent.x, y: agent.y }, { x: goalX, y: goalY }, occupied)
       if (blockedOnTheWay !== undefined) {
         const text = `${agent.name}想往${targetObj?.name ?? `(${Math.round(tx)},${Math.round(ty)})`}去，${blockedOnTheWay}——过不去。`
         events.push(mkEvent({ kind: 'move', actor: agent.id, actorName: agent.name, text, from: { x: agent.x, y: agent.y }, to: { x: agent.x, y: agent.y } }, run, ts))
         memory.push({ tick: run.tick, kind: 'event', text, ts })
         break
       }
-      if (!canEnter(sandbox, goalX, goalY).ok) {
+      if (!canEnter(sandbox, goalX, goalY, occupied).ok) {
         const text = `${agent.name}想去${targetObj?.name ?? `(${Math.round(tx)},${Math.round(ty)})`}，但那一带过不去。`
         events.push(mkEvent({ kind: 'move', actor: agent.id, actorName: agent.name, text, from: { x: agent.x, y: agent.y }, to: { x: agent.x, y: agent.y } }, run, ts))
         memory.push({ tick: run.tick, kind: 'event', text, ts })

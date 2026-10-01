@@ -577,6 +577,35 @@ ok(
   ok(src.includes('const UNQUEUED'), 'dispatch 里仍然有那份不排队名单（没被顺手删掉）')
 }
 
+// 智能体彼此不可穿透：把坐标改到别人身上要被拒。
+//
+// 客户端拖动与模型给坐标都走这条 patch，所以校验放在服务端这一层——
+// 重合之后所有基于"谁在哪"的判断都会同时命中两个人，而且毫无提示。
+{
+  const two = (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).run.agents
+  const [p1, p2] = two
+  ok(p1 !== undefined && p2 !== undefined, '世界里至少有两位智能体可供错位测试', String(two.length))
+  if (p1 !== undefined && p2 !== undefined) {
+    const onto = await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
+      op: 'patch', agentId: p1.id, patch: { x: p2.x, y: p2.y },
+    })
+    ok(onto.status === 400, '把一位挪到另一位身上被拒（400）', `status=${onto.status}`)
+    const stillAway = (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).run.agents.find((a) => a.id === p1.id)
+    ok(
+      stillAway !== undefined && (stillAway.x !== p2.x || stillAway.y !== p2.y),
+      '被拒之后他没有真的挪过去（拒绝了就不能半途生效）',
+    )
+    const intoWall = await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
+      op: 'patch', agentId: p1.id, patch: { x: -5, y: -5 },
+    })
+    ok(intoWall.status === 400, '坐标出界同样被拒（不能 clamp 到地图里随便找个地方塞下）', `status=${intoWall.status}`)
+    const free = await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
+      op: 'patch', agentId: p1.id, patch: { x: p1.x, y: p1.y },
+    })
+    ok(free.status === 200, '改到自己原来的位置是允许的（自己不算挡住自己）', `status=${free.status}`)
+  }
+}
+
 function smallStore(): SandboxStore {
   const mk = (id: string, name: string): Sandbox => normalizeSandbox({
     id, name, desc: `${name}（自检用）`, map: { width: 40, height: 30, background: 'ado', tileset: 'dungeon' },

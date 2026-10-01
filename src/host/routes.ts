@@ -11,7 +11,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import {clampStepConfig, isAttrId, MOOD_DEFAULT, normalizeAttrs, normalizeMood, resolveCheck, randomToken, shortId, toStateValue, type Sandbox, type SandboxAgent, type SandboxSaveBody, type StateValue, type AgentModelRoute, type StepConfig, type WorldObject, type RunState, type SandboxMap, type TileLayer, type TileNote} from '../shared/model.ts'
-import { findObject } from '../shared/rules.ts'
+import {canEnter, findObject} from '../shared/rules.ts'
 import { LAYER_LABEL, emptyLayers, makeBuiltinTileset, objectsOf, parseRef, positionOfObjectId, resolveRef, setObjectState } from '../shared/tilemap.ts'
 import { isTrustedApiRequest } from './fence.ts'
 import { messageOf, type LlmMessage, type PluginLlm, type PluginWebRoute } from './context.ts'
@@ -1099,8 +1099,22 @@ const writeQueues = new Map<string, Promise<unknown>>()
               }
               if (Array.isArray(patch.plan)) agent.plan = patch.plan.filter((v) => typeof v === 'string').slice(0, 24)
               if (Array.isArray(patch.inventory)) agent.inventory = patch.inventory.filter((v) => typeof v === 'string').slice(0, 24)
-              if (patch.x !== undefined && Number.isFinite(Number(patch.x))) agent.x = Math.max(0, Math.min(view.sandbox.map.width, Math.round(Number(patch.x))))
-              if (patch.y !== undefined && Number.isFinite(Number(patch.y))) agent.y = Math.max(0, Math.min(view.sandbox.map.height, Math.round(Number(patch.y))))
+              /**
+               * 挪位置（界面上的拖拽、或模型给的新坐标）要过通行性。
+               *
+               * 智能体彼此不可穿透、也不能被放进墙里——放在这一层校验，是因为
+               * 客户端与人都在往这里写。原先是无条件 clamp 到地图范围内，
+               * 于是"把两个人拖到同一格"是能成功的，而重合之后所有基于
+               * "谁在哪"的判断都会同时命中两个人，且毫无提示。
+               */
+              if (patch.x !== undefined || patch.y !== undefined) {
+                const nx = patch.x !== undefined && Number.isFinite(Number(patch.x)) ? Math.round(Number(patch.x)) : agent.x
+                const ny = patch.y !== undefined && Number.isFinite(Number(patch.y)) ? Math.round(Number(patch.y)) : agent.y
+                const verdict = canEnter(view.sandbox, nx, ny, { cells: view.run.agents, except: agent.id })
+                if (!verdict.ok) throw new HttpError(`(${nx},${ny}) 放不下：${verdict.reason}`, 400)
+                agent.x = nx
+                agent.y = ny
+              }
               if (patch.attrs !== null && typeof patch.attrs === 'object') {
                 agent.attrs = normalizeAttrs({ ...agent.attrs, ...(patch.attrs as Record<string, number>) })
               }

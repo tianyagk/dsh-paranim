@@ -379,6 +379,19 @@ function ParanimApp(props: TabProps): React.ReactElement {
           }),
         edit: page === 'sandbox' ? { layer: editLayer } : undefined,
         dropRef: page === 'sandbox' ? brushRef : undefined,
+        /**
+         * 拖动智能体：只在【智能体】页、且**已经选中了某一位**时生效。
+         *
+         * 不设这个前提的话，地图上点谁都开始拖，就没法点选别人了。
+         * 落点由地图算成整格坐标（吸附网格），服务端还会再校验一次
+         * 通行性与"那格有没有人"。
+         */
+        draggableAgentId: page === 'agents' ? selected : undefined,
+        onMoveAgent: (id: string, x: number, y: number) =>
+          void run('移动智能体', async () => {
+            applyWorld(await api.agent({ op: 'patch', agentId: id, patch: { x, y } }))
+            flash(`已把它挪到 (${x},${y})`)
+          }),
         onPaint: (cells) => {
           if (cells.length === 0 || page !== 'sandbox') return
           // 还没选笔刷就涂 = 什么都画不上，只会让人以为编辑器坏了。

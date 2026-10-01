@@ -18,7 +18,7 @@ import {
   type WorldEvent,
   type WorldObject,
 } from '../shared/model.ts'
-import { TILE_PX, collectImages, mapPixelSize, renderTown, screenToWorld, stepOf, worldToScreen, type View } from './town.ts'
+import { TILE_PX, cellAtPoint, collectImages, mapPixelSize, renderTown, screenToWorld, stepOf, worldToScreen, type View } from './town.ts'
 import { objectsOf, objectIdAt } from '../shared/tilemap.ts'
 import { allSheetsReady, loadSheets } from './tiles.ts'
 
@@ -45,6 +45,14 @@ export interface MapCanvasProps {
   dropRef?: string | null
   /** 笔刷落下：一次给一串格子（拖动时连续），宿主按这一笔刷新。 */
   onPaint?: (cells: Array<{ x: number; y: number }>) => void
+  /**
+   * 允许拖动这一位智能体（非编辑态生效）。
+   *
+   * 只在"选中了某个人"时传入——否则点谁都开始拖，就没法点选别人了。
+   * 落点直接取鼠标所在的**整格**，所以拖动天然吸附网格。
+   */
+  draggableAgentId?: string
+  onMoveAgent?: (id: string, x: number, y: number) => void
 }
 
 interface Hit {
@@ -60,10 +68,12 @@ const STATUS_PRESETS = ['正常', '故障', '损坏', '维修中', '锁住', '�
 const BOOL_KEYS = ['open', 'lit', 'running', 'full', 'locked', 'on', 'spinning', 'flowing', 'occupied', 'tuned']
 
 export function MapCanvas(props: MapCanvasProps): React.ReactElement {
-  const { sandbox, agents, events, tick, selectedId, onSelectAgent, onPatchObject, onRemoveObject, edit, dropRef, onPaint } = props
+  const { sandbox, agents, events, tick, selectedId, onSelectAgent, onPatchObject, onRemoveObject, edit, dropRef, onPaint, draggableAgentId, onMoveAgent } = props
   /** 一笔还没上传的格子。攒着是为了不让每一格都打一次请求。 */
   const strokeRef = useRef<Array<{ x: number; y: number }>>([])
   const paintingRef = useRef(false)
+  /** 正在拖动的那位智能体（非编辑态）。null = 没在拖。 */
+  const draggingRef = useRef<string | null>(null)
   /** 还没发出去的这一批格子，见 flushSoon。 */
   const pendingRef = useRef<Array<{ x: number; y: number }>>([])
   const flushRef = useRef<number | null>(null)
@@ -257,10 +267,7 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
    * 于是鼠标落在格子偏左/偏上的半边时，选中框会跳到相邻格——看起来就是
    * "光标不在所选网格里"。floor 得到的是鼠标**真正压在**的那一格。
    */
-  const cellAt = (px: number, py: number): { x: number; y: number } => {
-    const w = toWorld(px, py)
-    return { x: Math.floor(w.x), y: Math.floor(w.y) }
-  }
+  const cellAt = (px: number, py: number): { x: number; y: number } => cellAtPoint(px, py, view)
 
   /**
    * 把这一格并进当前这一笔；同一格不重复记。返回它是不是**新**格子。
@@ -306,7 +313,14 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
   }
 
   const onPointerDown = (event: React.MouseEvent<HTMLCanvasElement>): void => {
-    if (edit === undefined) return
+    if (edit === undefined) {
+      // 非编辑态：只有"选中的那个人"可以拖（见 draggableAgentId 的说明）
+      if (draggableAgentId === undefined || onMoveAgent === undefined) return
+      const { px, py } = localPoint(event)
+      if (agentAt(px, py) !== draggableAgentId) return
+      draggingRef.current = draggableAgentId
+      return
+    }
     const { px, py } = localPoint(event)
     {
       paintingRef.current = true
@@ -319,7 +333,18 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     }
   }
 
-  const onPointerUp = (): void => {
+  const onPointerUp = (event?: React.MouseEvent<HTMLCanvasElement>): void => {
+    if (draggingRef.current !== null) {
+      const id = draggingRef.current
+      draggingRef.current = null
+      // 拖到画布外松手（mouseleave）：没有落点可算，当作取消，
+      // 而不是"按最后一个已知位置提交"——那会把人扔到意想不到的地方。
+      if (event === undefined || onMoveAgent === undefined) return
+      const { px, py } = localPoint(event)
+      const cell = cellAt(px, py)
+      onMoveAgent(id, cell.x, cell.y)
+      return
+    }
     if (!paintingRef.current) return
     paintingRef.current = false
     flushNow()   // 收笔时把攒着的那一批发出去
@@ -336,6 +361,12 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
 
   const onMove = (event: React.MouseEvent<HTMLCanvasElement>): void => {
     const { px, py } = localPoint(event)
+    if (draggingRef.current !== null) {
+      // 拖动中：高亮格跟着走，落点就是高亮那一格（吸附网格）
+      const cell = cellAt(px, py)
+      setHover({ x: cell.x, y: cell.y })
+      return
+    }
     if (edit !== undefined) {
       if (paintingRef.current) {
         const added = pushCell(px, py)

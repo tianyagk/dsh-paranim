@@ -6,7 +6,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { layerDrawPlan } from './town.ts'
+import { cellAtPoint, layerDrawPlan } from './town.ts'
 
 test('运行时：三层都画，全不透明', () => {
   const plan = layerDrawPlan(undefined)
@@ -42,4 +42,25 @@ test('上层永不被画：它会盖住正在编辑的那一层', () => {
     const editing = layers.indexOf(only)
     assert.equal(editing, layers.length - 1, `${only} 必须是最后画的那一层`)
   }
+})
+
+// ── 落点吸附整格 ──────────────────────────────────────────────────────────
+//
+// 拖拽智能体时，落点就是"鼠标压在哪一格"。用 round 的话，点在格子偏左/偏上
+// 的那半边会跳到相邻格——看上去就是"吸附不准"。
+
+test('落点取鼠标真正压住的那一格（不是最近的中心）', () => {
+  const view = { scale: 1, offsetX: 0, offsetY: 0 }
+  const T = 16
+  // 第 (3,2) 格覆盖像素 [48,64) × [32,48)
+  assert.deepEqual(cellAtPoint(3 * T, 2 * T, view), { x: 3, y: 2 }, '左上角')
+  assert.deepEqual(cellAtPoint(3 * T + 1, 2 * T + 1, view), { x: 3, y: 2 }, '刚进去一点也还是它')
+  assert.deepEqual(cellAtPoint(4 * T - 1, 3 * T - 1, view), { x: 3, y: 2 }, '右下角（差 1px）')
+  assert.deepEqual(cellAtPoint(4 * T, 3 * T, view), { x: 4, y: 3 }, '跨过边界才是下一格')
+})
+
+test('缩放与平移之后仍然吸得准', () => {
+  const view = { scale: 2, offsetX: 100, offsetY: 50 }
+  const T = 16 * 2
+  assert.deepEqual(cellAtPoint(100 + 5 * T + 3, 50 + 1 * T + 3, view), { x: 5, y: 1 })
 })

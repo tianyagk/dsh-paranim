@@ -531,3 +531,44 @@ test('水面同样挡住去路（地形参与判定）', () => {
   )
   assert.equal(out.x, 20, '水面不能趟过去')
 })
+
+// ── 智能体彼此不可穿透 ────────────────────────────────────────────────────
+//
+// 两人重合不只是观感问题：之后所有"谁在哪"的判断（谁离得近、谁在场、
+// 谁先够得着）都会同时命中两个人，而那种错误一点都不显眼。
+
+test('目标格已经有人：走不过去', () => {
+  const sandbox = mkSandbox()
+  const a = mkAgent('a', 20, 22)
+  const b = mkAgent('b', 23, 22)
+  const out = resolveAction(
+    { thought: '', kind: 'move', text: '走到那边', x: 23, y: 22 },
+    { sandbox, run: mkRun([a, b]), agent: a, rng: seqRng([6]), ts: 5 },
+  )
+  // 目标格有人时，它会**退到最近的空位**（"地标落点差一格不该整个失败"是既有
+  // 设计），但绝不会落在那一格上——这才是"不可穿透"的含义。
+  assert.notEqual(`${out.x},${out.y}`, '23,22', '有人站着，绝不能落到那一格')
+  const dist = Math.max(Math.abs(out.x - 23), Math.abs(out.y - 22))
+  assert.ok(dist <= 1, `应该退到紧邻的空位（实际退到 ${out.x},${out.y}）`)
+})
+
+test('站在别人旁边（目标格空着）仍然走得过去', () => {
+  const sandbox = mkSandbox()
+  const a = mkAgent('a', 20, 22)
+  const b = mkAgent('b', 23, 23)
+  const out = resolveAction(
+    { thought: '', kind: 'move', text: '走到旁边', x: 23, y: 22 },
+    { sandbox, run: mkRun([a, b]), agent: a, rng: seqRng([6]), ts: 5 },
+  )
+  assert.equal(out.x, 23, '只是旁边有人，不该被挡住')
+})
+
+test('自己站的那一格不算被占（不然谁都动不了）', () => {
+  const sandbox = mkSandbox()
+  const a = mkAgent('a', 20, 22)
+  const out = resolveAction(
+    { thought: '', kind: 'move', text: '挪一格', x: 21, y: 22 },
+    { sandbox, run: mkRun([a]), agent: a, rng: seqRng([6]), ts: 5 },
+  )
+  assert.equal(out.x, 21, '只身一人时移动正常')
+})

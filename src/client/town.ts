@@ -147,6 +147,18 @@ function drawGrid(ctx: CanvasRenderingContext2D, input: RenderInput): void {
     sandbox.map.width * step, sandbox.map.height * step)
 }
 
+/**
+ * 画布像素 → 整格坐标。
+ *
+ * `floor` 而不是 `round`：round 取的是"离最近格中心最近的那一格"，于是点
+ * 在格子偏左/偏上的半边时会跳到相邻格——看上去就是"光标不在所选网格里"。
+ * 拖拽智能体时这一点更要紧：落点就是这一格，吸不吸附全看它。
+ */
+export function cellAtPoint(px: number, py: number, view: View): { x: number; y: number } {
+  const w = screenToWorld(px, py, view)
+  return { x: Math.floor(w.x), y: Math.floor(w.y) }
+}
+
 /** 悬停格高亮：编辑时最要紧的反馈——知道下一笔会落在哪一格。 */
 function drawHoverCell(ctx: CanvasRenderingContext2D, input: RenderInput): void {
   const { view, hover } = input
