@@ -738,7 +738,6 @@ function WorldPage(props: {
   /** 正在给谁写指令：临时输入框，发出去即清。 */
   const [sayTo, setSayTo] = React.useState<string | undefined>(undefined)
   const [sayText, setSayText] = React.useState('')
-  const recent = world.run.events.slice(-40).reverse()
   return React.createElement(
     'div',
     { className: 'pa-col', style: { height: '100%' } },
@@ -901,16 +900,8 @@ function WorldPage(props: {
       ),
       ),
     ),
-    React.createElement(
-      'div',
-      { className: 'pa-sec pa-col', style: { flex: 1, minHeight: 0 } },
-      React.createElement('h4', null, '最近发生的事'),
-      React.createElement(
-        'div',
-        { className: 'pa-scroll pa-feed', 'data-mode': feedMode, style: { flex: 1 } },
-        ...recent.map((event) => React.createElement(EventRow, { key: event.id, event, mode: feedMode })),
-      ),
-    ),
+    // 「最近发生的事」已移除：世界页右侧就是完整的事件流，同一件事不该有
+    // 两处列表——还都叫不同的名字，看的人得先弄清它俩的关系（用户反馈重复）。
   )
 }
 
@@ -932,12 +923,23 @@ interface AgentsPageProps {
 function AgentsPage(props: AgentsPageProps): React.ReactElement {
   const { world, models, modelsNote, selected, onSelect, api, run, applyWorld, flash } = props
   const agent = world.run.agents.find((a) => a.id === selected)
+  /**
+   * 智能体列表区的高度（可拖拽，记住上次）。
+   *
+   * 列表与编辑器是**两个用途**：前者用来挑人，后者用来改这个人。人少时列表
+   * 几条就够、编辑器该占满；人多了又想反过来。固定比例永远有一半场景不合适，
+   * 所以让它可调。
+   */
+  const [listH, setListH] = React.useState<number>(() => {
+    const saved = Number(window.localStorage?.getItem('paranim.agentListH'))
+    return Number.isFinite(saved) && saved >= 72 && saved <= 700 ? saved : 168
+  })
   return React.createElement(
     'div',
     { className: 'pa-col', style: { height: '100%' } },
     React.createElement(
       'div',
-      { className: 'pa-sec' },
+      { className: 'pa-sec pa-scroll', style: { height: listH, flex: '0 0 auto' } },
       React.createElement(
         'h4',
         null,
@@ -1010,6 +1012,21 @@ function AgentsPage(props: AgentsPageProps): React.ReactElement {
         ),
       ),
     ),
+    // 纵向分隔线：列表与编辑器的分界可以拖（双击回到默认高度）
+    React.createElement(Splitter, {
+      dir: 'h',
+      title: '拖动调整列表高度（双击复位）',
+      onDelta: (dy: number) =>
+        setListH((h) => {
+          const next = Math.max(72, Math.min(700, h + dy))
+          window.localStorage?.setItem('paranim.agentListH', String(Math.round(next)))
+          return next
+        }),
+      onReset: () => {
+        setListH(168)
+        window.localStorage?.setItem('paranim.agentListH', '168')
+      },
+    }),
     agent === undefined
       ? React.createElement('div', { className: 'pa-sec pa-dim' }, '先选一个智能体，或点「新增智能体」。')
       : React.createElement(AgentEditor, {
@@ -1664,6 +1681,11 @@ function SandboxPage(props: {
   const [noteTarget, setNoteTarget] = React.useState<string | undefined>(undefined)
   /** 正在等待二次确认的镜像 id（不用 window.confirm，见删除按钮处的说明）。 */
   const [confirming, setConfirming] = React.useState<string | undefined>(undefined)
+  /** 镜像列表高度（可拖拽，记住上次）。 */
+  const [mirrorListH, setMirrorListH] = React.useState<number>(() => {
+    const saved = Number(window.localStorage?.getItem('paranim.mirrorListH'))
+    return Number.isFinite(saved) && saved >= 80 && saved <= 700 ? saved : 200
+  })
   /**
    * 瓦片库网格的高度（可拖拽）。一张内置图集有 132 格，固定高度要么看不全、
    * 要么白占半屏——所以让它可调，并记住上次的。
@@ -1809,10 +1831,13 @@ function SandboxPage(props: {
     ),
     React.createElement(
       'div',
-      // 这一节**不能**再要 flex:1：整栏已经是 pa-scroll 了，这里再抢剩余高度
-      // 就会把自己压成一条缝隙，卡片内容被裁掉（截图里的"显示不全"）。
-      // 按内容高度排，条目真的多起来时用 maxHeight 兜住。
-      { className: 'pa-sec pa-scroll', style: { maxHeight: 280 } },
+      /**
+       * 这一节**不能**再要 flex:1：整栏已经是 pa-scroll 了，这里再抢剩余高度
+       * 就会把自己压成一条缝隙，卡片内容被裁掉（之前踩过）。
+       * 但也不该写死高度——镜像多了想多看几条、少了想让下面的图层面板多占点，
+       * 所以给它一个可拖的高度（见下方分隔线）。
+       */
+      { className: 'pa-sec pa-scroll', style: { height: mirrorListH, flex: '0 0 auto' } },
       React.createElement('h4', null, `沙盒镜像（${sandboxes.length}）`),
       ...sandboxes.map((item) =>
         React.createElement(
@@ -1893,6 +1918,20 @@ function SandboxPage(props: {
         ),
       ),
     ),
+    React.createElement(Splitter, {
+      dir: 'h',
+      title: '拖动调整镜像列表高度（双击复位）',
+      onDelta: (dy: number) =>
+        setMirrorListH((h) => {
+          const next = Math.max(80, Math.min(700, h + dy))
+          window.localStorage?.setItem('paranim.mirrorListH', String(Math.round(next)))
+          return next
+        }),
+      onReset: () => {
+        setMirrorListH(200)
+        window.localStorage?.setItem('paranim.mirrorListH', '200')
+      },
+    }),
     // ── 图层与笔刷（编辑镜像；三图层共用一种落笔）──────────────────────────
     React.createElement(
       'div',
