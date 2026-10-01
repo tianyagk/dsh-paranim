@@ -46,6 +46,10 @@ import { log } from './context.ts'
 import { FALLBACK_GROUND, INLINE_SMALLVILLE } from './fallback.ts'
 
 const SANDBOX_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i
+/** 种子版本戳文件名（原本是内联字面量，删除标记也要写它，抽成常量）。 */
+const SEED_STAMP_FILE = '.seed-version.json'
+/** 版本戳里的哨兵值：这一份被用户删掉了，别再种回来。 */
+const DELETED_STAMP = '__deleted__'
 
 export function dataHome(): string {
   if (injectedHome !== undefined) return injectedHome
@@ -486,12 +490,14 @@ export class SandboxStore {
     // 记下每个镜像种下去的是哪一版。**不能只看"文件在不在"**：
     // 镜像是随插件升级的（例如 smallville 从 19 地点重建为 40 地点 + 原版路网），
     // 只看存在性的话，老玩家目录里那份旧副本永远不会被更新——升级了却看不到变化。
-    const stamps = await readJson<Record<string, string>>(join(sandboxDir(), '.seed-version.json')) ?? {}
+    const stamps = await readJson<Record<string, string>>(join(sandboxDir(), SEED_STAMP_FILE)) ?? {}
     let seeded = 0
     for (const mirror of mirrors) {
       const file = `${mirror.id}.json`
       const version = mirror.mirrorVersion ?? ''
       const present = existing.has(file)
+      // 用户删过的镜像不再种回来（见 remove 里的 DELETED_STAMP）
+      if (!present && stamps[mirror.id] === DELETED_STAMP) continue
       if (present && stamps[mirror.id] === version) continue
       if (present) {
         // 玩家改过的副本不覆盖：那已经是他的沙盒，不是我们的发货镜像。
@@ -507,7 +513,7 @@ export class SandboxStore {
       seeded += 1
       log(`seeded sandbox mirror: ${mirror.id} v${version} (${mirror.places.length} places / ${mirror.agents.length} agents)`)
     }
-    if (seeded > 0) await writeJson(join(sandboxDir(), '.seed-version.json'), stamps)
+    if (seeded > 0) await writeJson(join(sandboxDir(), SEED_STAMP_FILE), stamps)
     // 不再输出"already present"：ensureSeed 每次 list() 都会跑，而"镜像已经在
     // 用户目录里"是**正常路径**，每几秒刷一行只会把真正有用的日志淹掉。
     // 真正种入镜像时上面那行会说话——那才是需要被看见的事。
@@ -633,9 +639,14 @@ export class SandboxStore {
 
   async remove(id: string): Promise<void> {
     if (!SANDBOX_ID_RE.test(id)) throw new Error(`沙盒 id 非法：${id}`)
-    const sandbox = await this.get(id)
-    if (sandbox?.builtin === true) throw new Error('发货镜像不可删除；请先「另存为副本」再改')
     await rm(join(sandboxDir(), `${id}.json`), { force: true })
+    /**
+     * 记住"这一份被删过"，否则下次启动 ensureSeed 会把它当"缺失的镜像"
+     * 重新种回来——用户删了它又出现，看起来就像删除没生效。
+     */
+    const stamps = await readJson<Record<string, string>>(join(sandboxDir(), SEED_STAMP_FILE)) ?? {}
+    stamps[id] = DELETED_STAMP
+    await writeJson(join(sandboxDir(), SEED_STAMP_FILE), stamps)
     this.cache = null
   }
 

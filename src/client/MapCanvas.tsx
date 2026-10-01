@@ -74,6 +74,8 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
   const paintingRef = useRef(false)
   /** 正在拖动的那位智能体（非编辑态）。null = 没在拖。 */
   const draggingRef = useRef<string | null>(null)
+  /** 中键拖动平移：起点与起始 pan。 */
+  const panningRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null)
   /** 还没发出去的这一批格子，见 flushSoon。 */
   const pendingRef = useRef<Array<{ x: number; y: number }>>([])
   const flushRef = useRef<number | null>(null)
@@ -81,6 +83,11 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [size, setSize] = useState({ w: 480, h: 320 })
   const [zoom, setZoom] = useState(1)
+  /**
+   * 视角平移（屏幕像素）。缩放变化时会按"鼠标指着的点不动"反解它。
+   * 没有它的话，放大之后就只能在正中间那一块看，想去地图角落没有任何办法。
+   */
+  const [pan, setPan] = useState({ x: 0, y: 0 })
   const [hit, setHit] = useState<Hit | null>(null)
   const [hover, setHover] = useState<{ x?: number; y?: number; agentId?: string }>({})
 
@@ -129,18 +136,27 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
   // 地块底图：只在地标布局真的变了时才重建
   // 视图：把整张地图的**像素尺寸**塞进容器，再乘用户缩放。
   // 1 倍时整镇可见；放大看细节时精灵按最近邻放大，不会糊。
-  const view = useMemo<View>(() => {
+  /**
+   * 缩放前把地图摆到容器中央所需的基础偏移（不含用户平移）。
+   *
+   * 抽成函数是因为**滚轮缩放要反解它**：鼠标指着的那个世界坐标，缩放后必须
+   * 还落在原处，那就要知道"如果完全居中，此刻偏移会是多少"。
+   */
+  const baseOffset = useCallback((at: { w: number; h: number }, z: number): { x: number; y: number; scale: number } => {
     const mapPx = mapPixelSize(sandbox)
-    const fit = Math.min(size.w / mapPx.w, size.h / mapPx.h) * zoom
-    const s = fit > 0 && Number.isFinite(fit) ? fit : 0.5
-    const contentW = mapPx.w * s
-    const contentH = mapPx.h * s
+    const fit = Math.min(at.w / mapPx.w, at.h / mapPx.h) * z
+    const sc = fit > 0 && Number.isFinite(fit) ? fit : 0.5
     return {
-      scale: s,
-      offsetX: (size.w - contentW) / 2 + TILE_PX * 3 * s,
-      offsetY: (size.h - contentH) / 2 + TILE_PX * 3 * s,
+      scale: sc,
+      x: (at.w - mapPx.w * sc) / 2 + TILE_PX * 3 * sc,
+      y: (at.h - mapPx.h * sc) / 2 + TILE_PX * 3 * sc,
     }
-  }, [size, sandbox, zoom])
+  }, [sandbox])
+
+  const view = useMemo<View>(() => {
+    const base = baseOffset(size, zoom)
+    return { scale: base.scale, offsetX: base.x + pan.x, offsetY: base.y + pan.y }
+  }, [baseOffset, size, zoom, pan])
 
   // 换算的坑（曾经漏乘 TILE_PX 差 16 倍）统一封在 town.ts 的 stepOf/screenToWorld 里
   const toWorld = useCallback((px: number, py: number) => screenToWorld(px, py, view), [view])
@@ -242,6 +258,23 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     return { px: event.clientX - rect.left, py: event.clientY - rect.top }
   }
 
+  /**
+   * 滚轮缩放：**以鼠标指着的那个点为中心**。
+   *
+   * 普通做法（只改 scale）会让缩放围绕画布中心发生，鼠标指的地方会跑掉——
+   * 想放大看某个角落，就得"先缩放、再平移、再缩放"，来回凑。
+   * 这里先记下鼠标下的世界坐标，缩放后反解 pan 让它落回原处。
+   */
+  const onWheel = (event: React.WheelEvent<HTMLCanvasElement>): void => {
+    event.preventDefault()
+    const { px, py } = localPoint(event)
+    const before = screenToWorld(px, py, view)
+    const next = Math.max(0.4, Math.min(6, zoom * (event.deltaY < 0 ? 1.15 : 1 / 1.15)))
+    const base = baseOffset(size, next)
+    setZoom(next)
+    setPan({ x: px - before.x * base.scale - base.x, y: py - before.y * base.scale - base.y })
+  }
+
   const onContextMenu = (event: React.MouseEvent<HTMLCanvasElement>): void => {
     event.preventDefault()
     const { px, py } = localPoint(event)
@@ -308,6 +341,13 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
   }
 
   const onPointerDown = (event: React.MouseEvent<HTMLCanvasElement>): void => {
+    // 中键 = 拖动视角。左键的语义（涂抹 / 拖人）已经被占满，用中键最不容易误触。
+    if (event.button === 1) {
+      event.preventDefault()
+      const { px, py } = localPoint(event)
+      panningRef.current = { px, py, x: pan.x, y: pan.y }
+      return
+    }
     if (edit === undefined) {
       // 非编辑态：只有"选中的那个人"可以拖（见 draggableAgentId 的说明）
       if (draggableAgentId === undefined || onMoveAgent === undefined) return
@@ -329,6 +369,10 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
   }
 
   const onPointerUp = (event?: React.MouseEvent<HTMLCanvasElement>): void => {
+    if (panningRef.current !== null) {
+      panningRef.current = null
+      return
+    }
     if (draggingRef.current !== null) {
       const id = draggingRef.current
       draggingRef.current = null
@@ -356,6 +400,11 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
 
   const onMove = (event: React.MouseEvent<HTMLCanvasElement>): void => {
     const { px, py } = localPoint(event)
+    if (panningRef.current !== null) {
+      const start = panningRef.current
+      setPan({ x: start.x + (px - start.px), y: start.y + (py - start.py) })
+      return
+    }
     if (draggingRef.current !== null) {
       // 拖动中：高亮格跟着走，落点就是高亮那一格（吸附网格）
       const cell = cellAt(px, py)
@@ -418,6 +467,9 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
        */
       onMouseMove: onMove,
       onContextMenu,
+      onWheel,
+      // 中键拖动会触发浏览器的"自动滚动"，这里挡掉
+      onAuxClick: (e: React.MouseEvent) => e.preventDefault(),
     }),
     // 内描边 + 暗角：地图边缘收进容器，视觉上"这是一张图"而不是糊满整个框
     React.createElement('div', { className: 'pa-mapvignette' }),
@@ -425,11 +477,14 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     React.createElement(
       'div',
       { className: 'pa-mapbar' },
-      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', title: '缩小', onClick: () => setZoom((z) => Math.max(0.6, z / 1.25)) }, '−'),
+      // 这几个按钮走的是"围绕中心缩放"，所以顺手把平移归零——否则按了"铺满"
+      // 却还在上一处偏移上，看起来像没反应
+      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', title: '缩小', onClick: () => { setPan({ x: 0, y: 0 }); setZoom((z) => Math.max(0.6, z / 1.25)) } }, '−'),
       React.createElement('span', { className: 'pa-dim pa-mono' }, `${zoom.toFixed(2)}×`),
-      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', title: '放大', onClick: () => setZoom((z) => Math.min(5, z * 1.25)) }, '+'),
-      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', title: '回到默认缩放', onClick: () => setZoom(1) }, '1:1'),
-      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', title: '铺满可用区域', onClick: () => setZoom(2.6) }, '铺满'),
+      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', title: '放大', onClick: () => { setPan({ x: 0, y: 0 }); setZoom((z) => Math.min(5, z * 1.25)) } }, '+'),
+      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', title: '回到默认缩放并居中', onClick: () => { setPan({ x: 0, y: 0 }); setZoom(1) } }, '1:1'),
+      React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', title: '铺满可用区域', onClick: () => { setPan({ x: 0, y: 0 }); setZoom(2.6) } }, '铺满'),
+      React.createElement('span', { className: 'pa-dim' }, '滚轮缩放 · 中键拖动移动视角'),
     ),
     React.createElement(
       'div',

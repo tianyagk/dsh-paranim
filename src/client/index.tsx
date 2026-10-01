@@ -1290,10 +1290,14 @@ function TilesetPanel(props: {
 }): React.ReactElement {
   const { tileset, brushRef, noteTarget, onPick, onNote, onSaveNote, onSlice } = props
   const grid = gridOf(tileset)
+  /** 这一张图集自己的编辑目标；别的图集的面板拿到的不等于它，就不会显示卡片。 */
+  const myTarget = `${tileset.id}#${noteTarget ?? ''}`
+  const editing = noteTarget !== undefined && noteTarget.startsWith(`${tileset.id}#`) ? noteTarget.slice(tileset.id.length + 1) : undefined
   const [draft, setDraft] = React.useState<{ name: string; pass: string; use: string; desc: string; states: string }>({ name: '', pass: '', use: '', desc: '', states: '' })
   /** 切片草稿（导入的图集才能改）。 */
   const [draftSlice, setDraftSlice] = React.useState({ w: tileset.tileW, h: tileset.tileH, spacing: tileset.spacing })
-  const note = noteTarget === undefined ? undefined : tileset.notes[noteTarget]
+  const note = editing === undefined ? undefined : tileset.notes[editing]
+  void myTarget
 
   React.useEffect(() => {
     setDraft({
@@ -1303,7 +1307,7 @@ function TilesetPanel(props: {
       desc: note?.desc ?? '',
       states: (note?.states ?? []).join(', '),
     })
-  }, [noteTarget, note?.name, note?.pass, note?.use, note?.desc, note?.states])
+  }, [editing, note?.name, note?.pass, note?.use, note?.desc, note?.states])
 
   /**
    * 编辑卡片默认在网格**下方**——一张 12×11 的图集有 132 格，右键之后卡片
@@ -1311,8 +1315,8 @@ function TilesetPanel(props: {
    */
   const cardRef = React.useRef<HTMLDivElement | null>(null)
   React.useEffect(() => {
-    if (noteTarget !== undefined) cardRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  }, [noteTarget])
+    if (editing !== undefined) cardRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [editing])
 
   const cellRef = (col: number, row: number): string => makeTileRef(tileset.id, col, row)
 
@@ -1377,7 +1381,7 @@ function TilesetPanel(props: {
             onClick: () => onSlice(draftSlice),
           }, '应用切片'),
         ),
-    noteTarget !== undefined
+    editing !== undefined
       ? React.createElement(
           'div',
           {
@@ -1385,9 +1389,9 @@ function TilesetPanel(props: {
             style: { border: '1px solid var(--pa-gold)', borderRadius: 6, padding: 8, marginTop: 4, background: 'var(--pa-layer3)' },
           },
           React.createElement('div', { className: 'pa-line', style: { marginBottom: 4 } },
-            React.createElement('b', null, `编辑瓦片 ${tileset.name} ${noteTarget}`),
+            React.createElement('b', null, `编辑瓦片 ${tileset.name} ${editing}`),
             React.createElement('span', { className: 'pa-spacer' }),
-            React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', onClick: () => onNote(noteTarget) }, '关闭'),
+            React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', onClick: () => onNote(editing) }, '关闭'),
           ),
           React.createElement('div', { className: 'pa-place-grid' },
             React.createElement('label', { className: 'pa-place-cell' },
@@ -1438,11 +1442,11 @@ function TilesetPanel(props: {
           React.createElement('div', { className: 'pa-line', style: { marginTop: 4 } },
             React.createElement('button', {
               className: 'pa-btn', 'data-tiny': 'true',
-              onClick: () => onSaveNote(noteTarget, draft),
+              onClick: () => onSaveNote(editing, draft),
             }, '保存注释'),
             React.createElement('button', {
               className: 'pa-btn', 'data-tiny': 'true', 'data-danger': 'true',
-              onClick: () => onSaveNote(noteTarget, {}),
+              onClick: () => onSaveNote(editing, {}),
             }, '清除'),
             React.createElement('span', { className: 'pa-dim' },
               note === undefined ? '未标注（按可走处理）' : `已标注：${note.name ?? '（无名）'}`),
@@ -1533,7 +1537,13 @@ function SandboxPage(props: {
 }): React.ReactElement {
   const { world, sandboxes, api, run, applyWorld, setSandboxes, flash, editLayer, setEditLayer, brushRef, setBrushRef } = props
   /** 资源池要知道"现在是新建还是换贴图"，所以记一个选中态。 */
-  /** 正在注释哪个格子（"图集:列,行"）。 */
+  /**
+   * 正在编辑哪一格，写成 `"图集id#列,行"`。
+   *
+   * **必须带图集 id**：只存 "列,行" 的话，页面上每个图集面板都会认为自己
+   * 被选中，右键一次会同时弹出好几张编辑卡片（用户遇到的"右键异常"就是
+   * 这个——截图上 Tiny Town 和 user-xxx 的卡片一起开着）。
+   */
   const [noteTarget, setNoteTarget] = React.useState<string | undefined>(undefined)
   /** 隐藏的文件选择框——由「导入素材图」按钮代点。 */
   const importRef = React.useRef<HTMLInputElement | null>(null)
@@ -1676,11 +1686,28 @@ function SandboxPage(props: {
       // 就会把自己压成一条缝隙，卡片内容被裁掉（截图里的"显示不全"）。
       // 按内容高度排，条目真的多起来时用 maxHeight 兜住。
       { className: 'pa-sec pa-scroll', style: { maxHeight: 280 } },
-      React.createElement('h4', null, `沙盒库（${sandboxes.length}）`),
+      React.createElement('h4', null, `沙盒镜像（${sandboxes.length}）`),
       ...sandboxes.map((item) =>
         React.createElement(
           'div',
-          { key: item.id, className: 'pa-item', 'data-on': item.id === world.sandbox.id },
+          {
+            key: item.id,
+            className: 'pa-item',
+            'data-on': item.id === world.sandbox.id,
+            /**
+             * 点一下**直接切换**，不必先按「载入」。
+             *
+             * 选中一个镜像却还看着另一个的编辑内容，是很容易搞混的状态——
+             * 尤其两座镇子的图画在同一块画布上（用户要求"选中即切换"）。
+             */
+            onClick: () => {
+              if (item.id === world.sandbox.id) return
+              void run('切换镜像', async () => {
+                applyWorld(await api.sandbox({ action: 'select', id: item.id }))
+                flash(`已切到「${item.name}」`)
+              })
+            },
+          },
           React.createElement('span', { className: 'pa-portrait' }, item.builtin ? '🏛️' : '🗺️'),
           React.createElement(
             'span',
@@ -1693,11 +1720,30 @@ function SandboxPage(props: {
             React.createElement(
               'div',
               { className: 'pa-line', style: { marginTop: 4 } },
-              React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', onClick: () => void run('载入沙盒', async () => { applyWorld(await api.sandbox({ action: 'select', id: item.id })); flash(`已载入「${item.name}」`) }) }, '载入'),
-              React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', onClick: () => void run('另存副本', async () => { applyWorld(await api.sandbox({ action: 'duplicate', id: item.id, newId: `${item.id}-copy`, name: `${item.name} 副本` })); await refreshList() }) }, '派生副本'),
+              React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', onClick: () => void run('派生副本', async () => { applyWorld(await api.sandbox({ action: 'duplicate', id: item.id, newId: `${item.id}-copy`, name: `${item.name} 副本` })); await refreshList() }) }, '派生副本'),
+              // builtin 的"恢复出厂"只在它跟着插件发货时才有意义；删掉之后
+              // 靠 ensureSeed 的删除标记不再种回来（见 store 的 seed 逻辑）
               item.builtin
                 ? React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', onClick: () => void run('重置镜像', async () => { applyWorld(await api.sandbox({ action: 'reset', id: item.id })); flash('已恢复出厂镜像') }) }, '恢复出厂')
-                : React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', 'data-danger': 'true', onClick: () => void run('删除沙盒', async () => { if (!window.confirm(`删除沙盒「${item.name}」？`)) return; applyWorld(await api.sandbox({ action: 'remove', id: item.id })); await refreshList() }) }, '删除'),
+                : null,
+              /**
+               * **所有镜像都能删**（内置的也能）。
+               *
+               * 原先对 builtin 直接不给按钮——想清掉一座用不上的发货镜像
+               * 就只能忍着（用户反馈"部分镜像无法删除"）。删了之后不再自动
+               * 种回来：种子的版本戳会记住"这一份被删过"。
+               */
+              React.createElement('button', {
+                className: 'pa-btn', 'data-tiny': 'true', 'data-danger': 'true',
+                onClick: (event: React.MouseEvent) => {
+                  event.stopPropagation()   // 别把"删除"顺手当成"选中"
+                  void run('删除镜像', async () => {
+                    if (!window.confirm(`删除镜像「${item.name}」？这一步不可撤销。`)) return
+                    applyWorld(await api.sandbox({ action: 'remove', id: item.id }))
+                    await refreshList()
+                  })
+                },
+              }, '删除'),
             ),
           ),
         ),
@@ -1780,7 +1826,7 @@ function SandboxPage(props: {
           brushRef,
           noteTarget,
           onPick: (ref: string) => { setBrushRef(ref); setNoteTarget(undefined) },
-          onNote: (key: string) => setNoteTarget(key === noteTarget ? undefined : key),
+          onNote: (key: string) => setNoteTarget(noteTarget === `${tileset.id}#${key}` ? undefined : `${tileset.id}#${key}`),
           onSaveNote: (key: string, note: { name?: string; pass?: string; use?: string; desc?: string; states?: string }) => {
             void run('存注释', async () => {
               // 走 /tileset 写服务端——原先改客户端对象再调 /sandbox save，

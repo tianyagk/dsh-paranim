@@ -1039,9 +1039,30 @@ const rollBadAttr = await call(route, 'POST', '/paranim/roll?workspace=/tmp/fake
 })
 ok(rollBadAttr.status === 400, '未知属性返回 400（请求有问题，不是服务端故障）', `status=${rollBadAttr.status}`)
 
-// 删除受保护
-const builtinDelete = await call(route, 'POST', '/paranim/sandbox?workspace=/tmp/fake-workspace', { action: 'remove', id: 'smallville' })
-ok(builtinDelete.status >= 400, '删除出厂镜像被拒绝', `status=${builtinDelete.status}`)
+/**
+ * 镜像**都能删**，包括出厂镜像。
+ *
+ * 原先对 builtin 直接拒绝（"请先另存为副本"），结果是"想清掉一座用不上的
+ * 发货镜像只能忍着"（用户反馈"部分镜像无法删除"）。现在删得掉，而且
+ * **不会自己长回来**——删除会被记进种子版本戳，ensureSeed 见到就不再种。
+ * 这一段用独立的工作区，免得把别人要用的镜像删掉。
+ */
+{
+  const home = await mkdtemp(join(tmpdir(), 'pa-rm-'))
+  setDataHomeForTest(home)
+  const store = new SandboxStore()
+  await store.ensureSeed()
+  const before = (await store.list()).length
+  await store.remove('smallville')
+  const after = await store.list()
+  ok(after.length === before - 1, `出厂镜像也能删（${before} → ${after.length}）`)
+  ok(!after.some((x) => x.id === 'smallville'), '删掉之后它真的不在列表里了')
+  // 再种一次：删过的镜像不该自己长回来
+  await store.ensureSeed()
+  ok(!(await store.list()).some((x) => x.id === 'smallville'), '重新 ensureSeed 也不会把它种回来（否则"删了又出现"）')
+  setDataHomeForTest(undefined)
+  await rm(home, { recursive: true, force: true })
+}
 
 // ── 7. 工具与提示段 ─────────────────────────────────────────────────────
 section('7. 模型工具：注册、schema 与真实执行')
