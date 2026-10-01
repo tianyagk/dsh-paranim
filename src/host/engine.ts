@@ -366,10 +366,19 @@ async function draftAction(
   if (route === undefined || route === null) {
     return { action: fallbackAction(sandbox, run, agent), source: 'fallback', detail: '未指定模型且宿主无默认模型' }
   }
-  // `step.callTimeoutMs` 是**空闲**上限（见 routes.ts 的空闲计时器与 model.ts 的注释），
-  // 所以这里再给一层宽得多的总时长天花板：它的职责只是"别让一次死锁把整局挂住"，
-  // 不是"到点就砍"。推理模型一次调用 80 秒以上是正常的，用 60 秒卡它会让整轮降级。
-  const bounded = timeoutSignal(Math.max(deps.timeoutMs, 600000), signal)
+  /**
+   * 一次模型调用的时限。
+   *
+   * 这里曾经写的是 `Math.max(deps.timeoutMs, 600000)`——本意是"再给一层宽得多的
+   * 总时长天花板，免得一次死锁把整局挂住"，实际效果却是**用户配的 callTimeoutMs
+   * 永远不起作用**（除非配得比十分钟还长）。模型一旦挂起，界面就是"点了步进、
+   * 步数不动、事件不动、也不报错"，要等十分钟才等到一句超时——用户看到的正是
+   * 这个（他反馈的"步进结束后没有任何变化"）。
+   *
+   * 现在按配置走，只留一个 10 秒下限防止配成 0/负数。想要更宽松就把
+   * step.callTimeoutMs 调大——那是它存在的意义。
+   */
+  const bounded = timeoutSignal(Math.max(deps.timeoutMs, 10_000), signal)
   try {
     const call: AgentCall = { route, system: systemPromptFor(agent), user: buildObservation(sandbox, run, agent) }
     const text = await deps.callModel(agent, call, bounded.signal)
@@ -380,10 +389,14 @@ async function draftAction(
     const action = coerceAction(parsed)
     return { action, source: 'model', detail: `${ACTION_LABEL[action.kind]}｜${action.text}`.slice(0, 200) }
   } catch (error) {
+    // 超时要说得像超时：否则界面上一句"The operation was aborted"看不出到底是
+    // 配置太短还是模型那边挂了——这两件事的处理方式完全不同。
     return {
       action: fallbackAction(sandbox, run, agent),
       source: 'fallback',
-      detail: `模型调用失败：${error instanceof Error ? error.message : String(error)}`,
+      detail: bounded.signal.aborted
+        ? `模型超过 ${Math.round(Math.max(deps.timeoutMs, 10_000) / 1000)} 秒没有返回（可调大 step.callTimeoutMs）`
+        : `模型调用失败：${error instanceof Error ? error.message : String(error)}`,
     }
   } finally {
     bounded.clear()

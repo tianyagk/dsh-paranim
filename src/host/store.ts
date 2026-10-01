@@ -169,7 +169,17 @@ export function normalizeObject(
     h: o.h === undefined ? undefined : Math.max(1, Math.round(num(o.h, 1))),
     color: typeof o.color === 'string' ? o.color : undefined,
     desc: typeof o.desc === 'string' ? o.desc : undefined,
-    state: normalizeState(o.state),
+    /**
+     * **地标不带状态。**
+     *
+     * 地标是"某个地方在哪儿"这个逻辑概念，物件状态属于 object 层上的一格
+     * （见 tilemap 的 TileLayer.states）。旧数据里地标带着 `light=开`、
+     * `面团=已排气并分成三份…` 这类字段——那是更早的模型把房间当成物件时
+     * 留下的，现在的表现是右键点一块地标会弹出"修改物体状态"，而里面那些
+     * 名目既不属于地图上任何东西、也改不动任何东西（用户反馈的
+     * "世界里未识别物体名称"）。
+     */
+    state: kind === 'place' ? {} : normalizeState(o.state),
     interactive: o.interactive === undefined ? true : o.interactive !== false,
     affordances: Array.isArray(o.affordances) ? o.affordances.filter((v) => typeof v === 'string').slice(0, 12) : undefined,
     tags: Array.isArray(o.tags) ? o.tags.filter((v) => typeof v === 'string').slice(0, 12) : undefined,

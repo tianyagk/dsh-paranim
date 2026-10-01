@@ -2435,10 +2435,7 @@
         "住宅"
       ],
       "kind": "place",
-      "interactive": true,
-      "state": {
-        "light": "开"
-      }
+      "interactive": true
     },
     {
       "id": "parents-bedroom",
@@ -2453,10 +2450,7 @@
         "住宅"
       ],
       "kind": "place",
-      "interactive": true,
-      "state": {
-        "light": "开"
-      }
+      "interactive": true
     },
     {
       "id": "zhiyuan-room",
@@ -2471,10 +2465,7 @@
         "住宅"
       ],
       "kind": "place",
-      "interactive": true,
-      "state": {
-        "light": "开"
-      }
+      "interactive": true
     },
     {
       "id": "kitchen",
@@ -2489,10 +2480,7 @@
         "餐饮"
       ],
       "kind": "place",
-      "interactive": true,
-      "state": {
-        "light": "开"
-      }
+      "interactive": true
     },
     {
       "id": "living-room",
@@ -2507,10 +2495,7 @@
         "社交"
       ],
       "kind": "place",
-      "interactive": true,
-      "state": {
-        "light": "开"
-      }
+      "interactive": true
     },
     {
       "id": "study",
@@ -2525,10 +2510,7 @@
         "住宅"
       ],
       "kind": "place",
-      "interactive": true,
-      "state": {
-        "light": "开"
-      }
+      "interactive": true
     },
     {
       "id": "hall",
@@ -2543,10 +2525,7 @@
         "公共"
       ],
       "kind": "place",
-      "interactive": true,
-      "state": {
-        "light": "开"
-      }
+      "interactive": true
     }
   ],
   "relations": [

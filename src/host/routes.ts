@@ -872,8 +872,18 @@ const writeQueues = new Map<string, Promise<unknown>>()
                 const idx = y * W + x
                 if (layer.cells[idx] === ref) continue
                 layer.cells[idx] = ref
-                // 清空时连状态一起丢掉：格上没东西了，状态就没有宿主
-                if (ref === null && layer.states !== undefined) delete layer.states[String(idx)]
+                /**
+                 * 格上换了东西，旧状态就**没有宿主了**——不只是擦除时清，
+                 * 覆盖时也要清。
+                 *
+                 * 原先只在 `ref === null` 时清，于是"这里原来是一扇开着的门，
+                 * 后来重画成草地"，那一格上仍挂着 `open: true`：右键点上去
+                 * 还会弹出门的编辑框，世界沙盒被打扫过一遍却留着上一个版本的
+                 * 物体信息（用户反馈的"重新绘制后遗留未清理掉地图物体信息"）。
+                 */
+                if (layer.states !== undefined && layer.states[String(idx)] !== undefined) {
+                  delete layer.states[String(idx)]
+                }
                 painted += 1
               }
               if (painted > 0) {

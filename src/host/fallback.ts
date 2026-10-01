@@ -135,9 +135,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 14,
       "color": "#6b7f9c",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-2",
@@ -149,9 +147,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 14,
       "color": "#6b7f9c",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-3",
@@ -163,9 +159,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 14,
       "color": "#6b7f9c",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-4",
@@ -177,9 +171,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 14,
       "color": "#6b7f9c",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-5",
@@ -191,9 +183,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 14,
       "color": "#6b7f9c",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-6",
@@ -205,9 +195,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 6,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-7",
@@ -219,9 +207,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 6,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-8",
@@ -233,9 +219,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 16,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-9",
@@ -247,9 +231,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 16,
       "color": "#6b7f9c",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-10",
@@ -261,9 +243,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 6,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-11",
@@ -275,9 +255,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 6,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-12",
@@ -289,9 +267,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 11,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-13",
@@ -303,9 +279,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 9,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-14",
@@ -317,9 +291,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 12,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-15",
@@ -331,9 +303,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 12,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-16",
@@ -345,9 +315,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 5,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-17",
@@ -359,9 +327,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 9,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-18",
@@ -373,9 +339,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 4,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-19",
@@ -387,9 +351,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 7,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-20",
@@ -401,9 +363,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 6,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-21",
@@ -415,9 +375,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 7,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-22",
@@ -429,9 +387,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 7,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-23",
@@ -443,9 +399,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 12,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-24",
@@ -457,9 +411,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 12,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-25",
@@ -471,9 +423,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 12,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-26",
@@ -485,9 +435,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 6,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-27",
@@ -499,9 +447,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 5,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-28",
@@ -513,9 +459,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 6,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-29",
@@ -527,9 +471,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 5,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-30",
@@ -541,9 +483,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 6,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-31",
@@ -555,9 +495,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 5,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-32",
@@ -569,9 +507,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 3,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-33",
@@ -583,9 +519,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 3,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-34",
@@ -597,9 +531,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 3,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-35",
@@ -611,9 +543,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 3,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-36",
@@ -625,9 +555,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 3,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-37",
@@ -639,9 +567,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 3,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-38",
@@ -653,9 +579,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 5,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-39",
@@ -667,9 +591,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 5,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     },
     {
       "id": "place-40",
@@ -681,9 +603,7 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "h": 5,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      }
+      "state": {}
     }
   ],
   relations: [

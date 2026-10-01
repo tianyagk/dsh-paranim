@@ -606,6 +606,41 @@ ok(
   }
 }
 
+// ── 重画之后不能留上一个版本的物件信息 ────────────────────────────────────
+//
+// 状态挂在 object 层的格子上；那一格换了内容（哪怕换成别的瓦片而不是擦掉），
+// 旧状态就没有宿主了。原先只在"橡皮"时清，于是"这里原来是扇开着的门、
+// 后来重画成草地"，右键还会弹出门的编辑框。
+
+// 地标不带状态：它是"某个地方在哪儿"，不是地图上的东西。
+{
+  const view = await routes.world({ workspace: '/tmp/fake-workspace', create: true })
+  ok(
+    view.sandbox.places.every((pl) => Object.keys(pl.state ?? {}).length === 0),
+    `地标一律不带状态（${view.sandbox.places.length} 个地标都干净）`,
+    view.sandbox.places.filter((pl) => Object.keys(pl.state ?? {}).length > 0).map((pl) => pl.id).join(','),
+  )
+}
+
+// 覆盖一格时，挂在它上面的状态要一起消失
+{
+  const ws = '/tmp/fake-workspace'
+  const Q = `/paranim/paint?workspace=${encodeURIComponent(ws)}`
+  // 先在那格放一个物件（状态只能挂在有东西的格子上）
+  await call(route, 'POST', Q, { layer: 'object', ref: 'tiny-town:1,0', cells: [{ x: 12, y: 10 }] })
+  await call(route, 'POST', `/paranim/object?${new URLSearchParams({ workspace: ws })}`, {
+    objectId: 'obj:12,10', state: { open: false }, by: '自检',
+  })
+  const before = dataOf<WorldView>(await call(route, 'GET', `/paranim/world?workspace=${encodeURIComponent(ws)}`, undefined))
+  const hadState = before.sandbox.map.layers.object.states?.[String(10 * before.sandbox.map.width + 12)] !== undefined
+  ok(hadState, '先在那一格上挂一个状态（前置条件）')
+  const painted = dataOf<WorldView>(await call(route, 'POST', Q, {
+    layer: 'object', ref: 'tiny-town:0,0', cells: [{ x: 12, y: 10 }],
+  }))
+  const after = painted.sandbox.map.layers.object.states?.[String(10 * painted.sandbox.map.width + 12)]
+  ok(after === undefined, '换掉那一格的内容之后，旧状态被清掉了（不是只在橡皮时清）', JSON.stringify(after))
+}
+
 function smallStore(): SandboxStore {
   const mk = (id: string, name: string): Sandbox => normalizeSandbox({
     id, name, desc: `${name}（自检用）`, map: { width: 40, height: 30, background: 'ado', tileset: 'dungeon' },

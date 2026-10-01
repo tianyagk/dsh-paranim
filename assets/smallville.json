@@ -12,9 +12,6 @@
       "h": 14,
       "color": "#6b7f9c",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "数学家乔治·罗西的家，黑板上留着没擦干净的公式。",
       "tags": [
         "居住",
@@ -33,9 +30,6 @@
       "h": 14,
       "color": "#6b7f9c",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "诗人卡洛斯·戈麦斯的家，桌上散落着写坏的稿纸。",
       "tags": [
         "居住",
@@ -54,9 +48,6 @@
       "h": 14,
       "color": "#6b7f9c",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "亚瑟·伯顿经营了十年的老酒馆，深夜还亮着灯，适合谈心事和听故事。",
       "tags": [
         "社交",
@@ -75,9 +66,6 @@
       "h": 14,
       "color": "#6b7f9c",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "伊莎贝拉·罗德里格斯开的咖啡馆，小镇的社交心脏，情人节派对定在这里。",
       "tags": [
         "社交",
@@ -97,9 +85,6 @@
       "h": 14,
       "color": "#6b7f9c",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "咖啡馆主人的住处，就开在店的正上方，早上六点起床下楼开门。",
       "tags": [
         "居住",
@@ -117,9 +102,6 @@
       "h": 6,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "五位创作者的共居公寓：阿比盖尔、拉托雅、拉吉夫、弗朗西斯科、海莉，共用一间大客厅和厨房。",
       "tags": [
         "居住",
@@ -138,9 +120,6 @@
       "h": 6,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "酒馆老板的家，吧台后面那些调酒配方就诞生在这里。",
       "tags": [
         "居住",
@@ -158,9 +137,6 @@
       "h": 16,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "住宅·按原版栅格外接框还原",
       "tags": [
         "住宅"
@@ -177,9 +153,6 @@
       "h": 16,
       "color": "#6b7f9c",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "镇上的学院，教室、图书馆与走廊连成一片。克劳斯在此写论文，埃迪在此学作曲。",
       "tags": [
         "学习",
@@ -198,9 +171,6 @@
       "h": 6,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "镇中心的开阔绿地，山姆·摩尔每天来打理，也是散步和偶遇的地方。",
       "tags": [
         "户外",
@@ -219,9 +189,6 @@
       "h": 6,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "住宅·按原版栅格外接框还原",
       "tags": [
         "住宅"
@@ -238,9 +205,6 @@
       "h": 11,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "学生宿舍区，带公共休息室、厨房和一片花园。住着克劳斯、玛丽亚、艾莎和沃尔夫冈。",
       "tags": [
         "居住",
@@ -259,9 +223,6 @@
       "h": 9,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "百合子·山本的家，屋内一切归置得井井有条，连抽屉里的单据都按日期排好。",
       "tags": [
         "居住",
@@ -279,9 +240,6 @@
       "h": 12,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "卡门·奥尔蒂斯打理的五金杂货铺，什么零碎都能找到。",
       "tags": [
         "购物",
@@ -300,9 +258,6 @@
       "h": 12,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "全镇最大的日用品与药品卖场。汤姆·莫雷诺管杂货，约翰·林管药房。",
       "tags": [
         "购物",
@@ -321,9 +276,6 @@
       "h": 5,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "商业·按原版栅格外接框还原",
       "tags": [
         "商业"
@@ -340,9 +292,6 @@
       "h": 9,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "商业·按原版栅格外接框还原",
       "tags": [
         "商业"
@@ -359,9 +308,6 @@
       "h": 4,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "商业·按原版栅格外接框还原",
       "tags": [
         "商业"
@@ -378,9 +324,6 @@
       "h": 7,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "商业·按原版栅格外接框还原",
       "tags": [
         "商业"
@@ -397,9 +340,6 @@
       "h": 6,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "商业·按原版栅格外接框还原",
       "tags": [
         "商业"
@@ -416,9 +356,6 @@
       "h": 7,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "商业·按原版栅格外接框还原",
       "tags": [
         "商业"
@@ -435,9 +372,6 @@
       "h": 7,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "商业·按原版栅格外接框还原",
       "tags": [
         "商业"
@@ -454,9 +388,6 @@
       "h": 12,
       "color": "#c9843f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "哲学家的居所，凌晨四点就亮灯，桌上摊着写了一半的书稿。",
       "tags": [
         "居住",
@@ -475,9 +406,6 @@
       "h": 12,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "山姆与珍妮弗住了一辈子的房子，墙上挂满珍妮弗的水彩画。",
       "tags": [
         "居住",
@@ -496,9 +424,6 @@
       "h": 12,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "塔玛拉·泰勒与卡门·奥尔蒂斯合租的房子，客厅常有未完成的画稿和童书草样。",
       "tags": [
         "居住",
@@ -517,9 +442,6 @@
       "h": 6,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "汤姆与简的家，有一间空着的客房，屋后花园种着藤蔓。",
       "tags": [
         "居住",
@@ -537,9 +459,6 @@
       "h": 5,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "约翰、梅与儿子埃迪的家，客厅常在晚上传出琴声，屋后有一片小菜园。",
       "tags": [
         "居住",
@@ -557,9 +476,6 @@
       "h": 6,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "住宅·按原版栅格外接框还原",
       "tags": [
         "住宅"
@@ -576,9 +492,6 @@
       "h": 5,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "住宅·按原版栅格外接框还原",
       "tags": [
         "住宅"
@@ -595,9 +508,6 @@
       "h": 6,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "住宅·按原版栅格外接框还原",
       "tags": [
         "住宅"
@@ -614,9 +524,6 @@
       "h": 5,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "住宅·按原版栅格外接框还原",
       "tags": [
         "住宅"
@@ -633,9 +540,6 @@
       "h": 3,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "住宅·按原版栅格外接框还原",
       "tags": [
         "住宅"
@@ -652,9 +556,6 @@
       "h": 3,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "住宅·按原版栅格外接框还原",
       "tags": [
         "住宅"
@@ -671,9 +572,6 @@
       "h": 3,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "住宅·按原版栅格外接框还原",
       "tags": [
         "住宅"
@@ -690,9 +588,6 @@
       "h": 3,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "住宅·按原版栅格外接框还原",
       "tags": [
         "住宅"
@@ -709,9 +604,6 @@
       "h": 3,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "住宅·按原版栅格外接框还原",
       "tags": [
         "住宅"
@@ -728,9 +620,6 @@
       "h": 3,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "住宅·按原版栅格外接框还原",
       "tags": [
         "住宅"
@@ -747,9 +636,6 @@
       "h": 5,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "住宅·按原版栅格外接框还原",
       "tags": [
         "住宅"
@@ -766,9 +652,6 @@
       "h": 5,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "住宅·按原版栅格外接框还原",
       "tags": [
         "住宅"
@@ -785,9 +668,6 @@
       "h": 5,
       "color": "#a8623f",
       "interactive": true,
-      "state": {
-        "open": true
-      },
       "desc": "住宅·按原版栅格外接框还原",
       "tags": [
         "住宅"
