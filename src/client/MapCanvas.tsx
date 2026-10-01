@@ -18,7 +18,7 @@ import {
   type WorldEvent,
   type WorldObject,
 } from '../shared/model.ts'
-import { TILE_PX, cellAtPoint, collectImages, mapPixelSize, renderTown, screenToWorld, stepOf, worldToScreen, type View } from './town.ts'
+import { TILE_PX, cellAtPoint, collectImages, fitView, mapPixelSize, renderTown, screenToWorld, stepOf, worldToScreen, zoomAroundPoint, type View } from './town.ts'
 import { objectsOf, objectIdAt } from '../shared/tilemap.ts'
 import { allSheetsReady, loadSheets } from './tiles.ts'
 
@@ -142,20 +142,14 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
    * 抽成函数是因为**滚轮缩放要反解它**：鼠标指着的那个世界坐标，缩放后必须
    * 还落在原处，那就要知道"如果完全居中，此刻偏移会是多少"。
    */
-  const baseOffset = useCallback((at: { w: number; h: number }, z: number): { x: number; y: number; scale: number } => {
-    const mapPx = mapPixelSize(sandbox)
-    const fit = Math.min(at.w / mapPx.w, at.h / mapPx.h) * z
-    const sc = fit > 0 && Number.isFinite(fit) ? fit : 0.5
-    return {
-      scale: sc,
-      x: (at.w - mapPx.w * sc) / 2 + TILE_PX * 3 * sc,
-      y: (at.h - mapPx.h * sc) / 2 + TILE_PX * 3 * sc,
-    }
-  }, [sandbox])
+  const baseOffset = useCallback(
+    (at: { w: number; h: number }, z: number) => fitView(mapPixelSize(sandbox), at, z),
+    [sandbox],
+  )
 
   const view = useMemo<View>(() => {
     const base = baseOffset(size, zoom)
-    return { scale: base.scale, offsetX: base.x + pan.x, offsetY: base.y + pan.y }
+    return { scale: base.scale, offsetX: base.offsetX + pan.x, offsetY: base.offsetY + pan.y }
   }, [baseOffset, size, zoom, pan])
 
   // 换算的坑（曾经漏乘 TILE_PX 差 16 倍）统一封在 town.ts 的 stepOf/screenToWorld 里
@@ -269,10 +263,16 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     event.preventDefault()
     const { px, py } = localPoint(event)
     const before = screenToWorld(px, py, view)
-    const next = Math.max(0.4, Math.min(6, zoom * (event.deltaY < 0 ? 1.15 : 1 / 1.15)))
-    const base = baseOffset(size, next)
-    setZoom(next)
-    setPan({ x: px - before.x * base.scale - base.x, y: py - before.y * base.scale - base.y })
+    const next = zoomAroundPoint({
+      px, py,
+      worldX: before.x, worldY: before.y,
+      mapPx: mapPixelSize(sandbox),
+      size,
+      zoom,
+      factor: event.deltaY < 0 ? 1.15 : 1 / 1.15,
+    })
+    setZoom(next.zoom)
+    setPan(next.pan)
   }
 
   const onContextMenu = (event: React.MouseEvent<HTMLCanvasElement>): void => {
@@ -484,7 +484,6 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
       React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', title: '放大', onClick: () => { setPan({ x: 0, y: 0 }); setZoom((z) => Math.min(5, z * 1.25)) } }, '+'),
       React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', title: '回到默认缩放并居中', onClick: () => { setPan({ x: 0, y: 0 }); setZoom(1) } }, '1:1'),
       React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', title: '铺满可用区域', onClick: () => { setPan({ x: 0, y: 0 }); setZoom(2.6) } }, '铺满'),
-      React.createElement('span', { className: 'pa-dim' }, '滚轮缩放 · 中键拖动移动视角'),
     ),
     React.createElement(
       'div',

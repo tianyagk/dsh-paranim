@@ -1545,6 +1545,8 @@ function SandboxPage(props: {
    * 这个——截图上 Tiny Town 和 user-xxx 的卡片一起开着）。
    */
   const [noteTarget, setNoteTarget] = React.useState<string | undefined>(undefined)
+  /** 正在等待二次确认的镜像 id（不用 window.confirm，见删除按钮处的说明）。 */
+  const [confirming, setConfirming] = React.useState<string | undefined>(undefined)
   /** 隐藏的文件选择框——由「导入素材图」按钮代点。 */
   const importRef = React.useRef<HTMLInputElement | null>(null)
 
@@ -1733,17 +1735,34 @@ function SandboxPage(props: {
                * 就只能忍着（用户反馈"部分镜像无法删除"）。删了之后不再自动
                * 种回来：种子的版本戳会记住"这一份被删过"。
                */
-              React.createElement('button', {
-                className: 'pa-btn', 'data-tiny': 'true', 'data-danger': 'true',
-                onClick: (event: React.MouseEvent) => {
-                  event.stopPropagation()   // 别把"删除"顺手当成"选中"
-                  void run('删除镜像', async () => {
-                    if (!window.confirm(`删除镜像「${item.name}」？这一步不可撤销。`)) return
-                    applyWorld(await api.sandbox({ action: 'remove', id: item.id }))
-                    await refreshList()
-                  })
-                },
-              }, '删除'),
+              /**
+               * 删除用**行内二次确认**，不用 window.confirm。
+               *
+               * 宿主页面里 confirm 可能被禁用或直接返回 false——那样点"删除"
+               * 会**静默什么也不发生**：不报错、也不刷新列表，看起来就是
+               * "删不掉"（用户反馈的"删除后没有立刻刷新镜像列表"很可能是这个）。
+               * 自己画一个"确认"按钮，不依赖宿主的对话框。
+               */
+              confirming === item.id
+                ? React.createElement('button', {
+                    className: 'pa-btn', 'data-tiny': 'true', 'data-danger': 'true',
+                    onClick: (event: React.MouseEvent) => {
+                      event.stopPropagation()
+                      void run('删除镜像', async () => {
+                        setConfirming(undefined)
+                        applyWorld(await api.sandbox({ action: 'remove', id: item.id }))
+                        await refreshList()
+                        flash(`已删除「${item.name}」`)
+                      })
+                    },
+                  }, '确认删除')
+                : React.createElement('button', {
+                    className: 'pa-btn', 'data-tiny': 'true', 'data-danger': 'true',
+                    onClick: (event: React.MouseEvent) => {
+                      event.stopPropagation()   // 别把"删除"顺手当成"选中"
+                      setConfirming(item.id)
+                    },
+                  }, '删除'),
             ),
           ),
         ),

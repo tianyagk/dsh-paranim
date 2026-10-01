@@ -148,6 +148,68 @@ function drawGrid(ctx: CanvasRenderingContext2D, input: RenderInput): void {
 }
 
 /**
+ * 把整张地图塞进容器并居中时的偏移与缩放（**不含用户平移**）。
+ *
+ * 单独抽出来是因为滚轮缩放要反解它：鼠标指着的那个世界坐标，缩放后必须
+ * 还落在原处，那就要知道"如果完全居中，此刻偏移会是多少"。
+ */
+export function fitView(
+  mapPx: { w: number; h: number },
+  size: { w: number; h: number },
+  zoom: number,
+): { scale: number; offsetX: number; offsetY: number } {
+  const fit = Math.min(size.w / mapPx.w, size.h / mapPx.h) * zoom
+  const scale = fit > 0 && Number.isFinite(fit) ? fit : 0.5
+  return {
+    scale,
+    offsetX: (size.w - mapPx.w * scale) / 2 + TILE_PX * 3 * scale,
+    offsetY: (size.h - mapPx.h * scale) / 2 + TILE_PX * 3 * scale,
+  }
+}
+
+/**
+ * 以屏幕上某一点为中心缩放：返回新的 zoom 与 pan。
+ *
+ * 不变式：**缩放前鼠标指着的世界坐标，缩放后仍在鼠标下**。
+ *   screenX = base.offsetX + pan.x + worldX * scale
+ * 要让它等于鼠标的 px，就得 pan.x = px − worldX × scale − base.offsetX。
+ * （只改 scale 不动 pan 的话，缩放会围绕**容器中心**发生，鼠标指的地方会
+ * 跑掉；而如果连 base 都不减，就会变成围绕左上角缩放。）
+ */
+export function zoomAroundPoint(input: {
+  /** 画布内的鼠标位置（CSS 像素）。 */
+  px: number
+  py: number
+  /** 当前的世界坐标（由调用方用现有 view 算好）。 */
+  worldX: number
+  worldY: number
+  mapPx: { w: number; h: number }
+  size: { w: number; h: number }
+  /** 当前缩放（乘 factor 得到新的）。 */
+  zoom: number
+  /** 一次滚动的倍率，>1 放大。 */
+  factor: number
+  min?: number
+  max?: number
+}): { zoom: number; pan: { x: number; y: number } } {
+  const min = input.min ?? 0.4
+  const max = input.max ?? 6
+  const zoom = Math.max(min, Math.min(max, input.zoom * input.factor))
+  const base = fitView(input.mapPx, input.size, zoom)
+  return {
+    zoom,
+    pan: {
+      // worldX 的单位是**格**，而 base.scale 是"每地图像素"的比例——
+      // 中间必须乘 TILE_PX。漏掉它（差 16 倍）时反解出的 pan 完全不对，
+      // 缩放后画面大幅偏移，看起来就是"锚在左上角"。
+      // （这块代码第 3 次栽在同一个坑上：最早 screenToWorld 漏乘过一次。）
+      x: input.px - input.worldX * TILE_PX * base.scale - base.offsetX,
+      y: input.py - input.worldY * TILE_PX * base.scale - base.offsetY,
+    },
+  }
+}
+
+/**
  * 画布像素 → 整格坐标。
  *
  * `floor` 而不是 `round`：round 取的是"离最近格中心最近的那一格"，于是点
