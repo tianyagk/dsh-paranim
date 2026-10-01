@@ -9,6 +9,26 @@
  */
 const CSS = `
 .pa-root {
+  /**
+   * 布局根的三条约束，缺一条整页都会塌。
+   *
+   * 此前这里只有配色 —— .pa-body 虽然写着 flex: 1 1 auto，但父容器不是
+   * flex，那条规则**从未生效**：head / body / foot 按普通块流排列，body 的高度
+   * 完全由内容决定，于是右侧那几个长列表（沙盒库、图层编辑、资源池）把整页
+   * 一路撑到两千多像素。地图画布跟着变成 425×2163，地图内容绘制在画布中央，
+   * 视口里看到的几乎全是空白——**点上去算出的格子落在地图之外，被边界检查
+   * 丢掉，表现就是"怎么涂都没反应"，而且不报任何错**。（用 Playwright 实测
+   * canvas 的 CSS 尺寸才发现的：此前一直盯着服务端查，方向完全错了。）
+   *
+   *  - display:flex + column：让 head/body/foot 纵向排，body 才能吃掉剩余高度
+   *  - height:100%：给"剩余高度"一个确定参照
+   *  - min-height:0：允许子项收缩（flex 项默认 min-height:auto，不肯缩小）
+   */
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   /* 主题的全部变量由 theme.ts 注入（见 applyTheme）。这里只留两条兜底，
      避免注入失败时页面是白板——兜底不求好看，只求看得见。 */
   --pa-bg: #0b0e13;
@@ -180,7 +200,21 @@ const CSS = `
 
 /* ── 右列 ─────────────────────────────────────────────────────────── */
 .pa-side { flex: 1 1 0; min-width: 288px; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.pa-sec { border-bottom: 1px solid var(--pa-borderSoft); padding: 9px 11px; min-height: 0; }
+.pa-sec {
+  border-bottom: 1px solid var(--pa-borderSoft);
+  padding: 9px 11px;
+  /**
+   * flex: 0 0 auto —— 区块按内容高度排布，**不许被压缩**。
+   *
+   * 默认是 flex-shrink:1：当侧栏内容比容器高时，浏览器会把每个区块压扁到
+   * 小于自身高度，于是它们叠在一起——文字糊成一团、按钮被上层区块盖住点不动。
+   * （实测：石头地面这个笔刷按钮的中心点上，最上层元素是别人的说明文字。）
+   * 原先这里的 min-height:0 只解决"能不能缩到 0"，解决不了"该不该缩"。
+   * 需要占满剩余高度的区块自己写了 inline 的 flex:1，优先级更高，不受影响。
+   */
+  flex: 0 0 auto;
+  min-height: 0;
+}
 .pa-sec:last-child { border-bottom: none; }
 .pa-sec h4 {
   margin: 0 0 7px;

@@ -411,6 +411,28 @@ function drawStructureLayer(ctx: CanvasRenderingContext2D, view: View, sandbox: 
 
 // ── 主入口 ────────────────────────────────────────────────────────────────
 
+/**
+ * 画布像素 → 世界格坐标。
+ *
+ * **一格占多少屏幕像素**是 `TILE_PX * scale`，分母必须是它。
+ * 这里曾经写成 `scale`，整整差了一个 TILE_PX（16 倍）：点在画布正中会算出
+ * (255,191)，而地图只有 32×24——每次点击都被"格子越界"挡掉。笔刷没反应、
+ * 右键点不中物件、悬停不亮，全是这一个原因，而且不报任何错。
+ *
+ * 抽成纯函数是为了能单测：这类换算错了，画面上看不出异常（地图本身画得对），
+ * 只有真的去点才暴露，所以必须有一条断言钉着它。
+ */
+export function screenToWorld(px: number, py: number, view: View): { x: number; y: number } {
+  const step = TILE_PX * view.scale
+  return { x: (px - view.offsetX) / step, y: (py - view.offsetY) / step }
+}
+
+/** 世界格坐标 → 画布像素（左上角）。与 screenToWorld 互为逆运算。 */
+export function worldToScreen(x: number, y: number, view: View): { px: number; py: number } {
+  const step = TILE_PX * view.scale
+  return { px: view.offsetX + x * step, py: view.offsetY + y * step }
+}
+
 export function renderTown(ctx: CanvasRenderingContext2D, input: RenderInput): void {
   const { sandbox, view, size, agents, selectedId, hover, only } = input
   const tick = input.tick ?? 0

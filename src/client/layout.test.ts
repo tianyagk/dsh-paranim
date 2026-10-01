@@ -8,6 +8,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildLayout, layoutKey } from './layout.ts'
+import { screenToWorld, worldToScreen } from './town.ts'
 import type { Sandbox } from '../shared/model.ts'
 
 function mkSandbox(tiles: string[], width = 6, height = 4): Sandbox {
@@ -110,4 +111,37 @@ test('路网：不会盖掉玩家涂过的格子', () => {
   const layout = buildLayout(sb)
   const kept = layout.terrain[1].filter((t) => t === 'concrete').length
   assert.ok(kept >= 8, `玩家涂的水泥应大范围保留，实际只剩 ${kept} 格`)
+})
+
+// ── 画布像素 ↔ 世界格 的换算 ──────────────────────────────────────────────
+//
+// 这一条对应一个真实故障：`toWorld` 的分母写成了 `scale`，而一格占的屏幕
+// 像素是 `TILE_PX * scale`——整整差 16 倍。点画布正中会算出 (255,191)，
+// 而地图只有 32×24，于是每次点击都因"格子越界"被丢掉：笔刷没反应、右键
+// 点不中物件、悬停不亮。画面上完全看不出异常（地图本身画得是对的），
+// 只有真的去点才暴露，而且不报错。用 Playwright 实测 canvas 尺寸时才揪出来。
+
+test('画布正中必须落在地图正中（分母差 16 倍就会偏到图外）', () => {
+  // 数值取自浏览器实测：32×24 的图，画布 426×821，缩放 0.7007
+  const view = { scale: 0.7007, offsetX: 33.63, offsetY: 275.97 }
+  const center = screenToWorld(213, 410.5, view)
+  assert.ok(Math.abs(center.x - 16) < 0.6, `x 应约等于 16（地图 32 格的正中），实际 ${center.x.toFixed(2)}`)
+  assert.ok(Math.abs(center.y - 12) < 0.6, `y 应约等于 12（地图 24 格的正中），实际 ${center.y.toFixed(2)}`)
+})
+
+test('屏幕坐标与世界坐标互为逆运算', () => {
+  const view = { scale: 1.37, offsetX: -84.5, offsetY: 19.25 }
+  for (const [x, y] of [[0, 0], [7, 3], [31, 23], [-3, -3]]) {
+    const px = worldToScreen(x, y, view)
+    const back = screenToWorld(px.px, px.py, view)
+    assert.ok(Math.abs(back.x - x) < 1e-9 && Math.abs(back.y - y) < 1e-9, `(${x},${y}) 往返后变成 (${back.x},${back.y})`)
+  }
+})
+
+test('相邻两格在屏幕上的间距 = TILE_PX × scale', () => {
+  const view = { scale: 0.7007, offsetX: 0, offsetY: 0 }
+  const a = worldToScreen(5, 5, view)
+  const b = worldToScreen(6, 6, view)
+  assert.ok(Math.abs(b.px - a.px - 16 * view.scale) < 1e-9)
+  assert.ok(Math.abs(b.py - a.py - 16 * view.scale) < 1e-9)
 })

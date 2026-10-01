@@ -11,6 +11,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { inflateSync } from 'node:zlib'
 import { execSync } from 'node:child_process'
+import { readdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -260,6 +261,74 @@ else console.log(`  自行车贴图 ${bikeCells.length} 张,轮圈行均呈现�
     if (!groundSlots.has(slot)) { console.error(`  ✗ 材质「${terrain}」指向的槽位 ${slot} 没有贴图`); bad++; continue }
   }
   if (bad === 0) console.log(`  笔刷 ${kinds.length} 种材质四层贯通(面板→字符→材质→贴图)`)
+}
+
+// DOM 元素上的事件 prop 必须是 React 认识的名字。
+//
+// 实测教训：把 onMouseMove 写成了 onMove。React 不报错、不警告，只是把不认识的
+// prop **丢掉**——于是 mousedown 那一下能落笔，按住拖动时处理器一次都不触发。
+// 原生事件实测到达 21 次，React 侧 0 次。这种错只能靠机检。
+{
+  const ts = (await import('typescript')).default
+  const DOM_TAGS = new Set([
+    'div', 'span', 'canvas', 'button', 'input', 'select', 'textarea', 'ul', 'ol', 'li', 'a', 'p',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'label',
+    'form', 'img', 'svg', 'nav', 'header', 'footer', 'section', 'main', 'aside', 'br', 'hr',
+    'pre', 'code', 'i', 'b', 'strong', 'em', 'small', 'video', 'audio', 'dialog',
+  ])
+  const EVENTS = new Set([
+    'onClick', 'onDoubleClick', 'onContextMenu', 'onMouseMove', 'onMouseDown', 'onMouseUp',
+    'onMouseEnter', 'onMouseLeave', 'onMouseOver', 'onMouseOut', 'onWheel', 'onScroll',
+    'onDrag', 'onDragEnd', 'onDragEnter', 'onDragExit', 'onDragLeave', 'onDragOver', 'onDragStart', 'onDrop',
+    'onKeyDown', 'onKeyUp', 'onKeyPress', 'onInput', 'onChange', 'onFocus', 'onBlur',
+    'onSubmit', 'onReset', 'onInvalid', 'onSelect', 'onLoad', 'onError',
+    'onCopy', 'onCut', 'onPaste', 'onCompositionStart', 'onCompositionEnd', 'onCompositionUpdate',
+    'onTouchStart', 'onTouchMove', 'onTouchEnd', 'onTouchCancel',
+    'onPointerDown', 'onPointerMove', 'onPointerUp', 'onPointerCancel',
+    'onPointerEnter', 'onPointerLeave', 'onPointerOver', 'onPointerOut',
+    'onAnimationStart', 'onAnimationEnd', 'onTransitionEnd',
+  ])
+  let checked = 0
+  const problems = []
+  for (const dir of ['src/client', 'src/host']) {
+    const files = await readdir(join(root, dir)).catch(() => [])
+    for (const name of files) {
+      if (!name.endsWith('.ts') && !name.endsWith('.tsx')) continue
+      const file = join(root, dir, name)
+      const text = readFileSync(file, 'utf8')
+      const sf = ts.createSourceFile(name, text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TSX)
+      const visit = (node) => {
+        if (ts.isCallExpression(node)) {
+          const callee = node.expression.getText(sf)
+          if (callee === 'React.createElement' || callee === 'createElement') {
+            const [tagArg, propsArg] = node.arguments
+            if (tagArg !== undefined && ts.isStringLiteral(tagArg) && DOM_TAGS.has(tagArg.text)
+              && propsArg !== undefined && ts.isObjectLiteralExpression(propsArg)) {
+              for (const prop of propsArg.properties) {
+                const key = prop.name === undefined ? null
+                  : ts.isIdentifier(prop.name) ? prop.name.text
+                  : ts.isStringLiteral(prop.name) ? prop.name.text : null
+                if (key === null || !/^on[A-Z]/.test(key)) continue
+                checked++
+                if (!EVENTS.has(key)) {
+                  const line = sf.getLineAndCharacterOfPosition(prop.getStart(sf)).line + 1
+                  problems.push(`${name}:${line} <${tagArg.text}> 上的 ${key}`)
+                }
+              }
+            }
+          }
+        }
+        ts.forEachChild(node, visit)
+      }
+      visit(sf)
+    }
+  }
+  if (problems.length > 0) {
+    for (const p of problems) console.error(`  ✗ React 不认识这个事件 prop（不会被绑定）：${p}`)
+    bad += problems.length
+  } else {
+    console.log(`  DOM 事件 prop 名全部合法（检查 ${checked} 处）`)
+  }
 }
 
 // 生成物必须与它的源同步。fallback.ts 是"镜像读不到时"的降级路径,

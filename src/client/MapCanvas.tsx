@@ -18,7 +18,7 @@ import {
   type WorldEvent,
   type WorldObject,
 } from '../shared/model.ts'
-import { TILE_PX, mapPixelSize, renderTown, type View } from './town.ts'
+import { TILE_PX, mapPixelSize, renderTown, screenToWorld, worldToScreen, type View } from './town.ts'
 import { allSheetsReady, loadSheets } from './tiles.ts'
 
 export interface MapCanvasProps {
@@ -66,6 +66,9 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
   /** 一笔还没上传的格子。攒着是为了不让每一格都打一次请求。 */
   const strokeRef = useRef<Array<{ x: number; y: number }>>([])
   const paintingRef = useRef(false)
+  /** 还没发出去的这一批格子，见 flushSoon。 */
+  const pendingRef = useRef<Array<{ x: number; y: number }>>([])
+  const flushRef = useRef<number | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [size, setSize] = useState({ w: 480, h: 320 })
@@ -131,10 +134,17 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     }
   }, [size, sandbox, zoom])
 
-  const toWorld = useCallback(
-    (px: number, py: number) => ({ x: (px - view.offsetX) / view.scale, y: (py - view.offsetY) / view.scale }),
-    [view],
-  )
+  /**
+   * 画布像素 → 世界格坐标。
+   *
+   * 分母必须是 **一格占多少屏幕像素**，也就是 `TILE_PX * scale`。
+   * 此前写的是 `view.scale`，整整差了一个 TILE_PX（16 倍）：
+   * 点在画布正中会算出 (255,191)，而地图只有 32×24，于是每一次点击都被
+   * "格子越界"挡掉——笔刷没反应、右键点不中物件、悬停不亮，全是这一个原因。
+   * 之所以一直没被发现：画布上"看起来"有响应（比如地图本身画得对），
+   * 只有真的去点才暴露，而错得又不报错。
+   */
+  const toWorld = useCallback((px: number, py: number) => screenToWorld(px, py, view), [view])
 
   // ── 绘制 ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -169,17 +179,19 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     })
 
     // 地标名下方补一行小字：所属类别，帮玩家认出"这是什么地方"
-    if (view.scale >= 4) {
+    if (view.scale >= 2) {
       ctx.font = '9px system-ui, "PingFang SC", sans-serif'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'top'
+      // 一格占多少屏幕像素：所有"格坐标 → 画布像素"的换算都得用它，
+      // 直接乘 scale 会差 16 倍（与 toWorld 修正前同一个错误）。
+      const step = TILE_PX * view.scale
       for (const object of sandbox.objects) {
         const label = String(object.state.status ?? '')
-        if (label === '' || label === '正常' || view.scale < 5) continue
-        const x = view.offsetX + object.x * view.scale
-        const y = view.offsetY + object.y * view.scale + view.scale * 1.6
+        if (label === '' || label === '正常') continue
+        const { px, py } = worldToScreen(object.x, object.y, view)
         ctx.fillStyle = 'rgba(240,113,120,0.95)'
-        ctx.fillText(label, x, y)
+        ctx.fillText(label, px, py + step * 1.6)
       }
     }
   }, [sandbox, view, size, agents, selectedId, hover, bubbles, tick, sheetsReady, edit?.layer])
@@ -188,7 +200,9 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
   const hitTest = useCallback(
     (px: number, py: number): Hit | null => {
       const world = toWorld(px, py)
-      const radius = Math.max(1.2, 12 / (view.scale * TILE_PX / 16))
+      // 命中半径：屏幕 12px 折成多少格。此前写作 `12 / (scale*16/16)` = 12/scale，
+      // 缩放 0.7 时半径有 17 格——整个地图都算"点中了"，右键永远命中最近的那个。
+      const radius = Math.max(1.2, 12 / (TILE_PX * view.scale))
       let best: Hit | null = null
       let bestDistance = Number.POSITIVE_INFINITY
       for (const object of sandbox.objects) {
@@ -221,7 +235,7 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
       let best: { id: string; d: number } | undefined
       for (const agent of agents) {
         const d = Math.hypot(agent.x - world.x, agent.y - world.y)
-        if (d <= Math.max(1.6, 11 / view.scale) && (best === undefined || d < best.d)) best = { id: agent.id, d }
+        if (d <= Math.max(1.6, 11 / (TILE_PX * view.scale)) && (best === undefined || d < best.d)) best = { id: agent.id, d }
       }
       return best?.id
     },
@@ -251,13 +265,47 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     return { x: Math.round(w.x), y: Math.round(w.y) }
   }
 
-  /** 把这一格并进当前这一笔；同一格不重复记。 */
-  const pushCell = (px: number, py: number): void => {
-    if (onPaint === undefined) return
+  /**
+   * 把这一格并进当前这一笔；同一格不重复记。返回它是不是**新**格子。
+   *
+   * 拖动时每一帧都会问一次，所以"没有新格子"必须能立刻判定——否则同一格
+   * 会被反复提交，一次涂抹打出上百个重复请求。
+   */
+  const pushCell = (px: number, py: number): { x: number; y: number } | undefined => {
+    if (onPaint === undefined) return undefined
     const c = cellAt(px, py)
-    if (c.x < 0 || c.y < 0 || c.x >= sandbox.map.width || c.y >= sandbox.map.height) return
-    if (strokeRef.current.some((p) => p.x === c.x && p.y === c.y)) return
+    if (c.x < 0 || c.y < 0 || c.x >= sandbox.map.width || c.y >= sandbox.map.height) return undefined
+    if (strokeRef.current.some((p) => p.x === c.x && p.y === c.y)) return undefined
     strokeRef.current.push(c)
+    return c
+  }
+
+  /**
+   * 攒一小批再发。
+   *
+   * 快速拖动时一格一个请求会打出上百个（服务端虽然会排队，但请求本身有成本）；
+   * 攒 40ms 既保住了"笔过之处立刻上色"的手感，又把请求数压到十几条。
+   */
+  const flushSoon = (): void => {
+    if (flushRef.current !== null) return
+    flushRef.current = window.setTimeout(() => {
+      flushRef.current = null
+      if (pendingRef.current.length === 0 || onPaint === undefined) return
+      const batch = pendingRef.current
+      pendingRef.current = []
+      onPaint(batch)
+    }, 40)
+  }
+
+  const flushNow = (): void => {
+    if (flushRef.current !== null) {
+      window.clearTimeout(flushRef.current)
+      flushRef.current = null
+    }
+    if (pendingRef.current.length === 0 || onPaint === undefined) return
+    const batch = pendingRef.current
+    pendingRef.current = []
+    onPaint(batch)
   }
 
   const onPointerDown = (event: React.MouseEvent<HTMLCanvasElement>): void => {
@@ -271,18 +319,18 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     if (edit.layer === 'background') {
       paintingRef.current = true
       strokeRef.current = []
-      pushCell(px, py)
+      pendingRef.current = []
+      const first = pushCell(px, py)
+      if (first !== undefined) pendingRef.current.push(first)
       // 单击也要立刻出效果：不然点一下没反应，像是坏了
-      if (onPaint !== undefined) onPaint([...strokeRef.current])
+      flushNow()
     }
   }
 
   const onPointerUp = (): void => {
     if (!paintingRef.current) return
     paintingRef.current = false
-    // 收笔时整笔重放一次：中间每一格都已即时上色（乐观），这次是为了保证
-    // 拖动过程中任何一格都没丢。
-    if (onPaint !== undefined && strokeRef.current.length > 0) onPaint([...strokeRef.current])
+    flushNow()   // 收笔时把攒着的那一批发出去
     strokeRef.current = []
   }
 
@@ -298,8 +346,11 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     const { px, py } = localPoint(event)
     if (edit !== undefined) {
       if (paintingRef.current) {
-        pushCell(px, py)
-        if (onPaint !== undefined) onPaint([...strokeRef.current.slice(-1)])
+        const added = pushCell(px, py)
+        if (added !== undefined) {
+          pendingRef.current.push(added)
+          flushSoon()
+        }
       }
       return
     }
@@ -325,7 +376,15 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
           ? '小镇地图：左键点智能体，右键点地标或物件改状态'
           : '正在编辑镜像：按住拖动即可连续涂抹，点一下放一个物件',
       onClick,
-      onMove,
+      /**
+       * 必须是 onMouseMove —— 之前写成了 onMove。
+       *
+       * React 不认识 onMove 这个 prop，它不会被报错、不会被警告，只是**被丢掉**：
+       * 于是 mousedown 那一下能落笔，而按住拖动时一次都不触发。原生事件实测
+       * 到达了 21 次，React 处理器一次没跑。（DOM 元素上的事件 prop 一律是
+       * on + 事件名首字母大写：onClick / onMouseMove / onMouseDown。）
+       */
+      onMouseMove: onMove,
       onContextMenu,
     }),
     // 内描边 + 暗角：地图边缘收进容器，视觉上"这是一张图"而不是糊满整个框
