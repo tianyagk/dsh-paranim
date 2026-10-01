@@ -19,7 +19,7 @@ import {
   type SandboxAgent,
   type WorldObject,
 } from '../shared/model.ts'
-import { BUILDING, CHARACTER, GROUND, PROPS, SYMBOLS, pickSlot } from './mapStyle.ts'
+import { BUILDING, CHARACTER, GROUND, OBJECT_LIBRARY, PROPS, SYMBOLS, pickSlot } from './mapStyle.ts'
 import { buildLayout, layoutKey, type TownLayout } from './layout.ts'
 import { hash2 } from './grid.ts'
 import { drawGroundTile, drawTile, type TileRef } from './tiles.ts'
@@ -171,29 +171,20 @@ function drawBuilding(ctx: CanvasRenderingContext2D, view: View, layout: TownLay
 
 // ── 物件 ──────────────────────────────────────────────────────────────────
 
+/**
+ * 物件用哪张图。
+ *
+ * 优先级：**物件自己的 `sprite` 字段** → 资源池别名表 → 形状兜底。
+ * 显式字段优先是刻意的：物件的样子是数据，玩家在资源池里挑了哪张贴图就该用哪张，
+ * 不该被名字里的某个字重新决定。
+ */
 function propSlotOf(object: WorldObject): string {
-  const id = `${object.id} ${object.name}`.toLowerCase()
-  const named: Array<[RegExp, string]> = [
-    [/tree|树|盆栽/, 'tree'],
-    [/bush|灌木|花丛/, 'bush'],
-    [/flower|花/, 'flower'],
-    [/rock|石/, 'rock'],
-    [/lamp|灯/, 'streetlamp'],
-    [/sign|notice|board|告示|牌/, 'sign'],
-    [/vehicle|truck|car|车|风车/, 'vehicle'],
-    [/bed|床/, 'bed'],
-    [/sofa|couch|沙发/, 'sofa'],
-    [/table|桌|餐桌|书桌/, 'table'],
-    [/chair|凳|椅/, 'chair'],
-    [/stove|cooker|灶|烤箱/, 'stove'],
-    [/counter|cabinet|柜|案台/, 'counter'],
-    [/sink|basin|水槽|洗手/, 'sink'],
-    [/rug|carpet|地毯/, 'rug'],
-    [/shelf|书架|柜架/, 'bookshelf'],
-    [/plant|绿植/, 'plant'],
-    [/fence|栅栏|篱/, 'fence'],
-  ]
-  for (const [re, slot] of named) if (re.test(id)) return slot
+  if (typeof object.sprite === 'string' && object.sprite !== '') return object.sprite
+  const text = `${object.id} ${object.name}`.toLowerCase()
+  for (const entry of OBJECT_LIBRARY) {
+    if (entry.alias === undefined) continue
+    if (entry.alias.some((word) => text.includes(word.toLowerCase()))) return entry.slot
+  }
   switch (object.kind as ObjectKind) {
     case 'plant':
       return 'tree'
@@ -210,7 +201,7 @@ function drawObject(ctx: CanvasRenderingContext2D, view: View, object: WorldObje
   const { scale, offsetX, offsetY } = view
   const slot = propSlotOf(object)
   const n = hash2(object.x, object.y, 41)
-  const ref = pickSlot(PROPS, slot, n) ?? pickSlot(PROPS, 'fallback', n)
+  const ref = pickSlot(PROPS, slot, n) ?? pickSlot(PROPS, slot, 0) ?? pickSlot(PROPS, 'fallback', 0)
   if (ref === undefined) return
   const cx = offsetX + object.x * TILE_PX * scale
   const bottom = offsetY + (object.y + 0.85) * TILE_PX * scale

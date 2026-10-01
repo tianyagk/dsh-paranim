@@ -203,10 +203,17 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
   const world = async (args: { workspace?: string; sandboxId?: string; create?: boolean }): Promise<WorldView> => {
     const sandboxes = await deps.store.list()
     if (sandboxes.length === 0) throw new HttpError('沙盒库是空的（连出厂镜像都没读到）', 500)
-    const sandbox = args.sandboxId === undefined || args.sandboxId === ''
+    // 没给 sandboxId 时的兜底顺序：**上次选的那个** → 列表第一个。
+    // 只用 `sandboxes[0]` 是不行的：那是按名字排序的第一个（"house" 恰好排在
+    // "smallville" 前面），任何漏带 sandboxId 的请求都会被悄悄拽回它。
+    const stepStoreForPick = deps.stepOf(args.workspace)
+    const stepCfg = await stepStoreForPick.load()
+    const remembered = typeof stepCfg.sandboxId === 'string' && stepCfg.sandboxId !== '' ? stepCfg.sandboxId : undefined
+    const wanted = args.sandboxId === undefined || args.sandboxId === '' ? remembered : args.sandboxId
+    const sandbox = wanted === undefined
       ? sandboxes[0]
-      : sandboxes.find((s) => s.id === args.sandboxId)
-    if (sandbox === undefined) throw new HttpError(`找不到沙盒 ${String(args.sandboxId)}`, 404)
+      : sandboxes.find((s) => s.id === wanted)
+    if (sandbox === undefined) throw new HttpError(`找不到沙盒 ${String(wanted)}`, 404)
     const runStore = deps.runOf(args.workspace)
     let run = await runStore.load(sandbox.id)
     if (run === undefined) {
@@ -234,6 +241,13 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
         ticks: live?.ticks ?? 0,
       },
     }
+  }
+
+  /** 切换/载入沙盒：把这个选择记进本工作区的 step 配置，后续漏带 sandboxId 的请求才有据可依。 */
+  const rememberSandbox = async (workspace: string | undefined, id: string): Promise<void> => {
+    const stepStore = deps.stepOf(workspace)
+    await stepStore.load()
+    await stepStore.set({ sandboxId: id })
   }
 
   const step = async (args: ParanimStepArgs): Promise<StepResultView> => {
@@ -553,6 +567,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
               const id = String(body.id ?? '')
               const target = await deps.store.get(id)
               if (target === undefined) throw new HttpError(`找不到沙盒 ${id}`, 404)
+              await rememberSandbox(workspace, id)
               const view = await world({ workspace, sandboxId: id, create: true })
               return send(res, 200, { ok: true, data: view })
             }
@@ -611,22 +626,163 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
             const view = await world({ workspace, sandboxId, create: true })
             const op = String(body.op ?? 'upsert')
             const bucket = body.kind === 'place' ? view.sandbox.places : view.sandbox.objects
+            /**
+             * 对象 id 的两种写法都收:`id` 与 `objectId`。
+             *
+             * 这个接口原本只认 `id`,而 /object 与 MapCanvas 那边用的是 `objectId`——
+             * 名字不统一时,传错了不会报错,而是**静默新建一个对象**(走到 fallbackId 分支),
+             * 看上去像"改了没生效"。宁可在这一层兜住两种写法,也不让调用方差一个字就出鬼。
+             */
+            const wantedId = String(body.id ?? body.objectId ?? '')
+            const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
+            /**
+             * 布局改动必须写进事件流。
+             *
+             * 此前这条支线完全静默:改了地图或放了个物件,事件列表里什么都没有,
+             * 于是"刚才谁动了这个世界"这条线索断了——而这正是事件流存在的意义。
+             */
+            const logMutate = (text: string, targetId?: string): void => {
+              view.run.events.push({
+                id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate',
+                actor: 'gm', actorName: by, text, targetId,
+              })
+            }
             if (op === 'remove') {
-              const id = String(body.id ?? '')
-              const index = bucket.findIndex((o) => o.id === id)
-              if (index < 0) throw new HttpError(`找不到对象 ${id}`, 404)
-              bucket.splice(index, 1)
+              const index = bucket.findIndex((o) => o.id === wantedId)
+              if (index < 0) throw new HttpError(`找不到对象 ${wantedId}`, 404)
+              const [gone] = bucket.splice(index, 1)
+              logMutate(`${by}移走了「${gone.name}」。`)
             } else {
-              const raw = body.object ?? body
+              // id 的优先级:`object.id` > `body.id`/`body.objectId` > 兜底生成。
+              // 先取内层的、再回退外层的——外层 id 是"我要改哪个",内层是"它自己叫什么",
+              // 让外层赢会把[改名]变成"照抄外层",而这里是upsert,不该那样。
+              const inner = (body.object ?? body) as Record<string, unknown>
+              const raw = { kind: body.kind, ...inner, id: String(inner.id ?? wantedId ?? '') }
               const fallbackId = shortId(body.kind === 'place' ? 'place' : 'obj')
               const parsed = normalizeObject(raw, view.sandbox.map.width, view.sandbox.map.height, body.kind === 'place' ? 'place' : 'prop', fallbackId)
               if (parsed === undefined) throw new HttpError('对象缺少合法 id', 400)
               const index = bucket.findIndex((o) => o.id === parsed.id)
-              if (index < 0) bucket.push(parsed)
-              else bucket[index] = { ...bucket[index], ...parsed }
+              if (index < 0) {
+                bucket.push(parsed)
+                logMutate(`${by}在世界里放了一件「${parsed.name}」(sprite=${parsed.sprite ?? 'auto'} @${parsed.x},${parsed.y})。`, parsed.id)
+              } else {
+                // 只覆盖请求里**真的给了**的字段。
+                // 直接 `{ ...旧值, ...parsed }` 是错的：parsed 里没给的字段是 undefined，
+                // 会把已有值抹掉——想只改 sprite 却把 description 清了就是这么来的。
+                const kept = bucket[index]
+                const patch = Object.fromEntries(
+                  Object.entries(parsed).filter(([, v]) => v !== undefined),
+                ) as Partial<WorldObject>
+                patch.state = { ...kept.state, ...parsed.state }
+                bucket[index] = { ...kept, ...patch }
+                const changedKeys = Object.keys(patch).filter((k) => k !== 'state')
+                logMutate(`${by}改了「${kept.name}」:${changedKeys.length === 0 ? '状态有变动' : changedKeys.join('、')}。`, kept.id)
+              }
             }
+            view.sandbox.updatedAt = Date.now()
             const saved = await deps.store.save(view.sandbox)
+            // 事件流改动也要落盘:只 save 沙盒的话,刚记的 mutate 事件下一次重启就没了。
+            await deps.runOf(workspace).save(view.run)
             return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: saved.id, create: true }) })
+          }
+
+          /**
+           * POST /paranim/place —— 增删改地标（"编辑当前沙盒世界的布局"）。
+           *
+           * 与 /object 分开是有意的：地标参与 ① 建筑绘制（墙圈/屋顶）② 路网生成
+           * ③ 智能体的"所在地点数"，改一个矩形会牵动这三处，所以它有自己的校验
+           * （宽高下限、必须落在图内）与自己的事件类型（kind=mutate + 地标前缀）。
+           */
+          if (method === 'POST' && path === '/place') {
+            const view = await world({ workspace, sandboxId, create: true })
+            const op = String(body.op ?? 'patch')
+            const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
+            const W = view.sandbox.map.width
+            const H = view.sandbox.map.height
+            const clampX = (v: number): number => Math.min(W - 1, Math.max(0, Math.round(v)))
+            const clampY = (v: number): number => Math.min(H - 1, Math.max(0, Math.round(v)))
+
+            if (op === 'add') {
+              const name = typeof body.name === 'string' && body.name.trim() !== '' ? body.name.trim().slice(0, 24) : '新地标'
+              const w = Math.min(W, Math.max(2, Math.round(Number(body.w ?? 6)) || 6))
+              const h = Math.min(H, Math.max(2, Math.round(Number(body.h ?? 5)) || 5))
+              const place = normalizeObject(
+                {
+                  id: `place-${randomToken(6)}`,
+                  name,
+                  kind: 'place',
+                  x: clampX(Number(body.x ?? W / 2)),
+                  y: clampY(Number(body.y ?? H / 2)),
+                  w,
+                  h,
+                  color: typeof body.color === 'string' ? body.color : '#a8623f',
+                  interactive: true,
+                  state: { open: true },
+                  desc: typeof body.desc === 'string' ? body.desc : '',
+                  roofSlot: typeof body.roofSlot === 'string' ? body.roofSlot : 'roofHome',
+                },
+                W,
+                H,
+                'place',
+              )
+              if (place === undefined) throw new HttpError('地标参数不合法', 400)
+              view.sandbox.places.push(place)
+              view.run.events.push({
+                id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate', actor: 'gm', actorName: by,
+                text: `${by}新建了地标「${place.name}」（${place.w}×${place.h} @${place.x},${place.y}）。`,
+                targetId: place.id,
+              })
+              view.sandbox.updatedAt = Date.now()
+              await deps.store.save(view.sandbox)
+              await deps.runOf(workspace).save(view.run)
+              return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: view.sandbox.id, create: true }) })
+            }
+
+            // id / placeId 两种写法都收：与 /map 保持一致的宽容度。
+            // 只认一种写法的后果是——调用方换了字段名就静默 404,排查起来很脏。
+            const placeId = String(body.placeId ?? body.id ?? '')
+            const index = view.sandbox.places.findIndex((p) => p.id === placeId)
+            if (index < 0) throw new HttpError(`找不到地标 ${placeId}`, 404)
+
+            if (op === 'remove') {
+              const [gone] = view.sandbox.places.splice(index, 1)
+              view.run.events.push({
+                id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate', actor: 'gm', actorName: by,
+                text: `${by}拆掉了地标「${gone.name}」。`,
+              })
+              view.sandbox.updatedAt = Date.now()
+              await deps.store.save(view.sandbox)
+              await deps.runOf(workspace).save(view.run)
+              return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: view.sandbox.id, create: true }) })
+            }
+
+            // patch：只收白名单字段，改完做一次范围收敛
+            const target = view.sandbox.places[index]
+            const before = `${target.name} ${target.w ?? 0}×${target.h ?? 0} @${target.x},${target.y}`
+            if (typeof body.name === 'string' && body.name.trim() !== '') target.name = body.name.trim().slice(0, 24)
+            if (body.x !== undefined) target.x = clampX(Number(body.x))
+            if (body.y !== undefined) target.y = clampY(Number(body.y))
+            if (body.w !== undefined) target.w = Math.min(W, Math.max(2, Math.round(Number(body.w)) || (target.w ?? 6)))
+            if (body.h !== undefined) target.h = Math.min(H, Math.max(2, Math.round(Number(body.h)) || (target.h ?? 5)))
+            if (typeof body.desc === 'string') target.desc = body.desc.slice(0, 400)
+            if (typeof body.roofSlot === 'string' && body.roofSlot !== '') target.roofSlot = body.roofSlot
+            if (typeof body.color === 'string' && body.color !== '') target.color = body.color
+            // 外框不许越界：越界的地标画出来会缺一角，路网也会接到图外
+            const halfW = (target.w ?? 6) / 2
+            const halfH = (target.h ?? 5) / 2
+            target.x = Math.min(W - 1 - Math.floor(halfW), Math.max(Math.floor(halfW), target.x))
+            target.y = Math.min(H - 1 - Math.floor(halfH), Math.max(Math.floor(halfH), target.y))
+            target.lastEditedBy = by
+            target.lastEditedAt = Date.now()
+            view.sandbox.updatedAt = Date.now()
+            view.run.events.push({
+              id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate', actor: 'gm', actorName: by,
+              text: `${by}改了地标「${target.name}」：${before} → ${target.name} ${target.w ?? 0}×${target.h ?? 0} @${target.x},${target.y}。`,
+              targetId: target.id,
+            })
+            await deps.store.save(view.sandbox)
+            await deps.runOf(workspace).save(view.run)
+            return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: view.sandbox.id, create: true }) })
           }
 
           // POST /paranim/object —— 修改物体状态（需求 5 的右键菜单落点）

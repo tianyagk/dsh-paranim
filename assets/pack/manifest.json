@@ -35,10 +35,10 @@
     },
     {
       "file": "city.png",
-      "cols": 37,
+      "cols": 42,
       "rows": 28,
       "tile": 16,
-      "note": "Kenney Roguelike Modern City · CC0",
+      "note": "Kenney Roguelike Modern City · CC0 + 本仓补绘的交通工具 (第 38-41 列)",
       "source": "rogue-city-tilemap.png"
     },
     {

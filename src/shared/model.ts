@@ -354,6 +354,11 @@ export interface WorldObject {
    * 这样同一类建筑在地图上是同一个色系——这正是原版地图"一眼能分出住宅区与商业区"的原因。
    */
   roofSlot?: string
+  /**
+   * 物件用哪张贴图（对应 mapStyle.PROPS 的槽位名，见 OBJECT_LIBRARY）。
+   * 显式字段优先于按名字推断：玩家在「物件资源池」里挑了哪张，就该用哪张。
+   */
+  sprite?: string
   /** 修改者与时间，用于复盘「谁在什么时候动了这盏灯」。 */
   lastEditedBy?: string
   lastEditedAt?: number
@@ -590,6 +595,8 @@ export interface StepConfig {
   maxAgentsPerTick: number
   /** 单个智能体的模型调用超时（毫秒）。 */
   callTimeoutMs: number
+  /** 本工作区上次选中的沙盒：任何漏带 sandboxId 的请求按它兜底，避免被拽回列表第一个。 */
+  sandboxId?: string
 }
 
 export const STEP_INTERVAL_MIN = 2000
@@ -614,6 +621,7 @@ export function clampStepConfig(input: Partial<StepConfig> | undefined): StepCon
       : DEFAULT_STEP_CONFIG.intervalMs,
     maxAgentsPerTick: Math.min(48, Math.max(1, Math.round(Number(src.maxAgentsPerTick) || DEFAULT_STEP_CONFIG.maxAgentsPerTick))),
     callTimeoutMs: Math.min(300000, Math.max(5000, Math.round(Number(src.callTimeoutMs) || DEFAULT_STEP_CONFIG.callTimeoutMs))),
+    sandboxId: typeof src.sandboxId === 'string' && src.sandboxId !== '' ? src.sandboxId : undefined,
   }
 }
 

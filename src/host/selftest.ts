@@ -16,7 +16,7 @@ import { resolveAction } from '../shared/rules.ts'
 import { ATTR_IDS, normalizeAttrs, shortId, type RunState, type Sandbox, type WorldEvent } from '../shared/model.ts'
 import { remember, runTick, issueDirective, listModelChoices } from './engine.ts'
 import { makeRoutes, type ParanimRoutes, type WorldView } from './routes.ts'
-import { RunStore, SandboxStore, StepStore, dataHome, sandboxDir } from './store.ts'
+import { RunStore, SandboxStore, StepStore, dataHome, normalizeSandbox, sandboxDir } from './store.ts'
 import { makeTools } from './tools.ts'
 import { INLINE_SMALLVILLE } from './fallback.ts'
 import type { PluginLlm, PluginToolDefinition } from './context.ts'
@@ -524,6 +524,107 @@ ok(moodReloaded?.agents.find((a) => a.id === addedNullModel?.id)?.mood?.value ==
     actText.slice(0, 44),
   )
   ok(!/[。．.]{2}/.test(actText), '动作正文不出现连续句号', actText.slice(0, 40))
+}
+
+/**
+ * 一个只用内存的沙盒库：两个镜像，**顺序刻意让 alpha 排在前面**。
+ *
+ * SandboxStore 会去读真实目录，而这两段断言只关心"选了谁、兜底是谁"，
+ * 所以这里继承后覆盖 list/get/save，不落任何盘。
+ */
+function smallStore(): SandboxStore {
+  const mk = (id: string, name: string): Sandbox => normalizeSandbox({
+    id, name, desc: `${name}（自检用）`, map: { width: 40, height: 30, background: 'ado', tileset: 'dungeon' },
+    places: [], objects: [], agents: [], events: [], attribution: 'Kenney (kenney.nl)', license: 'CC0',
+    version: 1, builtAt: Date.now(), updatedAt: Date.now(),
+  })
+  const rows = [mk('alpha', '阿尔法院子'), mk('zeta', '泽塔小镇')]
+  return Object.assign(Object.create(SandboxStore.prototype) as SandboxStore, {
+    async ensureSeed(): Promise<void> {},
+    async list(): Promise<Sandbox[]> { return rows },
+    async get(id: string): Promise<Sandbox | undefined> { return rows.find((r) => r.id === id) },
+    async save(sandbox: Sandbox): Promise<Sandbox> {
+      const at = rows.findIndex((r) => r.id === sandbox.id)
+      if (at >= 0) rows[at] = sandbox
+      else rows.push(sandbox)
+      return sandbox
+    },
+    async remove(): Promise<void> {},
+  })
+}
+
+// ── 回归：漏带 sandboxId 时必须回到"上次选的"，不能回到列表第一个 ────────────
+// 界面上的症状是"载入别的镜像后过一会儿自动跳回 house"——house 恰好是排序第一个。
+// 这一段用**自己的临时工作区**，因为 step 配置里要写 sandboxId，写进 /tmp/fake-workspace
+// 会污染后面依赖那份配置的断言（第一次跑就是这样炸的）。
+{
+  const home = await mkdtemp(join(tmpdir(), 'pa-scope-'))
+  const ws = `${home}/ws`
+  const scoped = smallStore()
+  const isolated = makeRoutes({
+    store: scoped,
+    runOf: () => new RunStore(ws),
+    stepOf: () => new StepStore(ws),
+    llm: () => undefined,
+    defaultRoute: () => undefined,
+    workspaceOf: () => ws,
+  })
+  isolated.setTrustedHosts(['127.0.0.1:3080'])
+  const r0 = isolated.routes[0]
+  const list = await scoped.list()
+  const last = list.find((x) => x.id !== list[0].id)
+  if (last !== undefined) {
+    await call(r0, 'POST', `/paranim/sandbox?workspace=${encodeURIComponent(ws)}`, { action: 'select', id: last.id })
+    const fallbackW = await isolated.world({ workspace: ws, create: true })
+    ok(
+      fallbackW.sandbox.id === last.id,
+      '漏带 sandboxId 时回到上次选的沙盒（不是列表第一个）',
+      `得到 ${fallbackW.sandbox.id}，期望 ${last.id}`,
+    )
+  }
+  await rm(home, { recursive: true, force: true })
+}
+
+// ── 物件的贴图：sprite 字段要走 upsert → 落盘 → 读回 ────────────────────────
+// 同样用独立工作区：这里会往世界里加一个物件，共享工作区会让后面的断言看到多出来的东西。
+{
+  const home = await mkdtemp(join(tmpdir(), 'pa-sprite-'))
+  const ws = `${home}/ws`
+  const isolated = makeRoutes({
+    store: smallStore(),
+    runOf: () => new RunStore(ws),
+    stepOf: () => new StepStore(ws),
+    llm: () => undefined,
+    defaultRoute: () => undefined,
+    workspaceOf: () => ws,
+  })
+  isolated.setTrustedHosts(['127.0.0.1:3080'])
+  const r0 = isolated.routes[0]
+  const q = `/paranim/map?workspace=${encodeURIComponent(ws)}`
+  const added = dataOf<WorldView>(await call(r0, 'POST', q, {
+    op: 'upsert', kind: 'prop', name: '自行车', x: 5, y: 5, color: '#3a7a8a', sprite: 'bike',
+  }))
+  const created = added.sandbox.objects.find((o) => o.name === '自行车')
+  ok(created?.sprite === 'bike', '带 sprite 新建物件：字段落盘', String(created?.sprite))
+
+  const changed = dataOf<WorldView>(await call(r0, 'POST', q, {
+    op: 'upsert', kind: 'prop', objectId: created?.id ?? '', sprite: 'chest',
+  }))
+  ok(
+    changed.sandbox.objects.find((o) => o.id === created?.id)?.sprite === 'chest',
+    '改 sprite 生效（同一类物件不再共用一张图）',
+  )
+
+  // 布局改动必须同时进事件流**并落盘**:只 save 沙盒的话,重启后这条线索就没了。
+  const eventsAfter = changed.run.events.filter((e) => e.kind === 'mutate')
+  ok(eventsAfter.length > 0, '改布局会写 mutate 事件', `${eventsAfter.length} 条`)
+  const persisted = await new RunStore(ws).load('alpha')
+  ok(
+    (persisted?.events ?? []).some((e) => e.kind === 'mutate'),
+    'mutate 事件落盘了（重启后还在）',
+    `盘上 ${persisted?.events.length ?? 0} 条`,
+  )
+  await rm(home, { recursive: true, force: true })
 }
 
 // 需求 3：指令引导

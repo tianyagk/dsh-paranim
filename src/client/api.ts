@@ -103,6 +103,8 @@ export function createApi(scopeRef: () => Scope) {
       post('/step', { maxAgents: options?.maxAgents }),
     stepConfig: (patch: Partial<StepConfig>): Promise<WorldView> => post('/step/config', patch),
     object: (body: Record<string, unknown>): Promise<{ world: WorldView; changes: string[] }> => post('/object', body),
+    /** 地标增删改（布局编辑）。 */
+    place: (body: Record<string, unknown>): Promise<WorldView> => post('/place', body),
     mapObject: (body: Record<string, unknown>): Promise<WorldView> => post('/map', body),
     agent: (body: Record<string, unknown>): Promise<WorldView> => post('/agent', body),
     directive: (agentId: string, text: string): Promise<{ directive: Directive; world: WorldView }> =>

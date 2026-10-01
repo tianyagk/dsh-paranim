@@ -150,6 +150,7 @@ export function normalizeObject(
     // 屋顶族可以由沙盒显式指定（Smallville 镜像按原版建筑族写好了每处地点）。
     // 归一化把它丢掉，渲染层就只能回落到"按 tags 推导"，同族地点会全部同色。
     roofSlot: typeof o.roofSlot === 'string' ? o.roofSlot : undefined,
+    sprite: typeof o.sprite === 'string' ? o.sprite : undefined,
     lastEditedBy: typeof o.lastEditedBy === 'string' ? o.lastEditedBy : undefined,
     lastEditedAt: o.lastEditedAt === undefined ? undefined : num(o.lastEditedAt, 0),
   }

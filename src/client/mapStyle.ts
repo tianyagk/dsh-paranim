@@ -70,7 +70,15 @@ export const PROPS: SlotTable = {
   flower: [at(T, 4, 0), at(T, 5, 0), at(T, 4, 2)],
   streetlamp: [at(T, 8, 9), at(T, 8, 10)],
   sign: [at(T, 0, 9), at(T, 1, 9)],
-  vehicle: [at('tiny-battle', 0, 4), at('tiny-battle', 1, 4)],
+  // 轿车用 city 图集的 2x2 拼块(绿/银/橙三色,横置)。原槽位 (0,4) 是 tiny-battle
+  // 的水面地块——之前物件画成"一滩水"就是它。
+  vehicle: [at('city', 32, 15), at('city', 34, 15), at('city', 32, 19)],
+  // 补绘的自行车/摩托/轮胎/手推车(38-41 列):素材库里原本没有自行车,
+  // 用卡车凑数会违背"图标贴合物件",所以按 Kenney 调色板风格原创补了 8 格。
+  bike: [at('city', 38, 0), at('city', 39, 0), at('city', 40, 0), at('city', 41, 0)],
+  moto: [at('city', 38, 1), at('city', 39, 1)],
+  tire: [at('city', 40, 1)],
+  cart: [at('city', 41, 1)],
   fence: [at(F, 0, 4), at(F, 1, 4)],
   crop: [at(F, 2, 6), at(F, 3, 6)],
   // —— 室内 ——
@@ -84,6 +92,8 @@ export const PROPS: SlotTable = {
   rug: [at('city', 30, 25)],
   plant: [at('city', 21, 12)],
   bookshelf: [at('city', 25, 2), at('city', 27, 2)],
+  chest: [at('city', 31, 14), at('city', 33, 14)],
+  marker: [at('onebit', 22, 10)],
   fallback: [at(T, 4, 10)],
 }
 
@@ -105,6 +115,63 @@ export const CHARACTER: SlotTable = {
   up: [at('characters', 4, 0), at('characters', 5, 0)],
   fallback: [at('characters', 0, 0)],
 }
+
+/**
+ * 物件资源池：可放置进沙盒的**素材条目**。
+ *
+ * 三个用途：① 物件按 `sprite` 取图，同一类物件不再共用一张图；
+ *          ② 界面上的「物件资源池」直接按这份清单渲染可选贴图；
+ *          ③ 新建物件时从这里挑一个槽位。
+ *
+ * `slots` 里的每一格都经 `npm run find-tile` 按实测色反查或逐格看过，
+ * 找不到合适贴图的条目**不放进清单**——宁可少一项，也不摆一个看不出来的东西。
+ */
+export interface ObjectEntry {
+  /** 槽位名：写进物件的 `sprite` 字段。 */
+  slot: string
+  /** 中文显示名（也用于按名字自动识别）。 */
+  label: string
+  group: '自然' | '建筑' | '家具' | '器物' | '交通' | '人物'
+  /** 同义写法：物件名里出现这些词就归到这个槽位。 */
+  alias?: string[]
+}
+
+export const OBJECT_LIBRARY: readonly ObjectEntry[] = [
+  // —— 自然 ——
+  { slot: 'tree', label: '树', group: '自然', alias: ['树', '乔木', '橡树'] },
+  { slot: 'bush', label: '灌木', group: '自然', alias: ['灌木', '花丛'] },
+  { slot: 'flower', label: '花', group: '自然', alias: ['花', '花坛'] },
+  { slot: 'rock', label: '石头', group: '自然', alias: ['石', '岩石'] },
+  { slot: 'crop', label: '田垄', group: '自然', alias: ['田', '垄', '苗'] },
+  // —— 建筑 ——
+  { slot: 'fence', label: '栅栏', group: '建筑', alias: ['栅栏', '篱', '围栏'] },
+  { slot: 'sign', label: '牌子', group: '建筑', alias: ['牌子', '告示', '招牌'] },
+  { slot: 'streetlamp', label: '路灯', group: '建筑', alias: ['路灯', '街灯'] },
+  // —— 家具 ——
+  { slot: 'bed', label: '床', group: '家具', alias: ['床'] },
+  { slot: 'sofa', label: '沙发', group: '家具', alias: ['沙发', '长椅'] },
+  { slot: 'table', label: '桌', group: '家具', alias: ['桌', '案台'] },
+  { slot: 'chair', label: '椅', group: '家具', alias: ['椅', '凳'] },
+  { slot: 'bookshelf', label: '架', group: '家具', alias: ['架', '书柜', '货架'] },
+  { slot: 'rug', label: '地毯', group: '家具', alias: ['地毯'] },
+  // —— 器物 ——
+  { slot: 'stove', label: '灶', group: '器物', alias: ['灶', '炉', '烤箱'] },
+  { slot: 'counter', label: '柜台', group: '器物', alias: ['柜台', '操作台'] },
+  { slot: 'sink', label: '水槽', group: '器物', alias: ['水槽', '洗手'] },
+  { slot: 'chest', label: '箱柜', group: '器物', alias: ['箱', '柜', '桶'] },
+  { slot: 'plant', label: '盆栽', group: '器物', alias: ['盆栽', '绿植'] },
+  // —— 交通 ——
+  { slot: 'vehicle', label: '车', group: '交通', alias: ['车', '卡车', '汽车'] },
+  { slot: 'bike', label: '自行车', group: '交通', alias: ['自行车', '单车', '脚踏车'] },
+  { slot: 'moto', label: '摩托', group: '交通', alias: ['摩托', '机车'] },
+  { slot: 'tire', label: '轮胎', group: '交通', alias: ['轮胎', '废胎'] },
+  { slot: 'cart', label: '手推车', group: '交通', alias: ['手推车', '推车', '板车'] },
+  // —— 符号（1-Bit 后备，用于状态标记）——
+  { slot: 'marker', label: '标记', group: '器物', alias: ['标记', '点位'] },
+]
+
+/** 槽位 → 中文名。 */
+export const SLOT_LABEL: Record<string, string> = Object.fromEntries(OBJECT_LIBRARY.map((e) => [e.slot, e.label]))
 
 /** 随机取一个候选（由调用方给的 0..1 决定，保证同一格每次重绘一致）。 */
 export function pickSlot(table: SlotTable, slot: string, n: number): TileRef | undefined {

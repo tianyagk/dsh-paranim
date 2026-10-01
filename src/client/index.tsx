@@ -36,6 +36,8 @@ import {
 } from '../shared/model.ts'
 import { createApi, type ParanimApi, type SandboxSummary, type WorldView } from './api.ts'
 import { MapCanvas } from './MapCanvas.tsx'
+import { SpriteButton, SpritePalette } from './SpritePalette.tsx'
+import { SLOT_LABEL } from './mapStyle.ts'
 import {
   DEFAULT_FEED_MODE,
   DEFAULT_THEME,
@@ -138,9 +140,18 @@ function MoodChip(props: { mood?: { value: number; label: string } }): React.Rea
 
 function ParanimApp(props: TabProps): React.ReactElement {
   const visible = props.visible !== false
+  /**
+   * 「当前是哪个沙盒」必须进 scope。
+   *
+   * 曾经漏了这一项：载入沙盒只是把返回值放进本地 world，而 4 秒一次的轮询用
+   * 不带 sandboxId 的请求去 /paranim/world，服务端按 `sandboxes[0]` 兜底——
+   * 那是**按名字排序的第一个**（house），于是"载入别的镜像后过一会儿自动跳回 house"。
+   * 这类"过一会儿自己变回去"的 bug，根源永远是某个后台刷新用了不完整的上下文。
+   */
+  const [sandboxId, setSandboxId] = useState<string | undefined>(undefined)
   const scope = useMemo(
-    () => ({ workspace: props.scope?.cwd, sessionId: props.scope?.sessionId }),
-    [props.scope?.cwd, props.scope?.sessionId],
+    () => ({ workspace: props.scope?.cwd, sessionId: props.scope?.sessionId, sandboxId }),
+    [props.scope?.cwd, props.scope?.sessionId, sandboxId],
   )
   const scopeRef = useRef(scope)
   scopeRef.current = scope
@@ -201,6 +212,8 @@ function ParanimApp(props: TabProps): React.ReactElement {
   }, [feedMode])
 
   const applyWorld = useCallback((next: WorldView) => {
+    // 后端返回什么就是什么：scope 里的 sandboxId 跟着它走，轮询才不会漂回默认沙盒。
+    setSandboxId(next.sandbox.id)
     setWorld(next)
     setSelected((current) => {
       if (current !== undefined && next.run.agents.some((a) => a.id === current)) return current
@@ -956,6 +969,8 @@ function SandboxPage(props: {
   flash: (text: string) => void
 }): React.ReactElement {
   const { world, sandboxes, api, run, applyWorld, setSandboxes, flash } = props
+  /** 资源池要知道"现在是新建还是换贴图"，所以记一个选中态。 */
+  const [objectFocus, setObjectFocus] = React.useState<string | undefined>(undefined)
   const refreshList = async (): Promise<void> => {
     const list = await api.sandboxes()
     setSandboxes(list.sandboxes)
@@ -1026,20 +1041,160 @@ function SandboxPage(props: {
     React.createElement(
       'div',
       { className: 'pa-sec' },
-      React.createElement('h4', null, '物件库（右键地图上的物件也能改）'),
+      React.createElement(
+        'h4',
+        null,
+        '布局编辑',
+        React.createElement('span', { className: 'pa-chip' }, `${world.sandbox.places.length} 处地标`),
+      ),
+      React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
+        '改坐标/尺寸即改布局：建筑轮廓、屋顶与连到门口的引道都会跟着重算。'),
       React.createElement(
         'div',
-        { className: 'pa-scroll', style: { maxHeight: 180 } },
+        { className: 'pa-line', style: { marginBottom: 6 } },
+        React.createElement('button', {
+          className: 'pa-btn', 'data-tiny': 'true',
+          onClick: () => void run('新建地标', async () => {
+            applyWorld(await api.place({
+              op: 'add',
+              name: `新地标 ${world.sandbox.places.length + 1}`,
+              x: Math.round(world.sandbox.map.width / 2) + (world.sandbox.places.length % 5) - 2,
+              y: Math.round(world.sandbox.map.height / 2),
+              w: 6, h: 5,
+            }))
+            flash('已新建一处地标，下面可以改名字与坐标')
+          }),
+        }, '＋ 新建地标'),
+      ),
+      React.createElement(
+        'div',
+        { className: 'pa-scroll', style: { maxHeight: 260 } },
+        ...world.sandbox.places.map((place) =>
+          React.createElement(
+            'div',
+            { key: place.id, className: 'pa-place' },
+            React.createElement(
+              'div',
+              { className: 'pa-line' },
+              React.createElement('span', null, React.createElement('b', null, place.name)),
+              React.createElement('span', { className: 'pa-dim pa-mono' }, `${place.w ?? 0}×${place.h ?? 0}`),
+              React.createElement('span', { className: 'pa-spacer' }),
+              React.createElement('button', {
+                className: 'pa-btn', 'data-tiny': 'true', 'data-danger': 'true',
+                onClick: () => void run('拆掉地标', async () => {
+                  if (!window.confirm(`拆掉地标「${place.name}」？`)) return
+                  applyWorld(await api.place({ op: 'remove', placeId: place.id }))
+                  flash(`已拆掉「${place.name}」`)
+                }),
+              }, '拆掉'),
+            ),
+            React.createElement(
+              'div',
+              { className: 'pa-place-grid' },
+              ...[
+                { key: 'name', label: '名', value: place.name, text: true },
+                { key: 'x', label: 'x', value: place.x },
+                { key: 'y', label: 'y', value: place.y },
+                { key: 'w', label: '宽', value: place.w ?? 6 },
+                { key: 'h', label: '高', value: place.h ?? 5 },
+              ].map((field) =>
+                React.createElement('label', { key: field.key, className: 'pa-place-cell' },
+                  React.createElement('span', { className: 'pa-dim' }, field.label),
+                  React.createElement('input', {
+                    type: field.text === true ? 'text' : 'number',
+                    value: String(field.value),
+                    onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+                      const value = field.text === true ? event.target.value : Number(event.target.value)
+                      void run('改地标', async () => {
+                        applyWorld(await api.place({ op: 'patch', placeId: place.id, [field.key]: value }))
+                      })
+                    },
+                  }),
+                ),
+              ),
+              React.createElement('label', { className: 'pa-place-cell' },
+                React.createElement('span', { className: 'pa-dim' }, '屋顶'),
+                React.createElement('select', {
+                  value: place.roofSlot ?? 'roofHome',
+                  onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
+                    void run('改屋顶', async () => {
+                      applyWorld(await api.place({ op: 'patch', placeId: place.id, roofSlot: event.target.value }))
+                    }),
+                },
+                  ...[
+                    ['roofHome', '住宅'],
+                    ['roofWarm', '社交/餐饮'],
+                    ['roofCool', '商业/学术'],
+                    ['roofGreen', '公共/户外'],
+                  ].map(([slot, label]) => React.createElement('option', { key: slot, value: slot }, label)),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+    React.createElement(
+      'div',
+      { className: 'pa-sec' },
+      React.createElement(
+        'h4',
+        null,
+        '物件资源池',
+        React.createElement('span', { className: 'pa-chip' }, `${world.sandbox.objects.length} 件在场`),
+      ),
+      React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
+        '先选中下面某件物件（点它的贴图），再点一张贴图＝换掉它的样子；不选中则＝在世界中心新建。'),
+      React.createElement(
+        'div',
+        { className: 'pa-line', style: { marginBottom: 5 } },
+        React.createElement('span', { className: 'pa-dim' }, objectFocus === undefined
+          ? '当前：新建（落在世界中心）'
+          : `当前：换掉「${world.sandbox.objects.find((o) => o.id === objectFocus)?.name ?? ''}」`),
+        objectFocus === undefined ? null : React.createElement('button', {
+          className: 'pa-btn', 'data-tiny': 'true',
+          onClick: () => setObjectFocus(undefined),
+        }, '取消选中'),
+      ),
+      React.createElement(SpritePalette, {
+        activeSlot: objectFocus === undefined ? undefined : world.sandbox.objects.find((o) => o.id === objectFocus)?.sprite,
+        onPick: (slot: string, label: string) => {
+          const target = objectFocus === undefined ? undefined : world.sandbox.objects.find((o) => o.id === objectFocus)
+          if (target === undefined) {
+            void run('放置物件', async () => {
+              applyWorld(await api.mapObject({
+                op: 'upsert', kind: 'prop', name: label,
+                x: Math.round(world.sandbox.map.width / 2), y: Math.round(world.sandbox.map.height / 2),
+                color: '#8a7a5f', sprite: slot,
+              }))
+              flash(`已在世界中心放置「${label}」`)
+            })
+            return
+          }
+          void run('换贴图', async () => {
+            applyWorld(await api.mapObject({ op: 'upsert', kind: 'prop', objectId: target.id, sprite: slot }))
+            flash(`「${target.name}」换成了「${label}」`)
+          })
+        },
+      }),
+      React.createElement(
+        'div',
+        { className: 'pa-scroll', style: { maxHeight: 190, marginTop: 6 } },
         ...world.sandbox.objects.map((object) =>
           React.createElement(
             'div',
-            { key: object.id, className: 'pa-item' },
-            React.createElement('span', { className: 'pa-portrait' }, statusIcon(object.state.status)),
+            { key: object.id, className: 'pa-item', 'data-on': object.id === objectFocus },
+            React.createElement(SpriteButton, {
+              slot: object.sprite ?? '',
+              title: object.name,
+              onClick: () => setObjectFocus(object.id === objectFocus ? undefined : object.id),
+            }),
             React.createElement(
               'span',
               { className: 'pa-main' },
               React.createElement('b', null, object.name),
               React.createElement('span', { className: 'pa-chip' }, OBJECT_KIND_LABEL[object.kind] ?? object.kind),
+              object.sprite === undefined ? null : React.createElement('span', { className: 'pa-chip' }, SLOT_LABEL[object.sprite] ?? object.sprite),
               React.createElement('div', { className: 'pa-dim' }, Object.entries(object.state).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('/') : String(v)}`).join('　') || '（无状态槽）'),
               React.createElement(
                 'div',

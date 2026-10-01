@@ -364,6 +364,54 @@ const CSS = `
 }
 .pa-thoughtblock .pa-dim { font-size: 11.5px; }
 
+/* 物件资源池：贴图按钮按组摆开，点一下即选 */
+.pa-palette { display: flex; flex-direction: column; gap: 6px; }
+.pa-pal-group { display: flex; flex-direction: column; gap: 3px; }
+.pa-sprs { display: flex; flex-wrap: wrap; gap: 4px; }
+.pa-spr {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  width: 46px; padding: 3px 2px;
+  background: var(--pa-layer3);
+  border: 1px solid var(--pa-border);
+  border-radius: 6px;
+  color: var(--pa-textDim);
+  font-size: 10px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.pa-spr:hover { background: var(--pa-layer4); color: var(--pa-text); }
+.pa-spr[data-on="true"] { border-color: var(--pa-gold); box-shadow: 0 0 0 1px var(--pa-gold); color: var(--pa-text); }
+.pa-spr-cv { width: 30px; height: 30px; display: block; image-rendering: pixelated; }
+
+/* 布局编辑：每处地标一行 + 五个小字段 */
+.pa-place {
+  border: 1px solid var(--pa-border);
+  border-radius: 7px;
+  padding: 6px 8px;
+  margin-bottom: 5px;
+  background: var(--pa-layer);
+}
+.pa-place[data-on="true"] { border-color: var(--pa-gold); }
+.pa-place-grid {
+  display: grid;
+  grid-template-columns: 1fr 52px 52px 52px 52px 78px;
+  gap: 4px;
+  margin-top: 5px;
+}
+.pa-place-cell { display: flex; flex-direction: column; gap: 1px; }
+.pa-place-cell > span { font-size: 10px; }
+.pa-place-cell input, .pa-place-cell select {
+  background: var(--pa-layer3);
+  border: 1px solid var(--pa-border);
+  border-radius: 5px;
+  color: var(--pa-text);
+  font-size: 11px;
+  font-family: inherit;
+  padding: 2px 4px;
+  min-width: 0;
+  width: 100%;
+}
+
 /* ── 底栏 ─────────────────────────────────────────────────────────── */
 .pa-foot {
   flex: 0 0 auto;
