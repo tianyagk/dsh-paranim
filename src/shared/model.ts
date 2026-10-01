@@ -514,72 +514,85 @@ export interface SandboxRelation {
 export type GroundKind = 'grass' | 'dirt' | 'stone' | 'concrete' | 'sand' | 'water' | 'field' | 'wood'
 
 /**
- * 结构件（structure layer 的元素）。矩形墙体围出建筑轮廓，
- * `doors` / `windows` 是在这圈墙上开出的通道——智能体只能从这些点进出。
+ * 一格瓦片的注释——**由人在图集编辑器里标**，不是代码猜的。
  *
- * 为什么门是"坐标点"而不是"物件"：碰撞判定问的是"这一步能不能走进去"，
- * 回答它只需要一个坐标集合；把它做成独立物件会让移动判定变成物件查询。
+ * 为什么必须人标：早先用"按平均色反查格子"来选贴图，那对纯色地面有效
+ * （草地、石板整格同色），对**有形状的东西**完全无效——一棵树和一片灌木的
+ * 平均色可以一模一样。于是出现"把路面当树画出来"这类错误，而且不报错。
+ * 现在改成：图集切片后逐格标注，代码只读标注结果。
  */
-export interface Structure {
-  id: string
-  name: string
-  x: number
-  y: number
-  w: number
-  h: number
-  /** 屋顶配色族（对应 mapStyle.BUILDING 的 roof* 槽位）。 */
-  roofSlot?: string
-  /** 墙体上的门（可通行），相对世界坐标。 */
-  doors?: Array<{ x: number; y: number }>
-  /** 墙体上的窗（不可通行，但可隔窗交谈）。 */
-  windows?: Array<{ x: number; y: number }>
-  /** 室内地板材质；给了就在矩形内铺它，不画屋顶。 */
-  floor?: GroundKind
-  color?: string
-  desc?: string
-  lastEditedBy?: string
-  lastEditedAt?: number
+export interface TileNote {
+  /** 显示名，如"草地"、"木门"。 */
+  name?: string
+  /**
+   * 通行性。移动规则只认这一个字段：
+   *  · walk  可走
+   *  · block 挡路（墙、栅栏——栅栏要攀爬检定）
+   *  · water 水域（不可走，除非有船）
+   *  · lava  岩浆（可走但受伤）
+   * 缺省视为 walk。
+   */
+  pass?: 'walk' | 'block' | 'water' | 'lava'
+  /** 互动方式：门/窗这类可以开关的东西。 */
+  use?: 'door' | 'window' | 'switch'
 }
 
-/** 沙盒镜像的三个图层。编辑镜像时逐层画，运行时逐层叠。 */
-export interface SandboxLayers {
-  /** 底层地面：宽×高 的材质矩阵，一行一个字符串（见 GROUND_CHARS）。 */
-  background: string[]
-  /** 建筑墙体与门窗：限制智能体移动边界。 */
-  structure: Structure[]
-  /** 物件实例：地图上方那些可交互的东西。 */
-  object: WorldObject[]
+/** 一张可切片的素材图。切片参数与逐格注释都在这里。 */
+export interface Tileset {
+  id: string
+  name: string
+  /**
+   * 图片。内置图集留空串——它们的像素已在客户端包内（sheetData.ts），
+   * 内嵌一份会让每个沙盒都重复几百 KB。用户载入的图集存 data URI。
+   */
+  image: string
+  /** 图片像素尺寸，用来算能切出多少行列。 */
+  imageW: number
+  imageH: number
+  tileW: number
+  tileH: number
+  /** 图边距（素材图四周留白）。 */
+  margin: number
+  /** 格与格之间的间隙。Kenney 的图集带 1px，切的时候不扣掉会串格。 */
+  spacing: number
+  /** 逐格注释，键是 "col,row"。没标的格子就是"还没定义"。 */
+  notes: Record<string, TileNote>
+}
+
+/**
+ * 一层瓦片图。
+ *
+ * `cells` 行优先，长度 = width × height，每格存 `"tilesetId:col,row"` 或 null。
+ * **一格只能有一个瓦片**——这是 tilemap 的基本约定：压着放多张会让"这一格
+ * 到底是什么"失去答案，而通行性判定必须能给出唯一答案。
+ */
+export interface TileLayer {
+  cells: Array<string | null>
+  /**
+   * 逐格状态（object 层用），键是格索引 `y * width + x`。
+   *
+   * 物件不是独立的一串对象，而是"某一格上的那个东西"，状态就挂在这一格。
+   * 这样"把桌子搬走"就是清空那格，不需要同步两份数据。
+   */
+  states?: Record<string, Record<string, StateValue>>
+}
+
+/** 三个图层：下→上依次是背景地面、建筑结构、可互动物件。 */
+export interface MapLayers {
+  /** 地面。水面/岩浆这类地形会影响移动。 */
+  background: TileLayer
+  /** 墙体与障碍。墙不可穿越，栅栏需攀爬检定。 */
+  structure: TileLayer
+  /** 门窗、汽车、路灯等可互动的东西。 */
+  object: TileLayer
 }
 
 export interface SandboxMap {
   width: number
   height: number
-  ground: string
-  /** 底色装饰（网格线等）由客户端按样式绘制，这里只放语义化的色块。 */
-  decor?: Array<{ x: number; y: number; w: number; h: number; color: string; label?: string }>
-  /**
-   * 可选：室内地板区域（`house` 类沙盒用）。给定后这块矩形铺石地板，
-   * 且其中地标（房间）**只画墙圈、不铺屋顶**——否则室内家具与地面会被屋顶盖住。
-   */
-  interior?: { x: number; y: number; w: number; h: number }
-  /**
-   * 可选的地块底图：每行一个字符串，字符含义 g 草 / r 路 / w 水 / s 沙 / p 石 / z 广场。
-   * 给了就用它，没给由客户端按地标布局推导一张降级图（见 client/town.ts）。
-   *
-   * 放在沙盒里而不是写死在客户端：它是**世界数据**，玩家可以手改——想给小镇
-   * 加一条河或一片沙地，改这一张字符画就行，不需要动代码。
-   */
-  tiles?: string[]
-  /**
-   * 显式三层：background / structure / object。
-   *
-   * 与上面 `tiles`、以及 Sandbox 的 `places` / `objects` 的关系：
-   * 三层是**规范表示**，旧字段是它的投影——`tiles` 就是 background，
-   * `places` 是 structure 的旧叫法，`objects` 就是 object。
-   * 读镜像时旧字段会被收进三层（见 store.normalizeSandbox），
-   * 写回时三层导出成旧字段，所以旧镜像文件照样能开、老代码不用一次性改完。
-   */
-  layers?: SandboxLayers
+  /** 该沙盒用到的图集。内置图集只存 id（像素在客户端包内），用户载入的存 data URI。 */
+  tilesets: Tileset[]
+  layers: MapLayers
 }
 
 /** 一个可编辑、可保存、可载入的世界沙盒（需求 2）。 */
@@ -599,8 +612,14 @@ export interface Sandbox {
   createdAt: number
   updatedAt: number
   map: SandboxMap
+  /**
+   * 命名地标：智能体的目的地、事件里"在哪儿"的说法。
+   *
+   * 这**不是**地图上的东西——地图由三个瓦片图层表达，包括建筑。地标是逻辑上的
+   * 一块有名字的区域（"咖啡馆""公园"），它的坐标可能压在柜台或墙上，所以移动
+   * 判定只看瓦片格，不看地标坐标（见 rules.nearestOpen）。
+   */
   places: WorldObject[]
-  objects: WorldObject[]
   relations: SandboxRelation[]
   /**
    * 初始智能体模板。运行中的智能体（含记忆、位置）落在 RunState，不写回这里，

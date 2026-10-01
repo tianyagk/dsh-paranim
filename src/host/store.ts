@@ -27,6 +27,7 @@ import {
   normalizeAttrs,
   normalizeMood,
   shortId,
+  toStateValue,
   type Attrs,
   type Directive,
   type RunAgent,
@@ -36,9 +37,10 @@ import {
   type StateValue,
   type StepConfig,
   type WorldObject,
-  type GroundKind,
-  type Structure,
-  type SandboxLayers,
+  type SandboxMap,
+  type TileLayer,
+  type TileNote,
+  type Tileset,
 } from '../shared/model.ts'
 import { log } from './context.ts'
 import { INLINE_SMALLVILLE } from './fallback.ts'
@@ -214,136 +216,76 @@ function normalizeAgentTemplate(input: unknown, mapW: number, mapH: number, inde
 }
 
 /**
- * background layer 的字符 ↔ 材质。字符沿用 `map.tiles` 的老约定
- * （g 草 / r 土路 / p 石 / z 广场 / w 水 / s 沙 / f 农田 / o 木地板），
- * 这样旧镜像的字符画不用转码就能直接当 background 用。
- */
-const GROUND_CHARS: Array<[string, GroundKind]> = [
-  ['g', 'grass'],
-  ['r', 'dirt'],
-  ['p', 'stone'],
-  ['z', 'concrete'],
-  ['w', 'water'],
-  ['s', 'sand'],
-  ['f', 'field'],
-  ['o', 'wood'],
-]
-const CHAR_OF_KIND = new Map(GROUND_CHARS.map(([c, k]) => [k, c]))
-const KIND_OF_CHAR = new Map(GROUND_CHARS)
-
-/**
- * 材质 ↔ 字符。路由层刷地面时要按材质名取字符，
- * 字符表放在这里（而不是在路由里再抄一份），改动才不会两边漂移。
- */
-export const GROUND_KINDS: ReadonlyMap<string, string> = CHAR_OF_KIND
-
-/**
- * 把三层的规范表示与旧字段对齐。
+ * 图集归一化。
  *
- * 规则：镜像里带了 layers 就以它为准（并回填旧字段），没带就从旧字段推导。
- * 两边都缺时，background 给一整片草地——空数组会让渲染层"跳过不画"，
- * 那张图看起来就是坏的，不如给个能看的默认。
+ * `notes` 是**人标进去的**瓦片语义，所以这里只做形状校验与裁剪，不做任何
+ * 推断——早期版本用"按平均色反查格子"来猜每格是什么，那对纯色地面有效，
+ * 对有形状的物件完全无效，于是出现了把路面当树画出来这类错误。
  */
-function reconcileLayers(
-  raw: unknown,
-  fallback: { width: number; height: number; tiles?: string[]; places: WorldObject[]; objects: WorldObject[] },
-): SandboxLayers {
-  const src = raw === null || typeof raw !== 'object' || Array.isArray(raw) ? undefined : (raw as Record<string, unknown>)
-  const width = fallback.width
-  const height = fallback.height
-
-  // background：显式给了就用（并补齐到地图高度），否则从 map.tiles 推导，再否则整片草
-  let background: string[] = []
-  if (src !== undefined && Array.isArray(src.background)) {
-    background = src.background.filter((r) => typeof r === 'string').map((r) => String(r).slice(0, 600))
-  } else if (fallback.tiles !== undefined && fallback.tiles.length > 0) {
-    background = fallback.tiles.slice()
-  }
-  background = background.slice(0, height)
-  while (background.length < height) background.push('g'.repeat(width))
-
-  // structure：显式给了就用，否则把旧 places 升格（旧地标就是建筑轮廓）
-  let structure: Structure[] = []
-  if (src !== undefined && Array.isArray(src.structure)) {
-    structure = src.structure
-      .filter((e) => e !== null && typeof e === 'object')
-      .map(normalizeStructure)
-      .filter((e): e is Structure => e !== undefined)
-  } else {
-    structure = fallback.places.map((p) => ({
-      id: p.id,
-      name: p.name,
-      x: p.x,
-      y: p.y,
-      w: p.w ?? 6,
-      h: p.h ?? 5,
-      roofSlot: p.roofSlot,
-      color: p.color,
-      desc: p.desc,
-      /**
-       * 旧镜像没有门的数据,这里按南墙中点补一道。
-       *
-       * 不补的后果很硬:旧 places 的语义是"地标中心+占地",居民初始坐标常常
-       * 就在建筑**内部**,而任何跨越墙圈的移动都要求踩在门上——于是他们一步
-       * 也走不出去,整个世界卡死。给每栋老房子开一道门,是让旧镜像在新规则
-       * 下仍然可玩的最小代价。
-       */
-      doors: [{ x: p.x + Math.floor((p.w ?? 6) / 2), y: p.y + (p.h ?? 5) }],
-    }))
-  }
-
-  const object = (src !== undefined && Array.isArray(src.object) ? src.object : fallback.objects)
-    .map((o) => normalizeObject(o, width, height, 'prop'))
-    .filter((o): o is WorldObject => o !== undefined)
-
-  return { background, structure, object }
-}
-
-function normalizeStructure(input: unknown): Structure | undefined {
+function normalizeTileset(input: unknown, fallbackId: string): Tileset | undefined {
   const e = (input ?? {}) as Record<string, unknown>
-  const id = str(e.id).trim()
+  const id = (str(e.id).trim() || fallbackId).slice(0, 64)
   if (id === '') return undefined
-  const pts = (v: unknown): Array<{ x: number; y: number }> | undefined =>
-    Array.isArray(v)
-      ? v
-          .filter((p) => p !== null && typeof p === 'object')
-          .slice(0, 32)
-          .map((p) => ({ x: Math.round(num((p as Record<string, unknown>).x, 0)), y: Math.round(num((p as Record<string, unknown>).y, 0)) }))
-      : undefined
-  const floor = typeof e.floor === 'string' && KIND_OF_CHAR.has(e.floor) ? e.floor as GroundKind : undefined
+  const notes: Record<string, TileNote> = {}
+  if (e.notes !== null && typeof e.notes === 'object' && !Array.isArray(e.notes)) {
+    for (const [key, value] of Object.entries(e.notes as Record<string, unknown>)) {
+      if (!/^\d{1,3},\d{1,3}$/.test(key)) continue
+      if (value === null || typeof value !== 'object') continue
+      const n = value as Record<string, unknown>
+      const note: TileNote = {}
+      if (typeof n.name === 'string' && n.name.trim() !== '') note.name = n.name.trim().slice(0, 40)
+      if (n.pass === 'walk' || n.pass === 'block' || n.pass === 'water' || n.pass === 'lava') note.pass = n.pass
+      if (n.use === 'door' || n.use === 'window' || n.use === 'switch') note.use = n.use
+      // 空注释不存：一条 {} 和"没标过"是一回事，留着只会让判断多一种情况
+      if (Object.keys(note).length > 0) notes[key] = note
+    }
+  }
+  const clampInt = (v: unknown, lo: number, hi: number, dflt: number): number => {
+    const n = Math.round(num(v, dflt))
+    return Math.max(lo, Math.min(hi, n))
+  }
   return {
     id,
-    name: str(e.name, id),
-    x: Math.max(0, Math.round(num(e.x, 0))),
-    y: Math.max(0, Math.round(num(e.y, 0))),
-    w: Math.max(2, Math.round(num(e.w, 6))),
-    h: Math.max(2, Math.round(num(e.h, 5))),
-    roofSlot: typeof e.roofSlot === 'string' && e.roofSlot !== '' ? e.roofSlot : undefined,
-    doors: pts(e.doors),
-    windows: pts(e.windows),
-    floor,
-    color: typeof e.color === 'string' ? e.color : undefined,
-    desc: typeof e.desc === 'string' ? e.desc : undefined,
+    name: str(e.name, id).slice(0, 60),
+    // 内置图集留空串：像素在客户端包里，内嵌一份会让每个沙盒都重复几百 KB
+    image: typeof e.image === 'string' && e.image.startsWith('data:image/') ? e.image : '',
+    imageW: clampInt(e.imageW, 1, 8192, 256),
+    imageH: clampInt(e.imageH, 1, 8192, 256),
+    tileW: clampInt(e.tileW, 2, 256, 16),
+    tileH: clampInt(e.tileH, 2, 256, 16),
+    margin: clampInt(e.margin, 0, 64, 0),
+    spacing: clampInt(e.spacing, 0, 64, 1),
+    notes,
   }
 }
 
-/** structure → 旧 places 字段（老代码与旧镜像格式都读它）。 */
-function structureToPlace(s: Structure): WorldObject {
-  const place: WorldObject = {
-    id: s.id,
-    name: s.name,
-    kind: 'place',
-    x: s.x,
-    y: s.y,
-    w: s.w,
-    h: s.h,
-    color: s.color ?? '#a8623f',
-    interactive: true,
-    state: { open: true },
-    desc: s.desc ?? '',
+/** 一层瓦片图：长度对齐到 width×height，非法引用一律读成"空格"。 */
+function normalizeTileLayer(input: unknown, size: number): TileLayer {
+  const e = (input ?? {}) as Record<string, unknown>
+  const raw = Array.isArray(e.cells) ? e.cells : []
+  const cells: Array<string | null> = new Array(size).fill(null)
+  for (let i = 0; i < Math.min(size, raw.length); i += 1) {
+    const v = raw[i]
+    // 形如 "set-id:12,34"；id 允许字母数字与 . _ -
+    if (typeof v === 'string' && /^[A-Za-z0-9._-]{1,64}:\d{1,3},\d{1,3}$/.test(v)) cells[i] = v
   }
-  if (s.roofSlot !== undefined) place.roofSlot = s.roofSlot
-  return place
+  const out: TileLayer = { cells }
+  if (e.states !== null && typeof e.states === 'object' && !Array.isArray(e.states)) {
+    const states: Record<string, Record<string, StateValue>> = {}
+    for (const [key, value] of Object.entries(e.states as Record<string, unknown>)) {
+      const idx = Number(key)
+      if (!Number.isInteger(idx) || idx < 0 || idx >= size) continue
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) continue
+      const state: Record<string, StateValue> = {}
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+        const sv = toStateValue(v)
+        if (k !== '' && k.length <= 40 && sv !== undefined) state[k] = sv
+      }
+      if (Object.keys(state).length > 0) states[key] = state
+    }
+    if (Object.keys(states).length > 0) out.states = states
+  }
+  return out
 }
 
 export function normalizeSandbox(input: unknown, fallbackId = 'sandbox'): Sandbox {
@@ -351,49 +293,33 @@ export function normalizeSandbox(input: unknown, fallbackId = 'sandbox'): Sandbo
   const mapRaw = (raw.map ?? {}) as Record<string, unknown>
   const width = Math.max(20, Math.min(600, Math.round(num(mapRaw.width, 140))))
   const height = Math.max(20, Math.min(600, Math.round(num(mapRaw.height, 100))))
-  const map = {
+  /**
+   * 地图 = 图集 + 三图层。
+   *
+   * 每层对齐到 width×height，越界与非法的格一律读成"空的"——地图尺寸改了
+   * 之后旧数据里多出来的格不能留，否则渲染时会画到图外去。
+   */
+  const tilesets = (Array.isArray(mapRaw.tilesets) ? mapRaw.tilesets : [])
+    .slice(0, 16)
+    .map((t, i) => normalizeTileset(t, `set-${i + 1}`))
+    .filter((t): t is Tileset => t !== undefined)
+  const cellCount = width * height
+  const layersRaw = (mapRaw.layers ?? {}) as Record<string, unknown>
+  const map: SandboxMap = {
     width,
     height,
-    ground: str(mapRaw.ground, '#20232c'),
-    decor: Array.isArray(mapRaw.decor)
-      ? mapRaw.decor
-          .filter((d) => d !== null && typeof d === 'object')
-          .slice(0, 64)
-          .map((d) => {
-            const e = d as Record<string, unknown>
-            return {
-              x: Math.round(num(e.x, 0)),
-              y: Math.round(num(e.y, 0)),
-              w: Math.max(1, Math.round(num(e.w, 1))),
-              h: Math.max(1, Math.round(num(e.h, 1))),
-              color: str(e.color, '#2a2e3a'),
-              label: typeof e.label === 'string' ? e.label : undefined,
-            }
-          })
-      : undefined,
-    // 地块字符画：Smallville 镜像用它承载原版路网（'r' = 泥土路）。
-    // 归一化丢掉它，路网就整张消失——地图又变回"草地上一堆色块"。
-    tiles: Array.isArray(mapRaw.tiles)
-      ? mapRaw.tiles.filter((r) => typeof r === 'string').slice(0, 600).map((r) => String(r).slice(0, 600))
-      : undefined,
-    // 室内地板区域（house 类沙盒）：少了这条，房间会被画成实心屋顶，家具全被盖住
-    interior:
-      mapRaw.interior === null || typeof mapRaw.interior !== 'object'
-        ? undefined
-        : {
-            x: Math.max(0, Math.round(num((mapRaw.interior as Record<string, unknown>).x, 0))),
-            y: Math.max(0, Math.round(num((mapRaw.interior as Record<string, unknown>).y, 0))),
-            w: Math.max(1, Math.round(num((mapRaw.interior as Record<string, unknown>).w, 1))),
-            h: Math.max(1, Math.round(num((mapRaw.interior as Record<string, unknown>).h, 1))),
-          },
+    tilesets,
+    layers: {
+      background: normalizeTileLayer(layersRaw.background, cellCount),
+      structure: normalizeTileLayer(layersRaw.structure, cellCount),
+      object: normalizeTileLayer(layersRaw.object, cellCount),
+    },
   }
+
   const places = (Array.isArray(raw.places) ? raw.places : [])
     .map((p) => normalizeObject(p, width, height, 'place'))
     .filter((p): p is WorldObject => p !== undefined)
-  const objects = (Array.isArray(raw.objects) ? raw.objects : [])
-    .concat(Array.isArray(raw.props) ? raw.props : [])
-    .map((p) => normalizeObject(p, width, height, 'prop'))
-    .filter((p): p is WorldObject => p !== undefined)
+
   const agents = (Array.isArray(raw.agents) ? raw.agents : [])
     .map((a, i) => normalizeAgentTemplate(a, width, height, i))
     .filter((a): a is SandboxAgent => a !== undefined)
@@ -412,11 +338,6 @@ export function normalizeSandbox(input: unknown, fallbackId = 'sandbox'): Sandbo
     .filter((r) => r.a !== '' && r.b !== '')
 
   const id = str(raw.id).trim()
-  // 三层 ⇄ 旧字段：镜像文件里可能只有旧字段（tiles/places/objects），
-  // 也可能已经带了 layers。这里统一收进三层，再由三层导出回旧字段——
-  // 于是"编辑了图层"和"编辑了旧字段"是同一件事，不会各写各的。
-  const layers = reconcileLayers(mapRaw.layers, { width, height, tiles: map.tiles, places, objects })
-  if (layers.background.length > 0) map.tiles = layers.background
   return {
     v: 1,
     id: SANDBOX_ID_RE.test(id) ? id : fallbackId,
@@ -428,9 +349,8 @@ export function normalizeSandbox(input: unknown, fallbackId = 'sandbox'): Sandbo
     mirrorVersion: typeof raw.mirrorVersion === 'string' ? raw.mirrorVersion : undefined,
     createdAt: num(raw.createdAt, Date.now()),
     updatedAt: num(raw.updatedAt, Date.now()),
-    map: { ...map, layers },
-    places: layers.structure.map(structureToPlace),
-    objects: layers.object,
+    map,
+    places,
     relations,
     agents,
     startTick: raw.startTick === undefined ? undefined : Math.max(0, Math.round(num(raw.startTick, 0))),

@@ -7,18 +7,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { adjudicate, resolveCheck, normalizeAttrs, clampAttr, HUMAN_MID } from './model.ts'
-import {
-  coerceAction,
-  extractJson,
-  resolveAction,
-  placeAt,
-  seqRng,
-  moveDifficulty,
-  blockedByStructure,
-  doorways,
-  onWall,
-  insideStructure,
-} from './rules.ts'
+import { coerceAction, extractJson, resolveAction, placeAt, seqRng, moveDifficulty, canEnter, nearestOpen } from './rules.ts'
+import { makeTileRef, emptyLayers } from './tilemap.ts'
+import type { Tileset } from './model.ts'
 import type { RunAgent, RunState, Sandbox, WorldObject } from './model.ts'
 
 function mkSandbox(): Sandbox {
@@ -51,12 +42,40 @@ function mkSandbox(): Sandbox {
     desc: '',
     createdAt: 0,
     updatedAt: 0,
-    map: { width: 100, height: 100, ground: '#fff' },
+    map: { width: 100, height: 100, tilesets: [TILESET], layers: emptyLayers(100, 100) },
     places: [place('cafe', '咖啡馆', 20, 20, 12, 10), place('park', '公园', 70, 70, 20, 20)],
     objects: [lamp],
     relations: [],
     agents: [],
   }
+}
+
+/**
+ * 测试用图集：四格分别代表草地、墙、门、水。
+ *
+ * 用真图集不合适——单测只该关心"注释怎么影响判定"，不该依赖某张 PNG 的像素。
+ */
+const TILESET: Tileset = {
+  id: 'test-set',
+  name: '测试图集',
+  image: '',
+  imageW: 64,
+  imageH: 16,
+  tileW: 16,
+  tileH: 16,
+  margin: 0,
+  spacing: 1,
+  notes: {
+    '0,0': { name: '草地', pass: 'walk' },
+    '1,0': { name: '墙', pass: 'block' },
+    '2,0': { name: '木门', use: 'door' },
+    '3,0': { name: '水面', pass: 'water' },
+  },
+}
+
+/** 在沙盒里摆一格瓦片。 */
+function putTile(sb: Sandbox, layer: 'background' | 'structure' | 'object', x: number, y: number, col: number): void {
+  sb.map.layers[layer].cells[y * sb.map.width + x] = makeTileRef('test-set', col, 0)
 }
 
 function mkAgent(id: string, x: number, y: number, over: Partial<RunAgent> = {}): RunAgent {
@@ -339,61 +358,80 @@ test('placeAt 命中面积最小的地标（最具体的那一个）', () => {
   assert.equal(placeAt(sandbox, 5, 5), undefined)
 })
 
-// ── 建筑边界（structure layer）────────────────────────────────────────────
+// ── 移动边界（三个图层一起决定）──────────────────────────────────────────
+//
+// 旧版这里测的是"矩形建筑的内外与墙圈"，要特判重叠、嵌套、门压邻居墙。
+// 换成瓦片之后每格只有一个答案，测试也跟着变直白：摆一格什么，就断言能不能走。
 
-function mkWallSandbox(): Sandbox {
-  const s = mkSandbox()
-  // 一栋 10..20 × 10..16 的房子，南墙 (15,16) 开一道门
-  s.map.layers = {
-    background: [],
-    structure: [{ id: 'house', name: '小屋', x: 10, y: 10, w: 10, h: 6, doors: [{ x: 15, y: 16 }] }],
-    object: [],
-  }
-  return s
-}
-
-test('撞墙：从室外走到墙圈上且不是门 → 挡住', () => {
-  const s = mkWallSandbox()
-  assert.equal(blockedByStructure(s, { x: 5, y: 10 }, { x: 12, y: 10 })?.id, 'house')
+test('草地可以走', () => {
+  const sb = mkSandbox()
+  putTile(sb, 'background', 5, 5, 0)
+  assert.equal(canEnter(sb, 5, 5).ok, true)
 })
 
-test('从门进屋：落点在门上 → 放行', () => {
-  const s = mkWallSandbox()
-  assert.equal(blockedByStructure(s, { x: 15, y: 20 }, { x: 15, y: 16 }), undefined)
+test('墙挡住去路', () => {
+  const sb = mkSandbox()
+  putTile(sb, 'structure', 5, 5, 1)
+  const r = canEnter(sb, 5, 5)
+  assert.equal(r.ok, false)
+  assert.match(String(r.reason), /墙/)
 })
 
-test('穿墙：从室外一步跳到卧室正中 → 挡住（最容易被漏掉的那种）', () => {
-  const s = mkWallSandbox()
-  assert.equal(blockedByStructure(s, { x: 5, y: 5 }, { x: 15, y: 13 })?.id, 'house')
+test('墙优先于地面：草地上的墙照样挡人', () => {
+  const sb = mkSandbox()
+  putTile(sb, 'background', 5, 5, 0)
+  putTile(sb, 'structure', 5, 5, 1)
+  assert.equal(canEnter(sb, 5, 5).ok, false)
 })
 
-test('室内走动：同侧移动放行', () => {
-  const s = mkWallSandbox()
-  assert.equal(blockedByStructure(s, { x: 12, y: 12 }, { x: 18, y: 14 }), undefined)
+test('水面不能走（地形影响移动）', () => {
+  const sb = mkSandbox()
+  putTile(sb, 'background', 5, 5, 3)
+  assert.equal(canEnter(sb, 5, 5).ok, false)
 })
 
-test('室外走动：远离建筑放行', () => {
-  const s = mkWallSandbox()
-  assert.equal(blockedByStructure(s, { x: 1, y: 1 }, { x: 3, y: 3 }), undefined)
+test('门默认能过（镜像刚摆好，不该自封门户）', () => {
+  const sb = mkSandbox()
+  putTile(sb, 'object', 5, 5, 2)
+  assert.equal(canEnter(sb, 5, 5).ok, true)
 })
 
-test('窗不是通道：窗格上仍然挡住', () => {
-  const s = mkWallSandbox()
-  s.map.layers!.structure[0].windows = [{ x: 11, y: 13 }]
-  assert.equal(blockedByStructure(s, { x: 5, y: 5 }, { x: 11, y: 13 })?.id, 'house')
+test('门关上就过不去——这是"与门互动后开门进出"的落点', () => {
+  const sb = mkSandbox()
+  putTile(sb, 'object', 5, 5, 2)
+  sb.map.layers.object.states = { [String(5 * 100 + 5)]: { open: false } }
+  assert.equal(canEnter(sb, 5, 5).ok, false)
+  sb.map.layers.object.states[String(5 * 100 + 5)] = { open: true }
+  assert.equal(canEnter(sb, 5, 5).ok, true)
 })
 
-test('没标门的旧建筑：退化到南墙中点，不至于完全进不去', () => {
-  const s = mkSandbox()
-  s.map.layers = { background: [], structure: [{ id: 'old', name: '旧屋', x: 0, y: 0, w: 10, h: 6 }], object: [] }
-  const d = doorways(s.map.layers.structure[0])
-  assert.deepEqual(d, [{ x: 5, y: 6 }])
+test('图外不能走', () => {
+  const sb = mkSandbox()
+  assert.equal(canEnter(sb, -1, 5).ok, false)
+  assert.equal(canEnter(sb, 5, 999).ok, false)
 })
 
-test('几何判定：墙圈与内部的区分', () => {
-  const s = mkWallSandbox().map.layers!.structure[0]
-  assert.equal(onWall(s, 10, 10), true)
-  assert.equal(onWall(s, 20, 16), true)
-  assert.equal(insideStructure(s, 15, 13), true)
-  assert.equal(insideStructure(s, 10, 10), false, '墙角本身算墙，不算内部')
+test('没摆任何瓦片的格子默认可走（不至于把地图变成一堵实心墙）', () => {
+  const sb = mkSandbox()
+  assert.equal(canEnter(sb, 12, 34).ok, true)
+})
+
+test('nearestOpen：目标格被挡时退到最近能站的一格', () => {
+  const sb = mkSandbox()
+  putTile(sb, 'structure', 50, 50, 1)
+  const near = nearestOpen(sb, 50, 50)
+  assert.ok(near !== undefined, '应该能找到附近可站的格子')
+  assert.equal(canEnter(sb, near!.x, near!.y).ok, true)
+  // 斜向 1 格（切比雪夫距离）是最近的候选之一
+  assert.ok(Math.max(Math.abs(near!.x - 50), Math.abs(near!.y - 50)) <= 1)
+})
+
+// ── 地标归属 ─────────────────────────────────────────────────────────────
+
+test('placeAt 命中面积最小的地标（最具体的那一个）', () => {
+  const sandbox = mkSandbox()
+  sandbox.places.push({ id: 'cafe-inner', name: '咖啡馆里屋', kind: 'place', x: 20, y: 20, w: 4, h: 4, interactive: true, state: {}, color: '#999' })
+  assert.equal(placeAt(sandbox, 20, 20)?.id, 'cafe-inner')
+  assert.equal(placeAt(sandbox, 70, 70)?.id, 'park')
+  assert.equal(placeAt(sandbox, 5, 5), undefined)
 })
