@@ -163,6 +163,15 @@ function ParanimApp(props: TabProps): React.ReactElement {
   const [models, setModels] = useState<ModelChoice[]>([])
   const [modelsNote, setModelsNote] = useState<string>('')
   const [selected, setSelected] = useState<string | undefined>(undefined)
+  /**
+   * 镜像编辑态：哪一层 + 笔刷材质 + 待放的物件贴图。
+   *
+   * 放在顶层而不是 SandboxPage 里，因为**地图**也要读——地图是 SandboxPage
+   * 的兄弟节点，而不同层的落笔行为不同（background 涂抹 / object 放置）。
+   */
+  const [editLayer, setEditLayer] = useState<'background' | 'structure' | 'object'>('background')
+  const [brushKind, setBrushKind] = useState<string>('grass')
+  const [dropSprite, setDropSprite] = useState<{ sprite: string; name: string } | undefined>(undefined)
   const [busy, setBusy] = useState<string>('')
   const [error, setError] = useState<string>('')
   const [notice, setNotice] = useState<string>('')
@@ -342,12 +351,51 @@ function ParanimApp(props: TabProps): React.ReactElement {
             applyWorld(await api.mapObject({ op: 'remove', id: objectId, kind: sandbox.objects.some((o) => o.id === objectId) ? 'prop' : 'place' }))
             flash('已从沙盒移除该物体')
           }),
+        /**
+         * 只有【世界沙盒】页才给地图挂编辑能力。
+         *
+         * 【世界】页看的是正在跑的那个世界——在那里点地图是为了查看与改状态；
+         * 而"把这一格刷成水泥"是对**镜像**的编辑，两者混在一起会让人误以为
+         * 自己的一笔已经改变了正在推演的世界。
+         */
+        edit:
+          page !== 'sandbox'
+            ? undefined
+            : editLayer === 'background'
+              ? { layer: 'background' as const, kind: brushKind }
+              : editLayer === 'object' && dropSprite !== undefined
+                ? { layer: 'object' as const, sprite: dropSprite.sprite, name: dropSprite.name }
+                : { layer: 'structure' as const },
+        onPaint: (cells) => {
+          if (editLayer !== 'background' || cells.length === 0) return
+          void run('刷地面', async () => {
+            applyWorld(await api.tile(brushKind, cells))
+          })
+        },
+        onDropProp: (x, y) => {
+          if (dropSprite === undefined) return
+          void run('放物件', async () => {
+            applyWorld(await api.mapObject({
+              op: 'upsert', kind: 'prop', name: dropSprite.name, x, y, sprite: dropSprite.sprite,
+            }))
+            flash(`已在 (${x},${y}) 放了一件「${dropSprite.name}」`)
+          })
+        },
       }),
       React.createElement(
         'div',
         { className: 'pa-side pa-col' },
         page === 'world'
-          ? React.createElement(WorldPage, { world, feedMode, onSelect: (id) => { setSelected(id); setPage('agents') } })
+          ? React.createElement(WorldPage, {
+              world,
+              feedMode,
+              onSelect: (id) => { setSelected(id); setPage('agents') },
+              busy,
+              api,
+              run,
+              applyWorld,
+              flash,
+            })
           : page === 'agents'
             ? React.createElement(AgentsPage, {
                 world,
@@ -371,6 +419,11 @@ function ParanimApp(props: TabProps): React.ReactElement {
                   applyWorld,
                   setSandboxes,
                   flash,
+                  editLayer,
+                  setEditLayer,
+                  brushKind,
+                  setBrushKind,
+                  setDropSprite,
                 })
               : React.createElement(EventsPage, { world, selected, feedMode }),
       ),
@@ -529,8 +582,20 @@ function ParanimApp(props: TabProps): React.ReactElement {
 
 // ── 页 1：世界（地图说明 + 近期事件 + 世界状态）────────────────────────────
 
-function WorldPage(props: { world: WorldView; feedMode: FeedMode; onSelect: (id: string) => void }): React.ReactElement {
-  const { world, feedMode, onSelect } = props
+function WorldPage(props: {
+  world: WorldView
+  feedMode: FeedMode
+  onSelect: (id: string) => void
+  busy: string
+  api: ParanimApi
+  run: (label: string, action: () => Promise<unknown>) => Promise<void>
+  applyWorld: (world: WorldView) => void
+  flash: (text: string) => void
+}): React.ReactElement {
+  const { world, feedMode, onSelect, busy, api, run, applyWorld, flash } = props
+  /** 正在给谁写指令：临时输入框，发出去即清。 */
+  const [sayTo, setSayTo] = React.useState<string | undefined>(undefined)
+  const [sayText, setSayText] = React.useState('')
   const recent = world.run.events.slice(-40).reverse()
   return React.createElement(
     'div',
@@ -557,14 +622,76 @@ function WorldPage(props: { world: WorldView; feedMode: FeedMode; onSelect: (id:
     React.createElement(
       'div',
       { className: 'pa-sec' },
-      React.createElement('h4', null, `在场智能体（${world.run.agents.length}）`),
+    // ── 物件：这个世界的物件**此刻**是什么状态 ────────────────────────────
+    //
+    // 与沙盒页的"物件资源池"分工：那一页决定世界上**有哪些**物件，
+    // 这一页改它们**当前怎么样**（亮着/坏了/锁着）——后者属于推演，不属于编辑。
+    React.createElement(
+      'div',
+      { className: 'pa-sec' },
+      React.createElement(
+        'h4',
+        null,
+        '物件状态',
+        React.createElement('span', { className: 'pa-chip' }, `${world.sandbox.objects.length} 件`),
+      ),
+      React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
+        '改的是这个世界的当前状态，会立刻写进事件流。'),
+      React.createElement(
+        'div',
+        { className: 'pa-scroll', style: { maxHeight: 200 } },
+        ...world.sandbox.objects.slice(0, 40).map((object) =>
+          React.createElement(
+            'div',
+            { key: object.id, className: 'pa-item' },
+            React.createElement(
+              'span',
+              { className: 'pa-main' },
+              React.createElement('b', null, object.name),
+              React.createElement('span', { className: 'pa-dim pa-mono' }, `@${object.x},${object.y}`),
+              React.createElement(
+                'div',
+                { className: 'pa-line', style: { marginTop: 3 } },
+                ...Object.entries(object.state).map(([key, value]) =>
+                  React.createElement('span', { key, className: 'pa-chip' }, `${key}=${String(value)}`),
+                ),
+                Object.keys(object.state).length === 0
+                  ? React.createElement('span', { className: 'pa-dim' }, '（无状态槽）')
+                  : null,
+                React.createElement('span', { className: 'pa-spacer' }),
+                React.createElement('button', {
+                  className: 'pa-btn', 'data-tiny': 'true',
+                  disabled: busy !== '',
+                  onClick: () => void run('改状态', async () => {
+                    const result = await api.object({ objectId: object.id, state: { status: (object.state.status === '故障' ? '正常' : '故障') } })
+                    applyWorld(result.world)
+                    flash(`${object.name}：${result.changes.join('，') || '状态已切换'}`)
+                  }),
+                }, '切换完好/故障'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+    React.createElement(
+      'div',
+      { className: 'pa-sec' },
+      React.createElement(
+        'h4',
+        null,
+        '在场智能体',
+        React.createElement('span', { className: 'pa-chip' }, `${world.run.agents.length} 位`),
+      ),
+      React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
+        '「指令」会插进它下一步的观察里，优先级高于它自己的计划。'),
       React.createElement(
         'ul',
-        { className: 'pa-list pa-scroll', style: { maxHeight: 200 } },
+        { className: 'pa-list pa-scroll', style: { maxHeight: 240 } },
         ...world.run.agents.map((a) =>
           React.createElement(
             'li',
-            { key: a.id, className: 'pa-item', onClick: () => onSelect(a.id) },
+            { key: a.id, className: 'pa-item' },
             React.createElement('span', { className: 'pa-portrait' }, a.portrait),
             React.createElement(
               'span',
@@ -572,9 +699,68 @@ function WorldPage(props: { world: WorldView; feedMode: FeedMode; onSelect: (id:
               React.createElement('b', null, a.name),
               React.createElement('span', { className: 'pa-chip' }, a.concept),
               React.createElement('div', { className: 'pa-dim' }, `@${a.x},${a.y}｜${a.model === undefined || a.model === null ? '默认模型' : a.model.model}｜已走 ${a.stepsTaken} 步`),
+              sayTo === a.id
+                ? React.createElement(
+                    'div',
+                    { className: 'pa-line', style: { marginTop: 4 } },
+                    React.createElement('input', {
+                      autoFocus: true,
+                      value: sayText,
+                      placeholder: '要它去做什么？例：去咖啡馆打听昨晚的事',
+                      style: { flex: 1, minWidth: 0 },
+                      onChange: (event: React.ChangeEvent<HTMLInputElement>) => setSayText(event.target.value),
+                      onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
+                        if (event.key !== 'Enter' || sayText.trim() === '') return
+                        const text = sayText.trim()
+                        setSayText('')
+                        setSayTo(undefined)
+                        void run('下指令', async () => {
+                          const result = await api.directive(a.id, text)
+                          applyWorld(result.world)
+                          flash(`已告诉${a.name}：${text}`)
+                        })
+                      },
+                    }),
+                    React.createElement('button', {
+                      className: 'pa-btn', 'data-tiny': 'true',
+                      disabled: busy !== '' || sayText.trim() === '',
+                      onClick: () => {
+                        const text = sayText.trim()
+                        if (text === '') return
+                        setSayText('')
+                        setSayTo(undefined)
+                        void run('下指令', async () => {
+                          const result = await api.directive(a.id, text)
+                          applyWorld(result.world)
+                          flash(`已告诉${a.name}：${text}`)
+                        })
+                      },
+                    }, '发出'),
+                    React.createElement('button', {
+                      className: 'pa-btn', 'data-tiny': 'true',
+                      onClick: () => { setSayTo(undefined); setSayText('') },
+                    }, '取消'),
+                  )
+                : null,
             ),
+            sayTo === a.id
+              ? null
+              : React.createElement(
+                  'span',
+                  { className: 'pa-line' },
+                  React.createElement('button', {
+                    className: 'pa-btn', 'data-tiny': 'true',
+                    title: '下一条指令：它下一步会把它当成脑子里必须立刻执行的声音',
+                    onClick: () => { setSayTo(a.id); setSayText('') },
+                  }, '指令'),
+                  React.createElement('button', {
+                    className: 'pa-btn', 'data-tiny': 'true',
+                    onClick: () => onSelect(a.id),
+                  }, '档案'),
+                ),
           ),
         ),
+      ),
       ),
     ),
     React.createElement(
@@ -591,6 +777,28 @@ function WorldPage(props: { world: WorldView; feedMode: FeedMode; onSelect: (id:
 }
 
 // ── 页 2：智能体编排（需求 3）─────────────────────────────────────────────
+
+/** 三个图层的中文名与说明。 */
+const LAYER_LABEL: Record<'background' | 'structure' | 'object', string> = {
+  background: '地图图层 background',
+  structure: '建筑图层 structure',
+  object: '物件图层 object',
+}
+
+/**
+ * background 层的可选材质。字符沿用 store 里的 GROUND_CHARS 约定，
+ * 但对玩家显示的是"草地/土地/石头地面/水泥地面"这类名字。
+ */
+const GROUND_PALETTE: Array<{ kind: string; label: string; swatch: string }> = [
+  { kind: 'grass', label: '草地', swatch: '🟩' },
+  { kind: 'dirt', label: '土地', swatch: '🟫' },
+  { kind: 'stone', label: '石头地面', swatch: '⬜' },
+  { kind: 'concrete', label: '水泥地面', swatch: '🔲' },
+  { kind: 'sand', label: '沙地', swatch: '🟨' },
+  { kind: 'water', label: '水面', swatch: '🟦' },
+  { kind: 'field', label: '农田', swatch: '🌾' },
+  { kind: 'wood', label: '木地板', swatch: '🪵' },
+]
 
 interface AgentsPageProps {
   world: WorldView
@@ -967,10 +1175,23 @@ function SandboxPage(props: {
   applyWorld: (world: WorldView) => void
   setSandboxes: (list: SandboxSummary[]) => void
   flash: (text: string) => void
+  /** 以下由顶层持有：地图（MapCanvas）与本页面是兄弟节点，要共用同一份编辑态。 */
+  editLayer: 'background' | 'structure' | 'object'
+  setEditLayer: (layer: 'background' | 'structure' | 'object') => void
+  brushKind: string
+  setBrushKind: (kind: string) => void
+  setDropSprite: (value: { sprite: string; name: string } | undefined) => void
 }): React.ReactElement {
-  const { world, sandboxes, api, run, applyWorld, setSandboxes, flash } = props
+  const { world, sandboxes, api, run, applyWorld, setSandboxes, flash, editLayer, setEditLayer, brushKind, setBrushKind, setDropSprite } = props
   /** 资源池要知道"现在是新建还是换贴图"，所以记一个选中态。 */
   const [objectFocus, setObjectFocus] = React.useState<string | undefined>(undefined)
+  /**
+   * 正在编辑哪一层。
+   *
+   * 提升到顶层而不是放在 SandboxPage 里：地图（MapCanvas）也要知道当前层——
+   * 不同层的落笔行为完全不同（background 涂抹、object 放置），而这个组件
+   * 是 SandboxPage 的兄弟节点，不共享 state 就得靠 props 层层传。
+   */
   const refreshList = async (): Promise<void> => {
     const list = await api.sandboxes()
     setSandboxes(list.sandboxes)
@@ -1038,101 +1259,162 @@ function SandboxPage(props: {
         ),
       ),
     ),
+    // ── 图层编辑（这是"改镜像"，不是"改世界"）─────────────────────────────
+    //
+    // 三个图层用同一套坐标系，但画的不是同一种东西，所以要能单独锁定一层：
+    // 在 object 层上拖动物件时不该顺手把地面刷掉。
     React.createElement(
       'div',
       { className: 'pa-sec' },
       React.createElement(
         'h4',
         null,
-        '布局编辑',
-        React.createElement('span', { className: 'pa-chip' }, `${world.sandbox.places.length} 处地标`),
+        '图层编辑',
+        React.createElement('span', { className: 'pa-chip' }, LAYER_LABEL[editLayer]),
       ),
       React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
-        '改坐标/尺寸即改布局：建筑轮廓、屋顶与连到门口的引道都会跟着重算。'),
+        '切到哪一层，地图就只收那一层的编辑。改动写进**沙盒镜像**，已在跑的那个世界要「重置推演」才会用上新样子。'),
       React.createElement(
         'div',
         { className: 'pa-line', style: { marginBottom: 6 } },
-        React.createElement('button', {
-          className: 'pa-btn', 'data-tiny': 'true',
-          onClick: () => void run('新建地标', async () => {
-            applyWorld(await api.place({
-              op: 'add',
-              name: `新地标 ${world.sandbox.places.length + 1}`,
-              x: Math.round(world.sandbox.map.width / 2) + (world.sandbox.places.length % 5) - 2,
-              y: Math.round(world.sandbox.map.height / 2),
-              w: 6, h: 5,
-            }))
-            flash('已新建一处地标，下面可以改名字与坐标')
-          }),
-        }, '＋ 新建地标'),
-      ),
-      React.createElement(
-        'div',
-        { className: 'pa-scroll', style: { maxHeight: 260 } },
-        ...world.sandbox.places.map((place) =>
-          React.createElement(
-            'div',
-            { key: place.id, className: 'pa-place' },
-            React.createElement(
-              'div',
-              { className: 'pa-line' },
-              React.createElement('span', null, React.createElement('b', null, place.name)),
-              React.createElement('span', { className: 'pa-dim pa-mono' }, `${place.w ?? 0}×${place.h ?? 0}`),
-              React.createElement('span', { className: 'pa-spacer' }),
-              React.createElement('button', {
-                className: 'pa-btn', 'data-tiny': 'true', 'data-danger': 'true',
-                onClick: () => void run('拆掉地标', async () => {
-                  if (!window.confirm(`拆掉地标「${place.name}」？`)) return
-                  applyWorld(await api.place({ op: 'remove', placeId: place.id }))
-                  flash(`已拆掉「${place.name}」`)
-                }),
-              }, '拆掉'),
-            ),
-            React.createElement(
-              'div',
-              { className: 'pa-place-grid' },
-              ...[
-                { key: 'name', label: '名', value: place.name, text: true },
-                { key: 'x', label: 'x', value: place.x },
-                { key: 'y', label: 'y', value: place.y },
-                { key: 'w', label: '宽', value: place.w ?? 6 },
-                { key: 'h', label: '高', value: place.h ?? 5 },
-              ].map((field) =>
-                React.createElement('label', { key: field.key, className: 'pa-place-cell' },
-                  React.createElement('span', { className: 'pa-dim' }, field.label),
-                  React.createElement('input', {
-                    type: field.text === true ? 'text' : 'number',
-                    value: String(field.value),
-                    onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
-                      const value = field.text === true ? event.target.value : Number(event.target.value)
-                      void run('改地标', async () => {
-                        applyWorld(await api.place({ op: 'patch', placeId: place.id, [field.key]: value }))
-                      })
-                    },
-                  }),
-                ),
-              ),
-              React.createElement('label', { className: 'pa-place-cell' },
-                React.createElement('span', { className: 'pa-dim' }, '屋顶'),
-                React.createElement('select', {
-                  value: place.roofSlot ?? 'roofHome',
-                  onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
-                    void run('改屋顶', async () => {
-                      applyWorld(await api.place({ op: 'patch', placeId: place.id, roofSlot: event.target.value }))
-                    }),
-                },
-                  ...[
-                    ['roofHome', '住宅'],
-                    ['roofWarm', '社交/餐饮'],
-                    ['roofCool', '商业/学术'],
-                    ['roofGreen', '公共/户外'],
-                  ].map(([slot, label]) => React.createElement('option', { key: slot, value: slot }, label)),
-                ),
-              ),
-            ),
-          ),
+        ...(['background', 'structure', 'object'] as const).map((layer) =>
+          React.createElement('button', {
+            key: layer,
+            className: 'pa-btn', 'data-tiny': 'true',
+            'data-on': editLayer === layer,
+            onClick: () => setEditLayer(layer),
+          }, LAYER_LABEL[layer]),
         ),
+        editLayer === 'structure'
+          ? React.createElement('button', {
+              className: 'pa-btn', 'data-tiny': 'true',
+              onClick: () => void run('新建建筑', async () => {
+                const n = world.sandbox.map.layers?.structure.length ?? 0
+                applyWorld(await api.place({
+                  op: 'add', name: `新建筑 ${n + 1}`,
+                  x: Math.round(world.sandbox.map.width / 2) + (n % 5) - 2,
+                  y: Math.round(world.sandbox.map.height / 2), w: 8, h: 6,
+                }))
+                flash('已建了一栋房；它的墙体现在会挡人，记得开一道门')
+              }),
+            }, '＋ 新建建筑')
+          : null,
       ),
+      editLayer === 'background'
+        ? React.createElement(
+            'div',
+            { className: 'pa-line' },
+            ...GROUND_PALETTE.map((item) =>
+              React.createElement('button', {
+                key: item.kind,
+                className: 'pa-btn', 'data-tiny': 'true',
+                'data-on': brushKind === item.kind,
+                title: `${item.label}（${item.kind}）`,
+                onClick: () => {
+                  setBrushKind(item.kind)
+                  setObjectFocus(undefined)
+                  flash(`笔刷：${item.label}。在地图上按住拖动即可连续涂抹`)
+                },
+              }, `${item.swatch} ${item.label}`),
+            ),
+          )
+        : null,
+      // structure 层的建筑列表：改几何 + 开门开窗（这一步决定"人能不能进去"）
+      editLayer === 'structure'
+        ? React.createElement(
+            'div',
+            { className: 'pa-scroll', style: { maxHeight: 300 } },
+            ...(world.sandbox.map.layers?.structure ?? []).map((st) =>
+              React.createElement(
+                'div',
+                { key: st.id, className: 'pa-place' },
+                React.createElement(
+                  'div',
+                  { className: 'pa-line' },
+                  React.createElement('span', null, React.createElement('b', null, st.name)),
+                  React.createElement('span', { className: 'pa-dim pa-mono' }, `${st.w}×${st.h}`),
+                  React.createElement('span', { className: 'pa-chip' }, `${(st.doors ?? []).length} 门 / ${(st.windows ?? []).length} 窗`),
+                  React.createElement('span', { className: 'pa-spacer' }),
+                  React.createElement('button', {
+                    className: 'pa-btn', 'data-tiny': 'true',
+                    title: '在这栋楼南墙中点开一道门（没有门就没人进得去）',
+                    onClick: () => void run('开一道门', async () => {
+                      applyWorld(await api.place({
+                        op: 'patch', id: st.id,
+                        doors: [...(st.doors ?? []), { x: st.x + Math.floor(st.w / 2), y: st.y + st.h }],
+                      }))
+                      flash('已开一道门')
+                    }),
+                  }, '＋门'),
+                  React.createElement('button', {
+                    className: 'pa-btn', 'data-tiny': 'true',
+                    onClick: () => void run('开一扇窗', async () => {
+                      applyWorld(await api.place({
+                        op: 'patch', id: st.id,
+                        windows: [...(st.windows ?? []), { x: st.x + 1, y: st.y + Math.floor(st.h / 2) }],
+                      }))
+                      flash('已开一扇窗（窗只供隔窗相望，人过不去）')
+                    }),
+                  }, '＋窗'),
+                  React.createElement('button', {
+                    className: 'pa-btn', 'data-tiny': 'true', 'data-danger': 'true',
+                    onClick: () => void run('拆掉建筑', async () => {
+                      if (!window.confirm(`拆掉建筑「${st.name}」？`)) return
+                      applyWorld(await api.place({ op: 'remove', id: st.id }))
+                      flash(`已拆掉「${st.name}」`)
+                    }),
+                  }, '拆掉'),
+                ),
+                React.createElement(
+                  'div',
+                  { className: 'pa-place-grid' },
+                  ...([
+                    { key: 'name', label: '名', value: st.name, text: true },
+                    { key: 'x', label: 'x', value: st.x, text: false },
+                    { key: 'y', label: 'y', value: st.y, text: false },
+                    { key: 'w', label: '宽', value: st.w, text: false },
+                    { key: 'h', label: '高', value: st.h, text: false },
+                  ]).map((field) =>
+                    React.createElement('label', { key: field.key, className: 'pa-place-cell' },
+                      React.createElement('span', { className: 'pa-dim' }, field.label),
+                      React.createElement('input', {
+                        type: field.text === true ? 'text' : 'number',
+                        value: String(field.value),
+                        onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+                          const value = field.text === true ? event.target.value : Number(event.target.value)
+                          void run('改建筑', async () => {
+                            applyWorld(await api.place({ op: 'patch', id: st.id, [field.key]: value }))
+                          })
+                        },
+                      }),
+                    ),
+                  ),
+                  React.createElement('label', { className: 'pa-place-cell' },
+                    React.createElement('span', { className: 'pa-dim' }, '屋顶'),
+                    React.createElement('select', {
+                      value: st.roofSlot ?? 'roofHome',
+                      onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
+                        void run('改屋顶', async () => {
+                          applyWorld(await api.place({ op: 'patch', id: st.id, roofSlot: event.target.value }))
+                        }),
+                    },
+                      ...[
+                        ['roofHome', '住宅'],
+                        ['roofWarm', '社交/餐饮'],
+                        ['roofCool', '商业/学术'],
+                        ['roofGreen', '公共/户外'],
+                      ].map(([slot, label]) => React.createElement('option', { key: slot, value: slot }, label)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          )
+        : null,
+      editLayer === 'object'
+        ? React.createElement('div', { className: 'pa-dim' },
+            '从下面的「物件资源池」挑一张贴图，然后在地图上点一下就放一件进去。')
+        : null,
     ),
     React.createElement(
       'div',
@@ -1160,15 +1442,16 @@ function SandboxPage(props: {
         activeSlot: objectFocus === undefined ? undefined : world.sandbox.objects.find((o) => o.id === objectFocus)?.sprite,
         onPick: (slot: string, label: string) => {
           const target = objectFocus === undefined ? undefined : world.sandbox.objects.find((o) => o.id === objectFocus)
+          /**
+           * 挑了贴图就把"这支笔"交给地图。
+           *
+           * 切到 object 层之后,点地图即可落一件——而不必先在这儿新建一个落在
+           * 世界中心、再手动拖过去。资源池因此既是"换贴图的抽屉",也是"当前画笔"。
+           */
           if (target === undefined) {
-            void run('放置物件', async () => {
-              applyWorld(await api.mapObject({
-                op: 'upsert', kind: 'prop', name: label,
-                x: Math.round(world.sandbox.map.width / 2), y: Math.round(world.sandbox.map.height / 2),
-                color: '#8a7a5f', sprite: slot,
-              }))
-              flash(`已在世界中心放置「${label}」`)
-            })
+            setDropSprite({ sprite: slot, name: label })
+            setEditLayer('object')
+            flash(`已拿起「${label}」。切到 object 层，在地图上点一下就放下`)
             return
           }
           void run('换贴图', async () => {

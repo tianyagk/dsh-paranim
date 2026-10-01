@@ -32,7 +32,23 @@ export interface MapCanvasProps {
   /** 提交一次物体改动（宿主会落盘并回写事件流）。 */
   onPatchObject: (objectId: string, body: Record<string, unknown>) => void
   onRemoveObject: (objectId: string) => void
+  /**
+   * 镜像编辑模式：非空时地图接受"涂抹/放置"，不再走右键看状态那条路。
+   *
+   * 运行时与编辑时是两种心智：前者问"这盏灯现在怎么样"，后者问"这里该是什么"。
+   * 用同一个交互承载两者的话，玩家想改状态会不小心把地面刷掉。
+   */
+  edit?: MapEditMode
+  /** 笔刷落下：一次给一串格子（拖动时连续），宿主按这一笔刷新。 */
+  onPaint?: (cells: Array<{ x: number; y: number }>) => void
+  /** 在 object layer 放一个物件实例。 */
+  onDropProp?: (x: number, y: number) => void
 }
+
+export type MapEditMode =
+  | { layer: 'background'; kind: string }
+  | { layer: 'object'; sprite: string; name: string }
+  | { layer: 'structure' }
 
 interface Hit {
   object: WorldObject
@@ -46,7 +62,10 @@ const STATUS_PRESETS = ['正常', '故障', '损坏', '维修中', '锁住', '�
 const BOOL_KEYS = ['open', 'lit', 'running', 'full', 'locked', 'on', 'spinning', 'flowing', 'occupied', 'tuned']
 
 export function MapCanvas(props: MapCanvasProps): React.ReactElement {
-  const { sandbox, agents, events, tick, selectedId, onSelectAgent, onPatchObject, onRemoveObject } = props
+  const { sandbox, agents, events, tick, selectedId, onSelectAgent, onPatchObject, onRemoveObject, edit, onPaint, onDropProp } = props
+  /** 一笔还没上传的格子。攒着是为了不让每一格都打一次请求。 */
+  const strokeRef = useRef<Array<{ x: number; y: number }>>([])
+  const paintingRef = useRef(false)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [size, setSize] = useState({ w: 480, h: 320 })
@@ -225,7 +244,48 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     setHit(hitTest(px, py))
   }
 
+  const cellAt = (px: number, py: number): { x: number; y: number } => {
+    const w = toWorld(px, py)
+    return { x: Math.round(w.x), y: Math.round(w.y) }
+  }
+
+  /** 把这一格并进当前这一笔；同一格不重复记。 */
+  const pushCell = (px: number, py: number): void => {
+    if (onPaint === undefined) return
+    const c = cellAt(px, py)
+    if (c.x < 0 || c.y < 0 || c.x >= sandbox.map.width || c.y >= sandbox.map.height) return
+    if (strokeRef.current.some((p) => p.x === c.x && p.y === c.y)) return
+    strokeRef.current.push(c)
+  }
+
+  const onPointerDown = (event: React.MouseEvent<HTMLCanvasElement>): void => {
+    if (edit === undefined) return
+    const { px, py } = localPoint(event)
+    if (edit.layer === 'object' && onDropProp !== undefined) {
+      const c = cellAt(px, py)
+      if (c.x >= 0 && c.y >= 0 && c.x < sandbox.map.width && c.y < sandbox.map.height) onDropProp(c.x, c.y)
+      return
+    }
+    if (edit.layer === 'background') {
+      paintingRef.current = true
+      strokeRef.current = []
+      pushCell(px, py)
+      // 单击也要立刻出效果：不然点一下没反应，像是坏了
+      if (onPaint !== undefined) onPaint([...strokeRef.current])
+    }
+  }
+
+  const onPointerUp = (): void => {
+    if (!paintingRef.current) return
+    paintingRef.current = false
+    // 收笔时整笔重放一次：中间每一格都已即时上色（乐观），这次是为了保证
+    // 拖动过程中任何一格都没丢。
+    if (onPaint !== undefined && strokeRef.current.length > 0) onPaint([...strokeRef.current])
+    strokeRef.current = []
+  }
+
   const onClick = (event: React.MouseEvent<HTMLCanvasElement>): void => {
+    if (edit !== undefined) return
     const { px, py } = localPoint(event)
     const id = agentAt(px, py)
     if (id !== undefined) onSelectAgent(id)
@@ -234,6 +294,13 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
 
   const onMove = (event: React.MouseEvent<HTMLCanvasElement>): void => {
     const { px, py } = localPoint(event)
+    if (edit !== undefined) {
+      if (paintingRef.current) {
+        pushCell(px, py)
+        if (onPaint !== undefined) onPaint([...strokeRef.current.slice(-1)])
+      }
+      return
+    }
     const agentId = agentAt(px, py)
     const object = agentId === undefined ? hitTest(px, py)?.object : undefined
     setHover((prev) => (prev.object?.id === object?.id && prev.agentId === agentId ? prev : { object, agentId }))
@@ -247,10 +314,16 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     React.createElement('canvas', {
       ref: canvasRef,
       className: 'pa-map',
-      'aria-label': '小镇地图：左键点智能体，右键点地标或物件改状态',
+      'data-editing': edit === undefined ? undefined : 'true',
+      onMouseDown: onPointerDown,
+      onMouseUp: onPointerUp,
+      onMouseLeave: () => { setHover({}); onPointerUp() },
+      'aria-label':
+        edit === undefined
+          ? '小镇地图：左键点智能体，右键点地标或物件改状态'
+          : '正在编辑镜像：按住拖动即可连续涂抹，点一下放一个物件',
       onClick,
       onMove,
-      onMouseLeave: () => setHover({}),
       onContextMenu,
     }),
     // 内描边 + 暗角：地图边缘收进容器，视觉上"这是一张图"而不是糊满整个框

@@ -127,6 +127,8 @@ const CSS = `
   background: var(--pa-bg);
 }
 .pa-map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
+/* 编辑镜像时给地图一圈高亮：让人一眼看出"现在点画布是在改镜像，不是在改正在跑的世界" */
+.pa-map[data-editing='true'] { outline: 1px solid color-mix(in srgb, var(--pa-accent, #7aa2f7) 70%, transparent); outline-offset: -1px; }
 .pa-mapvignette {
   position: absolute; inset: 0; pointer-events: none;
   box-shadow: inset 0 0 0 1px var(--pa-border), inset 0 0 90px var(--pa-vignette);
@@ -381,6 +383,8 @@ const CSS = `
 }
 .pa-spr:hover { background: var(--pa-layer4); color: var(--pa-text); }
 .pa-spr[data-on="true"] { border-color: var(--pa-gold); box-shadow: 0 0 0 1px var(--pa-gold); color: var(--pa-text); }
+/* 图层/笔刷的选中态：data-on 此前只对 tab/item/spr 生效，按钮上用它没有任何反馈 */
+.pa-btn[data-on="true"] { border-color: var(--pa-gold); background: var(--pa-layer3); color: var(--pa-text); }
 .pa-spr-cv { width: 30px; height: 30px; display: block; image-rendering: pixelated; }
 
 /* 布局编辑：每处地标一行 + 五个小字段 */

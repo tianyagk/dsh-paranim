@@ -510,6 +510,47 @@ export interface SandboxRelation {
   affinity: number
 }
 
+/** 地面材质：background layer 里每一格的取值。 */
+export type GroundKind = 'grass' | 'dirt' | 'stone' | 'concrete' | 'sand' | 'water' | 'field' | 'wood'
+
+/**
+ * 结构件（structure layer 的元素）。矩形墙体围出建筑轮廓，
+ * `doors` / `windows` 是在这圈墙上开出的通道——智能体只能从这些点进出。
+ *
+ * 为什么门是"坐标点"而不是"物件"：碰撞判定问的是"这一步能不能走进去"，
+ * 回答它只需要一个坐标集合；把它做成独立物件会让移动判定变成物件查询。
+ */
+export interface Structure {
+  id: string
+  name: string
+  x: number
+  y: number
+  w: number
+  h: number
+  /** 屋顶配色族（对应 mapStyle.BUILDING 的 roof* 槽位）。 */
+  roofSlot?: string
+  /** 墙体上的门（可通行），相对世界坐标。 */
+  doors?: Array<{ x: number; y: number }>
+  /** 墙体上的窗（不可通行，但可隔窗交谈）。 */
+  windows?: Array<{ x: number; y: number }>
+  /** 室内地板材质；给了就在矩形内铺它，不画屋顶。 */
+  floor?: GroundKind
+  color?: string
+  desc?: string
+  lastEditedBy?: string
+  lastEditedAt?: number
+}
+
+/** 沙盒镜像的三个图层。编辑镜像时逐层画，运行时逐层叠。 */
+export interface SandboxLayers {
+  /** 底层地面：宽×高 的材质矩阵，一行一个字符串（见 GROUND_CHARS）。 */
+  background: string[]
+  /** 建筑墙体与门窗：限制智能体移动边界。 */
+  structure: Structure[]
+  /** 物件实例：地图上方那些可交互的东西。 */
+  object: WorldObject[]
+}
+
 export interface SandboxMap {
   width: number
   height: number
@@ -529,6 +570,16 @@ export interface SandboxMap {
    * 加一条河或一片沙地，改这一张字符画就行，不需要动代码。
    */
   tiles?: string[]
+  /**
+   * 显式三层：background / structure / object。
+   *
+   * 与上面 `tiles`、以及 Sandbox 的 `places` / `objects` 的关系：
+   * 三层是**规范表示**，旧字段是它的投影——`tiles` 就是 background，
+   * `places` 是 structure 的旧叫法，`objects` 就是 object。
+   * 读镜像时旧字段会被收进三层（见 store.normalizeSandbox），
+   * 写回时三层导出成旧字段，所以旧镜像文件照样能开、老代码不用一次性改完。
+   */
+  layers?: SandboxLayers
 }
 
 /** 一个可编辑、可保存、可载入的世界沙盒（需求 2）。 */

@@ -30,6 +30,7 @@ import {
   type MemoryEntry,
   type RollRecord,
   type RunAgent,
+  type Structure,
   type RunState,
   type Sandbox,
   type StateValue,
@@ -90,6 +91,103 @@ function findAgent(run: RunState, id: string | undefined): RunAgent | undefined 
   if (id === undefined || id === '') return undefined
   return run.agents.find((a) => a.id === id)
 }
+
+// ── 建筑边界（structure layer）────────────────────────────────────────────
+//
+// 墙体限制智能体的移动边界：不能凭空穿墙进出，只能从门走。
+// 窗不算通道——它只提供"隔窗看见/喊话"的叙事可能，但人过不去。
+
+/** 点是否落在某栋建筑的墙圈上（含四边）。 */
+export function onWall(s: Structure, x: number, y: number): boolean {
+  const x0 = s.x, y0 = s.y, x1 = s.x + s.w, y1 = s.y + s.h
+  if (x < x0 || x > x1 || y < y0 || y > y1) return false
+  return x === x0 || x === x1 || y === y0 || y === y1
+}
+
+/** 点是否在建筑内部（不含墙圈）。 */
+export function insideStructure(s: Structure, x: number, y: number): boolean {
+  return x > s.x && x < s.x + s.w && y > s.y && y < s.y + s.h
+}
+
+/** 该坐标是不是这栋建筑的门。 */
+export function isDoor(s: Structure, x: number, y: number): boolean {
+  return (s.doors ?? []).some((d) => d.x === x && d.y === y)
+}
+
+/** 该坐标是不是这栋建筑的窗。 */
+export function isWindow(s: Structure, x: number, y: number): boolean {
+  return (s.windows ?? []).some((w) => w.x === x && w.y === y)
+}
+
+/** 一栋建筑所有可通行的门（没标门就退化到"墙圈正下方中点"，保证老镜像不至于完全进不去）。 */
+export function doorways(s: Structure): Array<{ x: number; y: number }> {
+  const doors = (s.doors ?? []).filter((d) => onWall(s, d.x, d.y))
+  if (doors.length > 0) return doors
+  return [{ x: s.x + Math.floor(s.w / 2), y: s.y + s.h }]
+}
+
+/**
+ * 一次移动是否被建筑边界挡住。
+ *
+ * 判定分三种情形,缺一种都会出鬼:
+ *  ① 落点在墙圈上且不是门 → 挡住（撞墙）;
+ *  ② 从室外到室内（或反过来）但落点不是门 → 挡住（穿墙）;
+ *  ③ 同一侧移动（都在内 / 都在外）→ 放行。
+ *
+ * 第 ② 条是关键:只判"落点是不是墙"的话,智能体可以一步从室外跳到卧室正中——
+ * 中间那道墙根本没被检查过。
+ */
+export function blockedByStructure(
+  sandbox: Sandbox,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+): Structure | undefined {
+  const structs = sandbox.map.layers?.structure ?? []
+  if (structs.length === 0) return undefined
+  /**
+   * 门优先：落点只要踩在任何一扇门上就放行。
+   *
+   * Smallville 原版的公寓是紧挨着画的,一栋楼的门常常正好压在邻居的墙圈上
+   * （罗西公寓的门 @90,33 就落在伊莎贝拉公寓的右墙上）。严判"既是自家门
+   * 又是别家墙则挡"会让老镜像里的居民寸步难行——而"门是通道"才是这条规则
+   * 真正要保证的事。
+   */
+  if (structs.some((s) => isDoor(s, to.x, to.y) || isDoor(s, from.x, from.y))) return undefined
+  /**
+   * 起点已在某栋建筑内部 → 室内移动放行。
+   *
+   * 房间式沙盒（house）把每个房间建成一个 structure,它们互相嵌套：人在门厅
+   * 想去客厅,两个房间各自的墙圈都会把对方判成"穿墙"。但那是**内墙**,不是外墙。
+   * 区分内外墙需要额外的拓扑信息,成本远高于收益；而"已经在屋子里的人不该被
+   * 屋内的墙挡住"这条既符合直觉也不会削弱外墙的封锁作用。
+   */
+  if (structs.some((s) => insideStructure(s, from.x, from.y))) return undefined
+  for (const s of structs) {
+    const fromIn = insideStructure(s, from.x, from.y)
+    const toIn = insideStructure(s, to.x, to.y)
+    if (fromIn === toIn) {
+      // 同侧移动：只有"正好停在墙圈上又不是门"才算撞墙
+      if (!toIn && onWall(s, to.x, to.y) && !isDoor(s, to.x, to.y)) return s
+      continue
+    }
+    // 穿墙进出：必须踩在门上
+    if (!isDoor(s, to.x, to.y) && !isDoor(s, from.x, from.y)) return s
+  }
+  /**
+   * 落点在**另一栋**建筑内部也要挡。
+   *
+   * 上面的循环只比较"同一栋的内/外",两栋建筑重叠时它会双双判成同侧放行——
+   * 于是门口落在邻居屋里也能直接走进去。Smallville 原版的公寓确实是紧挨着
+   * 画的,一栋的门常常正好在另一栋的占地里,这条不补就是个真实可触发的洞。
+   */
+  for (const s of structs) {
+    // 起点本来就在里面 → 是屋内走动，不算穿墙
+    if (insideStructure(s, from.x, from.y)) continue
+    if (insideStructure(s, to.x, to.y) && !isDoor(s, to.x, to.y)) return s
+  }
+  return undefined
+}
+
 
 type SizeAware = { w?: number; h?: number }
 
@@ -326,6 +424,38 @@ export function resolveAction(action: AgentAction, ctx: ActionContext): ActionOu
         break
       }
       const dist = distance(agent.x, agent.y, tx, ty)
+      /**
+       * 目标在屋子里时,把落点收到最近的门口。
+       *
+       * 地标坐标是**建筑中心**,而中心在室内——直接走过去等于穿墙。
+       * 但"我要去咖啡馆"这个意图本身是合理的,人不该因为坐标语义就被卡在门外。
+       * 所以先走到门口,进门那一步由引擎在下一 tick 继续完成。
+       */
+      let goalX = Math.round(tx)
+      let goalY = Math.round(ty)
+      const goalStruct = (sandbox.map.layers?.structure ?? []).find(
+        (s) => insideStructure(s, goalX, goalY) && !insideStructure(s, agent.x, agent.y),
+      )
+      if (goalStruct !== undefined) {
+        const d = doorways(goalStruct)
+          .map((p) => ({ p, d: distance(agent.x, agent.y, p.x, p.y) }))
+          .sort((a, b) => a.d - b.d)[0]
+        if (d !== undefined) {
+          goalX = d.p.x
+          goalY = d.p.y
+        }
+      }
+      // 边界先于掷骰：撞墙不是"运气不好"，是物理上过不去。
+      // 反过来做（先掷成功再判墙）会出现"判定大成功却撞墙"的荒唐结果。
+      const wall = blockedByStructure(sandbox, { x: agent.x, y: agent.y }, { x: goalX, y: goalY })
+      if (wall !== undefined) {
+        const doors = doorways(wall)
+        const hint = doors.length > 0 ? `最近的门在 (${doors[0].x},${doors[0].y})` : '这栋建筑没有可以进出的门'
+        const text = `${agent.name}想去${targetObj?.name ?? `(${Math.round(tx)},${Math.round(ty)})`}，被「${wall.name}」的墙挡住了——${hint}。`
+        events.push(mkEvent({ kind: 'move', actor: agent.id, actorName: agent.name, text, from: { x: agent.x, y: agent.y }, to: { x: agent.x, y: agent.y }, targetId: wall.id }, run, ts))
+        memory.push({ tick: run.tick, kind: 'event', text, ts })
+        break
+      }
       const { step, mods } = moveDifficulty(dist)
       const roll = resolveCheck({
         roll: rng.d6(),
@@ -354,8 +484,8 @@ export function resolveAction(action: AgentAction, ctx: ActionContext): ActionOu
       rolls.push(record)
       events.push(mkEvent({ kind: 'roll', actor: agent.id, actorName: agent.name, text: roll.text, roll: record }, run, ts))
       if (roll.ok) {
-        x = Math.round(tx)
-        y = Math.round(ty)
+        x = goalX
+        y = goalY
         const place = placeAt(sandbox, x, y)
         const where = targetObj !== undefined ? targetObj.name : place?.name ?? `(${x},${y})`
         const detail = roll.outcome === 'critical' ? `一路顺畅，还比预计早到。` : `顺利抵达。`

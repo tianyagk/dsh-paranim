@@ -103,8 +103,14 @@ export function createApi(scopeRef: () => Scope) {
       post('/step', { maxAgents: options?.maxAgents }),
     stepConfig: (patch: Partial<StepConfig>): Promise<WorldView> => post('/step/config', patch),
     object: (body: Record<string, unknown>): Promise<{ world: WorldView; changes: string[] }> => post('/object', body),
-    /** 地标增删改（布局编辑）。 */
+    /** structure layer 增删改（建筑 + 门窗）。 */
     place: (body: Record<string, unknown>): Promise<WorldView> => post('/place', body),
+    /**
+     * background layer 涂抹。入参是一串格子而不是单格：
+     * 一笔刷过去可以连着涂几十格，一次请求一格会打出上百个请求。
+     */
+    tile: (kind: string, cells: Array<{ x: number; y: number }>): Promise<WorldView> =>
+      post('/tile', { kind, cells }),
     mapObject: (body: Record<string, unknown>): Promise<WorldView> => post('/map', body),
     agent: (body: Record<string, unknown>): Promise<WorldView> => post('/agent', body),
     directive: (agentId: string, text: string): Promise<{ directive: Directive; world: WorldView }> =>

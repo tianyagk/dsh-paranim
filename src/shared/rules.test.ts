@@ -7,7 +7,18 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { adjudicate, resolveCheck, normalizeAttrs, clampAttr, HUMAN_MID } from './model.ts'
-import { coerceAction, extractJson, resolveAction, placeAt, seqRng, moveDifficulty } from './rules.ts'
+import {
+  coerceAction,
+  extractJson,
+  resolveAction,
+  placeAt,
+  seqRng,
+  moveDifficulty,
+  blockedByStructure,
+  doorways,
+  onWall,
+  insideStructure,
+} from './rules.ts'
 import type { RunAgent, RunState, Sandbox, WorldObject } from './model.ts'
 
 function mkSandbox(): Sandbox {
@@ -326,4 +337,63 @@ test('placeAt 命中面积最小的地标（最具体的那一个）', () => {
   assert.equal(placeAt(sandbox, 20, 20)?.id, 'cafe-inner')
   assert.equal(placeAt(sandbox, 70, 70)?.id, 'park')
   assert.equal(placeAt(sandbox, 5, 5), undefined)
+})
+
+// ── 建筑边界（structure layer）────────────────────────────────────────────
+
+function mkWallSandbox(): Sandbox {
+  const s = mkSandbox()
+  // 一栋 10..20 × 10..16 的房子，南墙 (15,16) 开一道门
+  s.map.layers = {
+    background: [],
+    structure: [{ id: 'house', name: '小屋', x: 10, y: 10, w: 10, h: 6, doors: [{ x: 15, y: 16 }] }],
+    object: [],
+  }
+  return s
+}
+
+test('撞墙：从室外走到墙圈上且不是门 → 挡住', () => {
+  const s = mkWallSandbox()
+  assert.equal(blockedByStructure(s, { x: 5, y: 10 }, { x: 12, y: 10 })?.id, 'house')
+})
+
+test('从门进屋：落点在门上 → 放行', () => {
+  const s = mkWallSandbox()
+  assert.equal(blockedByStructure(s, { x: 15, y: 20 }, { x: 15, y: 16 }), undefined)
+})
+
+test('穿墙：从室外一步跳到卧室正中 → 挡住（最容易被漏掉的那种）', () => {
+  const s = mkWallSandbox()
+  assert.equal(blockedByStructure(s, { x: 5, y: 5 }, { x: 15, y: 13 })?.id, 'house')
+})
+
+test('室内走动：同侧移动放行', () => {
+  const s = mkWallSandbox()
+  assert.equal(blockedByStructure(s, { x: 12, y: 12 }, { x: 18, y: 14 }), undefined)
+})
+
+test('室外走动：远离建筑放行', () => {
+  const s = mkWallSandbox()
+  assert.equal(blockedByStructure(s, { x: 1, y: 1 }, { x: 3, y: 3 }), undefined)
+})
+
+test('窗不是通道：窗格上仍然挡住', () => {
+  const s = mkWallSandbox()
+  s.map.layers!.structure[0].windows = [{ x: 11, y: 13 }]
+  assert.equal(blockedByStructure(s, { x: 5, y: 5 }, { x: 11, y: 13 })?.id, 'house')
+})
+
+test('没标门的旧建筑：退化到南墙中点，不至于完全进不去', () => {
+  const s = mkSandbox()
+  s.map.layers = { background: [], structure: [{ id: 'old', name: '旧屋', x: 0, y: 0, w: 10, h: 6 }], object: [] }
+  const d = doorways(s.map.layers.structure[0])
+  assert.deepEqual(d, [{ x: 5, y: 6 }])
+})
+
+test('几何判定：墙圈与内部的区分', () => {
+  const s = mkWallSandbox().map.layers!.structure[0]
+  assert.equal(onWall(s, 10, 10), true)
+  assert.equal(onWall(s, 20, 16), true)
+  assert.equal(insideStructure(s, 15, 13), true)
+  assert.equal(insideStructure(s, 10, 10), false, '墙角本身算墙，不算内部')
 })

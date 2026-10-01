@@ -36,6 +36,9 @@ import {
   type StateValue,
   type StepConfig,
   type WorldObject,
+  type GroundKind,
+  type Structure,
+  type SandboxLayers,
 } from '../shared/model.ts'
 import { log } from './context.ts'
 import { INLINE_SMALLVILLE } from './fallback.ts'
@@ -43,12 +46,29 @@ import { INLINE_SMALLVILLE } from './fallback.ts'
 const SANDBOX_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i
 
 export function dataHome(): string {
+  if (injectedHome !== undefined) return injectedHome
   const base = process.env.DSH_HOME && process.env.DSH_HOME.trim() !== '' ? process.env.DSH_HOME : join(homedir(), '.dsh')
   return join(base, 'dsh-paranim')
 }
 
 export function sandboxDir(): string {
   return join(dataHome(), 'sandboxes')
+}
+
+export function stepDir(): string {
+  return join(dataHome(), 'step')
+}
+
+/**
+ * 数据根目录的可选注入点。
+ *
+ * 路径此前只能由 DSH_HOME 全局决定，于是任何"要真落盘"的验证都只能跑在玩家
+ * 自己的 ~/.dsh 上——改一个字段就污染一次真实的沙盒库。给它一个注入口之后，
+ * 自检可以在临时目录里跑完整的读写回路。
+ */
+let injectedHome: string | undefined
+export function setDataHomeForTest(home: string | undefined): void {
+  injectedHome = home
 }
 
 function runDir(workspace?: string): string {
@@ -189,6 +209,139 @@ function normalizeAgentTemplate(input: unknown, mapW: number, mapH: number, inde
   }
 }
 
+/**
+ * background layer 的字符 ↔ 材质。字符沿用 `map.tiles` 的老约定
+ * （g 草 / r 土路 / p 石 / z 广场 / w 水 / s 沙 / f 农田 / o 木地板），
+ * 这样旧镜像的字符画不用转码就能直接当 background 用。
+ */
+const GROUND_CHARS: Array<[string, GroundKind]> = [
+  ['g', 'grass'],
+  ['r', 'dirt'],
+  ['p', 'stone'],
+  ['z', 'concrete'],
+  ['w', 'water'],
+  ['s', 'sand'],
+  ['f', 'field'],
+  ['o', 'wood'],
+]
+const CHAR_OF_KIND = new Map(GROUND_CHARS.map(([c, k]) => [k, c]))
+const KIND_OF_CHAR = new Map(GROUND_CHARS)
+
+/**
+ * 材质 ↔ 字符。路由层刷地面时要按材质名取字符，
+ * 字符表放在这里（而不是在路由里再抄一份），改动才不会两边漂移。
+ */
+export const GROUND_KINDS: ReadonlyMap<string, string> = CHAR_OF_KIND
+
+/**
+ * 把三层的规范表示与旧字段对齐。
+ *
+ * 规则：镜像里带了 layers 就以它为准（并回填旧字段），没带就从旧字段推导。
+ * 两边都缺时，background 给一整片草地——空数组会让渲染层"跳过不画"，
+ * 那张图看起来就是坏的，不如给个能看的默认。
+ */
+function reconcileLayers(
+  raw: unknown,
+  fallback: { width: number; height: number; tiles?: string[]; places: WorldObject[]; objects: WorldObject[] },
+): SandboxLayers {
+  const src = raw === null || typeof raw !== 'object' || Array.isArray(raw) ? undefined : (raw as Record<string, unknown>)
+  const width = fallback.width
+  const height = fallback.height
+
+  // background：显式给了就用（并补齐到地图高度），否则从 map.tiles 推导，再否则整片草
+  let background: string[] = []
+  if (src !== undefined && Array.isArray(src.background)) {
+    background = src.background.filter((r) => typeof r === 'string').map((r) => String(r).slice(0, 600))
+  } else if (fallback.tiles !== undefined && fallback.tiles.length > 0) {
+    background = fallback.tiles.slice()
+  }
+  background = background.slice(0, height)
+  while (background.length < height) background.push('g'.repeat(width))
+
+  // structure：显式给了就用，否则把旧 places 升格（旧地标就是建筑轮廓）
+  let structure: Structure[] = []
+  if (src !== undefined && Array.isArray(src.structure)) {
+    structure = src.structure
+      .filter((e) => e !== null && typeof e === 'object')
+      .map(normalizeStructure)
+      .filter((e): e is Structure => e !== undefined)
+  } else {
+    structure = fallback.places.map((p) => ({
+      id: p.id,
+      name: p.name,
+      x: p.x,
+      y: p.y,
+      w: p.w ?? 6,
+      h: p.h ?? 5,
+      roofSlot: p.roofSlot,
+      color: p.color,
+      desc: p.desc,
+      /**
+       * 旧镜像没有门的数据,这里按南墙中点补一道。
+       *
+       * 不补的后果很硬:旧 places 的语义是"地标中心+占地",居民初始坐标常常
+       * 就在建筑**内部**,而任何跨越墙圈的移动都要求踩在门上——于是他们一步
+       * 也走不出去,整个世界卡死。给每栋老房子开一道门,是让旧镜像在新规则
+       * 下仍然可玩的最小代价。
+       */
+      doors: [{ x: p.x + Math.floor((p.w ?? 6) / 2), y: p.y + (p.h ?? 5) }],
+    }))
+  }
+
+  const object = (src !== undefined && Array.isArray(src.object) ? src.object : fallback.objects)
+    .map((o) => normalizeObject(o, width, height, 'prop'))
+    .filter((o): o is WorldObject => o !== undefined)
+
+  return { background, structure, object }
+}
+
+function normalizeStructure(input: unknown): Structure | undefined {
+  const e = (input ?? {}) as Record<string, unknown>
+  const id = str(e.id).trim()
+  if (id === '') return undefined
+  const pts = (v: unknown): Array<{ x: number; y: number }> | undefined =>
+    Array.isArray(v)
+      ? v
+          .filter((p) => p !== null && typeof p === 'object')
+          .slice(0, 32)
+          .map((p) => ({ x: Math.round(num((p as Record<string, unknown>).x, 0)), y: Math.round(num((p as Record<string, unknown>).y, 0)) }))
+      : undefined
+  const floor = typeof e.floor === 'string' && KIND_OF_CHAR.has(e.floor) ? e.floor as GroundKind : undefined
+  return {
+    id,
+    name: str(e.name, id),
+    x: Math.max(0, Math.round(num(e.x, 0))),
+    y: Math.max(0, Math.round(num(e.y, 0))),
+    w: Math.max(2, Math.round(num(e.w, 6))),
+    h: Math.max(2, Math.round(num(e.h, 5))),
+    roofSlot: typeof e.roofSlot === 'string' && e.roofSlot !== '' ? e.roofSlot : undefined,
+    doors: pts(e.doors),
+    windows: pts(e.windows),
+    floor,
+    color: typeof e.color === 'string' ? e.color : undefined,
+    desc: typeof e.desc === 'string' ? e.desc : undefined,
+  }
+}
+
+/** structure → 旧 places 字段（老代码与旧镜像格式都读它）。 */
+function structureToPlace(s: Structure): WorldObject {
+  const place: WorldObject = {
+    id: s.id,
+    name: s.name,
+    kind: 'place',
+    x: s.x,
+    y: s.y,
+    w: s.w,
+    h: s.h,
+    color: s.color ?? '#a8623f',
+    interactive: true,
+    state: { open: true },
+    desc: s.desc ?? '',
+  }
+  if (s.roofSlot !== undefined) place.roofSlot = s.roofSlot
+  return place
+}
+
 export function normalizeSandbox(input: unknown, fallbackId = 'sandbox'): Sandbox {
   const raw = (input ?? {}) as Record<string, unknown>
   const mapRaw = (raw.map ?? {}) as Record<string, unknown>
@@ -255,6 +408,11 @@ export function normalizeSandbox(input: unknown, fallbackId = 'sandbox'): Sandbo
     .filter((r) => r.a !== '' && r.b !== '')
 
   const id = str(raw.id).trim()
+  // 三层 ⇄ 旧字段：镜像文件里可能只有旧字段（tiles/places/objects），
+  // 也可能已经带了 layers。这里统一收进三层，再由三层导出回旧字段——
+  // 于是"编辑了图层"和"编辑了旧字段"是同一件事，不会各写各的。
+  const layers = reconcileLayers(mapRaw.layers, { width, height, tiles: map.tiles, places, objects })
+  if (layers.background.length > 0) map.tiles = layers.background
   return {
     v: 1,
     id: SANDBOX_ID_RE.test(id) ? id : fallbackId,
@@ -266,9 +424,9 @@ export function normalizeSandbox(input: unknown, fallbackId = 'sandbox'): Sandbo
     mirrorVersion: typeof raw.mirrorVersion === 'string' ? raw.mirrorVersion : undefined,
     createdAt: num(raw.createdAt, Date.now()),
     updatedAt: num(raw.updatedAt, Date.now()),
-    map,
-    places,
-    objects,
+    map: { ...map, layers },
+    places: layers.structure.map(structureToPlace),
+    objects: layers.object,
     relations,
     agents,
     startTick: raw.startTick === undefined ? undefined : Math.max(0, Math.round(num(raw.startTick, 0))),

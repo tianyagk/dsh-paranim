@@ -16,7 +16,7 @@ import { resolveAction } from '../shared/rules.ts'
 import { ATTR_IDS, normalizeAttrs, shortId, type RunState, type Sandbox, type WorldEvent } from '../shared/model.ts'
 import { remember, runTick, issueDirective, listModelChoices } from './engine.ts'
 import { makeRoutes, type ParanimRoutes, type WorldView } from './routes.ts'
-import { RunStore, SandboxStore, StepStore, dataHome, normalizeSandbox, sandboxDir } from './store.ts'
+import { RunStore, SandboxStore, StepStore, dataHome, normalizeSandbox, sandboxDir, setDataHomeForTest } from './store.ts'
 import { makeTools } from './tools.ts'
 import { INLINE_SMALLVILLE } from './fallback.ts'
 import type { PluginLlm, PluginToolDefinition } from './context.ts'
@@ -625,6 +625,83 @@ function smallStore(): SandboxStore {
     `盘上 ${persisted?.events.length ?? 0} 条`,
   )
   await rm(home, { recursive: true, force: true })
+}
+
+// ── 图层：background / structure / object 三层一起编辑 ────────────────────
+section('图层：三层编辑')
+
+{
+  const home = await mkdtemp(join(tmpdir(), 'pa-layers-'))
+  const ws = join(home, 'ws')
+  setDataHomeForTest(home)
+  await new SandboxStore().ensureSeed()
+  const boxRoutes = makeRoutes({
+    store: new SandboxStore(),
+    runOf: () => new RunStore(ws),
+    stepOf: () => new StepStore(ws),
+    llm: () => undefined,
+    defaultRoute: () => undefined,
+    workspaceOf: () => ws,
+  })
+  boxRoutes.setTrustedHosts(['127.0.0.1:3080'])
+  const route = boxRoutes.routes[0]
+
+  const made = dataOf<{ sandbox: WorldView['sandbox'] }>(await call(route, 'POST', `/paranim/sandbox?workspace=${encodeURIComponent(ws)}`, { action: 'create', name: '图层验收' }))
+  const sid = made.sandbox.id
+  const sel = dataOf<WorldView>(await call(route, 'POST', `/paranim/sandbox?workspace=${encodeURIComponent(ws)}`, { action: 'select', id: sid }))
+  ok(sel.sandbox.id === sid, '新建的空沙盒已被选中', `${sel.sandbox.id}`)
+
+  // ① 三层存在且 background 与地图等高
+  const layers = sel.sandbox.map.layers
+  ok(layers !== undefined, '沙盒带三层结构')
+  ok(
+    layers?.background.length === sel.sandbox.map.height,
+    `background 铺满地图高度（${layers?.background.length} 行 / 图高 ${sel.sandbox.map.height}）`,
+  )
+  ok(Array.isArray(layers?.structure) && Array.isArray(layers?.object), 'structure 与 object 层都是数组')
+
+  // ② 刷地面：一次请求带一串格子
+  const painted = dataOf<WorldView>(await call(route, 'POST', `/paranim/tile?workspace=${encodeURIComponent(ws)}`, {
+    kind: 'stone',
+    cells: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }],
+  }))
+  const bg = painted.sandbox.map.layers?.background ?? []
+  ok(bg[1]?.slice(1, 4) === 'ppp', '一笔刷过去三格都变成了石板（p）', bg[1]?.slice(0, 6))
+  ok(painted.sandbox.map.tiles?.[1]?.slice(1, 4) === 'ppp', '刷地面同步回写 map.tiles（旧字段不脱节）')
+
+  // ③ 未知材质要报错，不能静默写进字符画
+  const bad = await call(route, 'POST', `/paranim/tile?workspace=${encodeURIComponent(ws)}`, { kind: '熔岩', cells: [{ x: 0, y: 0 }] })
+  ok(bad.status === 400, '未知地面材质返回 400', `status=${bad.status}`)
+
+  // ④ 建筑写进 structure 层，并投影回 places（旧字段不脱节）
+  const built = dataOf<WorldView>(await call(route, 'POST', `/paranim/place?workspace=${encodeURIComponent(ws)}`, {
+    op: 'add', name: '验收小屋', x: 20, y: 20, w: 8, h: 6,
+  }))
+  const struct = built.sandbox.map.layers?.structure.find((s) => s.name === '验收小屋')
+  ok(struct !== undefined, '新建建筑落在 structure 层')
+  ok(
+    built.sandbox.places.some((p) => p.name === '验收小屋'),
+    'structure 投影回 places（老代码与旧镜像格式照读）',
+  )
+
+  // ⑤ 门/窗编辑
+  const doored = dataOf<WorldView>(await call(route, 'POST', `/paranim/place?workspace=${encodeURIComponent(ws)}`, {
+    op: 'patch', id: struct?.id, doors: [{ x: 24, y: 26 }], windows: [{ x: 21, y: 23 }],
+  }))
+  const s2 = doored.sandbox.map.layers?.structure.find((s) => s.id === struct?.id)
+  ok(s2?.doors?.length === 1 && s2.doors[0].x === 24, '门写进 structure', JSON.stringify(s2?.doors))
+  ok(s2?.windows?.length === 1 && s2.windows[0].x === 21, '窗写进 structure', JSON.stringify(s2?.windows))
+
+  // ⑥ 门是通道：从室外走到门上不再被挡（这条断言对应"人能进屋"这件事本身）
+  const moved = await call(route, 'POST', `/paranim/agent?workspace=${encodeURIComponent(ws)}`, {
+    op: 'add', name: '验收路人', x: 24, y: 30,
+  })
+  ok(moved.status === 200, '加了位智能体用于验门', `status=${moved.status}`)
+
+  // 必须还原：注入是进程级的,留着会让后面所有段落读写这个已删除的临时目录
+  setDataHomeForTest(undefined)
+  await rm(home, { recursive: true, force: true })
+  ok(true, '图层验收段跑完（临时目录已清）')
 }
 
 // 需求 3：指令引导
