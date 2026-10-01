@@ -62,9 +62,17 @@ export const BUILDING: SlotTable = {
   /** 苔绿与暖瓦同族换色太生硬，先用 tiny-town 的深色瓦顶当"公共/户外" */
   roofGreen: [at(T, 4, 6), at(T, 5, 6), at(T, 6, 6)],
   roofHome: [at(T, 3, 4), at(T, 5, 4), at(T, 7, 4)],
-  wall: [at('city', 4, 21), at('city', 3, 21), at('city', 25, 2)],
+  /**
+   * 墙体：city 21:11 / 22:11 / 21:15 / 23:15。
+   *
+   * 取材依据换成了**目视核对**：按平均色反查对纯色地面有效，对"有形状的东西"
+   * 完全无效——原先这三格（city 4:21 等）实际画出来不是墙。这几格是逐个看过
+   * 确认的木质墙面，沿墙圈逐格平铺正好接成连续板墙。
+   */
+  wall: [at('city', 21, 11), at('city', 22, 11), at('city', 21, 15), at('city', 23, 15)],
   door: [at('city', 12, 20), at('city', 13, 20)],
-  window: [at('city', 0, 19), at('city', 1, 19), at('city', 2, 19)],
+  /** 玻璃窗：同样是目视确认的（city 14:9/14:11/21:22/21:23，近白偏冷的整格）。 */
+  window: [at('city', 14, 11), at('city', 14, 9), at('city', 21, 22), at('city', 21, 23)],
 }
 
 /**
@@ -79,12 +87,20 @@ export const BUILDING: SlotTable = {
  */
 export const PROPS: SlotTable = {
   // —— 户外 ——
-  tree: [at(T, 0, 8), at(T, 1, 8), at(T, 2, 8), at(T, 3, 8)],
-  bush: [at(T, 0, 9), at(T, 1, 9), at(T, 2, 9)],
+  // 树：原先填的是 (0,8)…(3,8)，目视核对下来那几格是**路面/桥面**，
+  // 而真正像树的是 (4,0)/(5,0)/(4,2)（原 flower 的位置）。已对调。
+  tree: [at(T, 4, 0), at(T, 5, 0), at(T, 4, 2)],
+  /**
+   * 空数组 = **该槽位还没有确认过的贴图**，渲染时会画一个问号占位。
+   *
+   * 这比回退到一张不相干的图诚实：把路面当灌木画出来，看图的人只会以为
+   * 自己看错了。要补上，用 `npm run assets:annotate` 打开标注器点选即可。
+   */
+  bush: [],
   rock: [at(T, 4, 10), at(T, 5, 10)],
-  flower: [at(T, 4, 0), at(T, 5, 0), at(T, 4, 2)],
-  streetlamp: [at(T, 8, 9), at(T, 8, 10)],
-  sign: [at(T, 0, 9), at(T, 1, 9)],
+  flower: [],
+  streetlamp: [],
+  sign: [],
   // 轿车用 city 图集的 2x2 拼块(绿/银/橙三色,横置)。原槽位 (0,4) 是 tiny-battle
   // 的水面地块——之前物件画成"一滩水"就是它。
   vehicle: [at('city', 32, 15), at('city', 34, 15), at('city', 32, 19)],
@@ -94,22 +110,30 @@ export const PROPS: SlotTable = {
   moto: [at('city', 38, 1), at('city', 39, 1)],
   tire: [at('city', 40, 1)],
   cart: [at('city', 41, 1)],
-  fence: [at(F, 0, 4), at(F, 1, 4)],
-  crop: [at(F, 2, 6), at(F, 3, 6)],
+  fence: [],
+  // 田垄：原先填的 (2,6)/(3,6) 目视是**树桩**，而 (0,4)/(1,4)（原 fence 的位置）
+  // 才是田垄。已对调。
+  crop: [at(F, 0, 4), at(F, 1, 4)],
   // —— 室内 ——
-  bed: [at('city', 14, 11), at('city', 14, 9)],
-  table: [at('city', 21, 11), at('city', 22, 11)],
-  chair: [at('city', 21, 15), at('city', 23, 15)],
-  sofa: [at('city', 21, 22), at('city', 21, 23)],
-  stove: [at('city', 12, 19), at('city', 15, 23)],
-  counter: [at('city', 16, 23), at('city', 15, 24)],
+  // 以下室内家具的原有格子经目视核对**全部不是它们要表示的东西**
+  // （原 bed/sofa 的位置是玻璃窗、原 table/chair 是木墙、原 bookshelf 是地毯），
+  // 已把这些格子让给真正该用它们的槽位（见 BUILDING.wall/window 与 rug）。
+  // 剩下的留空待确认——画错不如不画。
+  bed: [],
+  table: [],
+  chair: [],
+  sofa: [],
+  stove: [],
+  counter: [],
   sink: [at('city', 32, 20), at('city', 35, 20)],
-  rug: [at('city', 30, 25)],
-  plant: [at('city', 21, 12)],
-  bookshelf: [at('city', 25, 2), at('city', 27, 2)],
-  chest: [at('city', 31, 14), at('city', 33, 14)],
+  // 地毯：原 bookshelf 的 (25,2)/(27,2) 目视就是地毯，归位到这里。
+  rug: [at('city', 25, 2), at('city', 27, 2)],
+  plant: [],
+  bookshelf: [],
+  chest: [],
   marker: [at('onebit', 22, 10)],
-  fallback: [at(T, 4, 10)],
+  /** 未匹配到任何槽位的物件也画问号——不让它们套用一张不相干的图。 */
+  fallback: [],
 }
 
 /** 状态与事件符号 —— 用 1-Bit 后备图集（轮廓清楚，不与场景打架）。 */

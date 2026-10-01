@@ -42,7 +42,8 @@
     "sim:house": "node scripts/simulate-house.mjs",
     "check:assets": "node scripts/check-assets.mjs",
     "assets:props": "node scripts/gen-city-props.mjs",
-    "assets:review": "node scripts/make-asset-review.mjs"
+    "assets:review": "node scripts/make-asset-review.mjs",
+    "assets:annotate": "node scripts/make-sheet-annotator.mjs"
   },
   "keywords": [
     "deepseek",

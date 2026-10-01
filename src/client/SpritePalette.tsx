@@ -50,7 +50,21 @@ export function SpriteButton(props: {
     ctx.imageSmoothingEnabled = false
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     const tile = pickSlot(PROPS, props.slot, 0)
-    if (tile === undefined) return
+    if (tile === undefined) {
+      // 该槽位还没有确认过的贴图：画问号，与地图上的占位保持一致。
+      // 画空白的话，看的人只会以为贴图没加载出来。
+      ctx.strokeStyle = 'rgba(255,200,97,0.7)'
+      ctx.lineWidth = 1
+      ctx.setLineDash([3, 2])
+      ctx.strokeRect(1.5, 1.5, CELL - 3, CELL - 3)
+      ctx.setLineDash([])
+      ctx.fillStyle = 'rgba(255,200,97,0.85)'
+      ctx.font = '13px system-ui, sans-serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('?', CELL / 2, CELL / 2)
+      return
+    }
     // drawTile 的语义与地图上一致：给定"底边中点"与缩放，其余交给渲染层
     ctx.save()
     ctx.scale(dpr, dpr)
@@ -113,5 +127,15 @@ export function SpritePalette(props: {
     ),
   )
 }
+
+/**
+ * 还没有确认过贴图的槽位（PROPS 里为空）。
+ *
+ * 资源池不摆它们——点一个画不出东西的按钮没有意义；但也不能假装它们不存在，
+ * 界面上会单独列出还差哪几种，好让人知道该去标注器里补。
+ */
+export const PENDING_SLOTS: readonly string[] = OBJECT_LIBRARY
+  .filter((entry) => (PROPS[entry.slot] ?? []).length === 0)
+  .map((entry) => entry.label)
 
 export { OBJECT_LIBRARY, SLOT_LABEL }

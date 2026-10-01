@@ -37,7 +37,7 @@ import {
 import { createApi, type ParanimApi, type SandboxSummary, type WorldView } from './api.ts'
 import { MapCanvas } from './MapCanvas.tsx'
 import { propSlotOf } from './town.ts'
-import { SpriteButton, SpritePalette } from './SpritePalette.tsx'
+import { PENDING_SLOTS, SpriteButton, SpritePalette } from './SpritePalette.tsx'
 import { SLOT_LABEL, OBJECT_LIBRARY } from './mapStyle.ts'
 import {
   DEFAULT_FEED_MODE,
@@ -1434,6 +1434,14 @@ function SandboxPage(props: {
       React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
         '这里只是"可用的贴图"。点一张＝拿起这支笔，然后到地图上点一下就放一件；'
         + '若先在下面选中了某件已存在的物件，点贴图则是换掉它的样子。'),
+      // 还缺哪些素材要看得见：不显示等于假装它们不存在，而地图上那些问号
+      // 就是它们。列出名字，用户才知道该去标注器里补哪几种。
+      PENDING_SLOTS.length === 0
+        ? null
+        : React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
+            React.createElement('span', { className: 'pa-chip', 'data-tone': 'warn' }, `待确认 ${PENDING_SLOTS.length} 种`),
+            `还缺贴图的素材：${PENDING_SLOTS.join('、')}。这些在地图上显示为问号占位；`
+            + '跑 npm run assets:annotate 打开标注器，点格子告诉程序它是什么。'),
       React.createElement(
         'div',
         { className: 'pa-line', style: { marginBottom: 5 } },

@@ -210,14 +210,41 @@ export function propSlotOf(object: WorldObject): string {
   }
 }
 
+/**
+ * 该槽位还没有确认过的贴图时，画一个问号占位。
+ *
+ * 刻意**不**回退到别的图：把路面当成灌木画出来，看图的人只会怀疑自己的眼睛，
+ * 而问题会一直藏在地图里。问号是明确的"这里缺一张图"，一眼就能数出还差几处。
+ */
+function drawPending(ctx: CanvasRenderingContext2D, cx: number, bottom: number, scale: number): void {
+  const side = TILE_PX * scale
+  const x = cx - side / 2
+  const y = bottom - side
+  ctx.save()
+  ctx.strokeStyle = 'rgba(255,200,97,0.7)'
+  ctx.lineWidth = Math.max(1, scale * 0.5)
+  ctx.setLineDash([3 * scale, 2 * scale])
+  ctx.strokeRect(x + 0.5, y + 0.5, side - 1, side - 1)
+  ctx.setLineDash([])
+  ctx.fillStyle = 'rgba(255,200,97,0.85)'
+  ctx.font = `${Math.max(8, side * 0.55)}px system-ui, sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('?', cx, y + side / 2)
+  ctx.restore()
+}
+
 function drawObject(ctx: CanvasRenderingContext2D, view: View, object: WorldObject): void {
   const { scale, offsetX, offsetY } = view
   const slot = propSlotOf(object)
   const n = hash2(object.x, object.y, 41)
-  const ref = pickSlot(PROPS, slot, n) ?? pickSlot(PROPS, slot, 0) ?? pickSlot(PROPS, 'fallback', 0)
-  if (ref === undefined) return
+  const ref = pickSlot(PROPS, slot, n) ?? pickSlot(PROPS, slot, 0)
   const cx = offsetX + object.x * TILE_PX * scale
   const bottom = offsetY + (object.y + 0.85) * TILE_PX * scale
+  if (ref === undefined) {
+    drawPending(ctx, cx, bottom, scale)
+    return
+  }
   drawTile(ctx, ref, cx, bottom, scale)
 
   const status = String(object.state.status ?? '正常')

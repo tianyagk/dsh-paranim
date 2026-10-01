@@ -110,9 +110,14 @@ for (const line of propsText.split('\n')) {
 }
 
 let bad = 0
+/**
+ * 空槽位是**允许**的——它表示"这个槽位还没有目视确认过的贴图"，渲染时会画问号。
+ * 但数量必须报出来：全空也"通过"就等于没有校验，那种绿是假的。
+ */
+const pending = []
 for (const slot of slots) {
-  const cells = refs.get(slot)
-  if (cells === undefined || cells.length === 0) { console.error(`  ✗ 槽位 ${slot} 在资源池里登记了却没有贴图`); bad++; continue }
+  const cells = refs.get(slot) ?? []
+  if (cells.length === 0) { pending.push(slot); continue }
   for (const cell of cells) {
     const meta = sheets.get(cell.sheet)
     if (meta === undefined) { console.error(`  ✗ 槽位 ${slot} 引用了不存在的图集 ${cell.raw ?? cell.sheet}`); bad++; continue }
@@ -122,7 +127,12 @@ for (const slot of slots) {
     }
   }
 }
-console.log(`  资源池 ${slots.length} 个槽位的贴图都落在图集网格内`)
+const filled = slots.length - pending.length
+if (filled === 0) { console.error('  ✗ 资源池一个槽位都没有贴图'); bad++ }
+else {
+  console.log(`  资源池 ${filled}/${slots.length} 个槽位有贴图，贴图都落在图集网格内`)
+  if (pending.length > 0) console.log(`  待确认(画问号占位)：${pending.join('、')}`)
+}
 
 // 自行车必须有两个轮子:轮圈那几行里,至少有一行呈现"左右两段独立像素"。
 // 判据不取单一行——轮圈闭合的那一行中间会连起来——而是取轮心上下三行里任一行成立即可。
