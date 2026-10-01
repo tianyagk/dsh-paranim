@@ -563,6 +563,20 @@ ok(
   ok(backToDefault.run.agents.find((a) => a.id === addedNullModel?.id)?.sprite === undefined, '空串表示恢复内置角色外观')
 }
 
+// 排队名单与路由表必须对得上。
+//
+// `UNQUEUED` 是写在 dispatch 里的一个集合：不在里面的 POST 会进写队列。
+// 它靠"路径字符串"匹配，所以给某条路由改名时（比如 /llm-probe → /probe）
+// 集合里那条就**静默失效**了——那条路由开始排队，而没人会注意到，
+// 直到某个"点了没反应"的 bug 冒出来（暂停那条就是这么来的）。
+{
+  const src = await readFile(join(import.meta.dirname, 'routes.ts'), 'utf8')
+  const unqueued = ['/roll', '/llm-probe', '/step/config']
+  const missing = unqueued.filter((u) => !src.includes(`'POST ${u}'`))
+  ok(missing.length === 0, `不排队的路由都还挂在路由表上（${unqueued.length} 条）`, missing.join(', '))
+  ok(src.includes('const UNQUEUED'), 'dispatch 里仍然有那份不排队名单（没被顺手删掉）')
+}
+
 function smallStore(): SandboxStore {
   const mk = (id: string, name: string): Sandbox => normalizeSandbox({
     id, name, desc: `${name}（自检用）`, map: { width: 40, height: 30, background: 'ado', tileset: 'dungeon' },
