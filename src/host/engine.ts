@@ -42,6 +42,7 @@ import {
   resolveAction,
   type Rng,
 } from '../shared/rules.ts'
+import { objectsOf } from '../shared/tilemap.ts'
 import type { PluginLlm } from './context.ts'
 import { log } from './context.ts'
 
@@ -112,7 +113,7 @@ function memoryLine(entry: MemoryEntry, currentTick: number): string {
 /** 组装一个智能体此刻看到的世界。 */
 function buildObservation(sandbox: Sandbox, run: RunState, agent: RunAgent): string {
   const place = placeAt(sandbox, agent.x, agent.y)
-  const nearbyObjects = [...sandbox.objects, ...sandbox.places]
+  const nearbyObjects = [...objectsOf(sandbox.map), ...sandbox.places]
     .map((o) => ({ o, d: distance(agent.x, agent.y, o.x, o.y) }))
     .filter((x) => x.d <= 30)
     .sort((a, b) => a.d - b.d)
@@ -245,7 +246,7 @@ export function remember(agent: RunAgent, entry: MemoryEntry): void {
 function fallbackAction(sandbox: Sandbox, run: RunState, agent: RunAgent): AgentAction {
   const planStep = agent.plan[0]
   if (planStep !== undefined) {
-    const hit = [...sandbox.places, ...sandbox.objects].find((o) => planStep.includes(o.name))
+    const hit = [...sandbox.places, ...objectsOf(sandbox.map)].find((o) => planStep.includes(o.name))
     if (hit !== undefined && distance(agent.x, agent.y, hit.x, hit.y) > 3) {
       return { thought: `该去${hit.name}了。`, kind: 'move', text: `动身前往${hit.name}`, placeId: hit.id, note: planStep }
     }
@@ -254,7 +255,7 @@ function fallbackAction(sandbox: Sandbox, run: RunState, agent: RunAgent): Agent
     }
     return { thought: planStep, kind: 'act', text: planStep, note: '按计划行事' }
   }
-  const here = [...sandbox.objects]
+  const here = [...objectsOf(sandbox.map)]
     .map((o) => ({ o, d: distance(agent.x, agent.y, o.x, o.y) }))
     .filter((x) => x.d <= 4)
     .sort((a, b) => a.d - b.d)[0]

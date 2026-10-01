@@ -5,7 +5,7 @@
  * 通行性来自图集里那些**人标过的**注释。这个文件是"地图数据的唯一解释口径"——
  * 移动判定、渲染、编辑器都从这里问，而不是各自解析一遍字符串。
  */
-import type { MapLayers, SandboxMap, TileLayer, TileNote, Tileset } from './model.ts'
+import type { MapLayers, SandboxMap, StateValue, TileLayer, TileNote, Tileset } from './model.ts'
 
 /** 格引用的解析结果。 */
 export interface ResolvedTile {
@@ -148,4 +148,77 @@ export function layerCounts(map: SandboxMap): Record<keyof MapLayers, number> {
     structure: count(map.layers.structure),
     object: count(map.layers.object),
   }
+}
+
+// ── 物件视图 ──────────────────────────────────────────────────────────────
+//
+// 物件不再是独立的一串对象——它就是 object 层上的某一格。但引擎需要一个
+// "可以遍历、有名字、有状态"的东西（生成观察、判定交互、距离护栏），
+// 所以这里把格**看成**物件。好处是两边永远一致：把桌子搬走就是清空那格，
+// 不存在"物件列表里还有、地图上没了"这种不同步。
+
+export interface TileObject {
+  /** 稳定 id：由格坐标推出。状态挂在格上，所以 id 也由格决定。 */
+  id: string
+  x: number
+  y: number
+  name: string
+  state: Record<string, StateValue>
+  /** 有注释的东西才算物件——没标过的瓦片不知道是什么，不能拿来做交互。 */
+  interactive: boolean
+  note: TileNote
+}
+
+export function objectIdAt(x: number, y: number): string {
+  return `obj:${x},${y}`
+}
+
+/** 从 id 反解格坐标；不是本格式就返回 undefined。 */
+export function positionOfObjectId(id: string): { x: number; y: number } | undefined {
+  const m = /^obj:(\d+),(\d+)$/.exec(id)
+  if (m === null) return undefined
+  return { x: Number(m[1]), y: Number(m[2]) }
+}
+
+/** 把 object 层里有注释的格全部当作物件列出来。 */
+export function objectsOf(map: SandboxMap): TileObject[] {
+  const out: TileObject[] = []
+  const layer = map.layers.object
+  for (let i = 0; i < layer.cells.length; i += 1) {
+    const t = resolveRef(map, layer.cells[i])
+    if (t === undefined || t.note === undefined) continue
+    const x = i % map.width
+    const y = Math.floor(i / map.width)
+    out.push({
+      id: objectIdAt(x, y),
+      x,
+      y,
+      name: t.note.name ?? `${t.tileset.name} ${t.col},${t.row}`,
+      state: layer.states?.[String(i)] ?? {},
+      interactive: t.note.use !== undefined || t.note.name !== undefined,
+      note: t.note,
+    })
+  }
+  return out
+}
+
+/** 改一格物件的状态（写进 TileLayer.states）。 */
+export function setObjectState(map: SandboxMap, x: number, y: number, patch: Record<string, StateValue | null>): string[] {
+  const layer = map.layers.object
+  const key = String(cellIndex(x, y, map.width))
+  const states = layer.states ?? (layer.states = {})
+  const cur: Record<string, StateValue> = { ...(states[key] ?? {}) }
+  const changed: string[] = []
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) {
+      if (k in cur) { delete cur[k]; changed.push(`${k} 已清除`) }
+      continue
+    }
+    if (cur[k] === v) continue
+    changed.push(`${k}：${String(cur[k] ?? '（无）')} → ${String(v)}`)
+    cur[k] = v
+  }
+  if (Object.keys(cur).length === 0) delete states[key]
+  else states[key] = cur
+  return changed
 }

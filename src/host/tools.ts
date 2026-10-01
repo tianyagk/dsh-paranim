@@ -23,6 +23,7 @@ import {
   type WorldObject,
 } from '../shared/model.ts'
 import { distance, findObject } from '../shared/rules.ts'
+import { emptyLayers, objectsOf, positionOfObjectId, resolveRef } from '../shared/tilemap.ts'
 import { issueDirective, listModelChoices } from './engine.ts'
 import { normalizeObject } from './store.ts'
 import type { ParanimRoutes } from './routes.ts'
@@ -88,8 +89,10 @@ export function makeTools(deps: ToolDeps): {
       .map(([k, v]) => `${k}=${v === null ? '—' : Array.isArray(v) ? v.join('/') : String(v)}`)
       .join(' ')
 
-  const renderObject = (o: WorldObject): string =>
-    `- ${o.name}（id=${o.id}｜${OBJECT_KIND_LABEL[o.kind] ?? o.kind}｜@${o.x},${o.y}）${o.desc === undefined ? '' : ` ${o.desc}`}${Object.keys(o.state).length === 0 ? '' : `\n    状态：${stateText(o.state)}`}${o.lastEditedBy === undefined ? '' : `（最后改动：${o.lastEditedBy}）`}`
+  // 参数放宽：物件现在是 object 层的格子视图（TileObject），不带 kind/color 之类，
+  // 但这里只需要名字、坐标和状态
+  const renderObject = (o: { name: string; x: number; y: number; state: Record<string, StateValue>; id?: string; kind?: string; desc?: string }): string =>
+    `- ${o.name}（${o.id === undefined ? '' : `id=${o.id}｜`}${o.kind === undefined ? '' : `${OBJECT_KIND_LABEL[o.kind as keyof typeof OBJECT_KIND_LABEL] ?? o.kind}｜`}@${o.x},${o.y}）${o.desc === undefined ? '' : ` ${o.desc}`}${Object.keys(o.state).length === 0 ? '' : `\n    状态：${stateText(o.state)}`}`
 
   // ── 1) 查看沙盒与运行态 ────────────────────────────────────────────────
   defs.push({
@@ -136,8 +139,8 @@ export function makeTools(deps: ToolDeps): {
         lines.push(`【地标】${view.sandbox.places.length} 处`)
         lines.push(...view.sandbox.places.map(renderObject))
         lines.push('')
-        lines.push(`【物件】${view.sandbox.objects.length} 件`)
-        lines.push(...view.sandbox.objects.map(renderObject))
+        lines.push(`【物件】${objectsOf(view.sandbox.map).length} 件`)
+        lines.push(...objectsOf(view.sandbox.map).map(renderObject))
       }
       if (which === 'agents' || which === 'all' || typeof args.agentId === 'string') {
         const list = typeof args.agentId === 'string' ? view.run.agents.filter((a) => a.id === args.agentId) : view.run.agents
@@ -145,7 +148,7 @@ export function makeTools(deps: ToolDeps): {
         lines.push(`【智能体】${view.run.agents.length} 个${typeof args.agentId === 'string' ? `（筛选中 ${list.length} 个）` : ''}`)
         for (const agent of list) {
           const attrs = ATTR_IDS.map((id) => `${ATTR_LABEL[id]}${agent.attrs[id]}`).join(' ')
-          const at = [...view.sandbox.places, ...view.sandbox.objects]
+          const at = [...view.sandbox.places, ...objectsOf(view.sandbox.map)]
             .map((o) => ({ o, d: distance(o.x, o.y, agent.x, agent.y) }))
             .filter((x) => x.d <= 6)
             .sort((a, b) => a.d - b.d)[0]
@@ -297,9 +300,24 @@ export function makeTools(deps: ToolDeps): {
       if (op === 'remove') {
         const id = String(args.objectId ?? '')
         const inPlaces = sandbox.places.findIndex((o) => o.id === id)
-        const inObjects = sandbox.objects.findIndex((o) => o.id === id)
-        if (inPlaces < 0 && inObjects < 0) throw new Error(`找不到物件 ${id}`)
-        const target = inPlaces >= 0 ? sandbox.places.splice(inPlaces, 1)[0] : sandbox.objects.splice(inObjects, 1)[0]
+        /**
+         * 物件不是独立的一串对象，而是 object 层上的某一格——所以"移除"就是
+         * 把那格清空（连同挂在它上面的状态）。id 由格坐标推出（obj:x,y），
+         * 因此反解得回原格，不存在"列表里删了、地图上还在"的可能。
+         */
+        let target: { id: string; name: string }
+        if (inPlaces >= 0) {
+          target = sandbox.places.splice(inPlaces, 1)[0]!
+        } else {
+          const pos = positionOfObjectId(id)
+          if (pos === undefined) throw new Error(`找不到物件 ${id}`)
+          const idx = pos.y * sandbox.map.width + pos.x
+          const tile = resolveRef(sandbox.map, sandbox.map.layers.object.cells[idx])
+          if (tile === undefined) throw new Error(`(${pos.x},${pos.y}) 这一格上没有东西`)
+          target = { id, name: tile.note?.name ?? `${tile.tileset.name} ${tile.col},${tile.row}` }
+          sandbox.map.layers.object.cells[idx] = null
+          if (sandbox.map.layers.object.states !== undefined) delete sandbox.map.layers.object.states[String(idx)]
+        }
         view.run.events.push({
           id: `ev-${Date.now().toString(36)}`,
           tick: view.run.tick,
@@ -316,7 +334,15 @@ export function makeTools(deps: ToolDeps): {
 
       if (op === 'add') {
         const kindRaw = String(args.kind ?? 'prop')
-        const bucket = kindRaw === 'place' ? sandbox.places : sandbox.objects
+        /**
+         * 只允许加地标。**往地图上放瓦片是编辑器的事**——模型工具凭空写一格
+         * 需要先知道"用哪张图集的哪一格"，那是人在切片器里标过的东西，
+         * 不该由一个字符串参数决定。
+         */
+        if (kindRaw !== 'place') {
+          throw new Error('物件请在地图编辑器的 object 图层里放置；模型工具只处理地标（kind=place）')
+        }
+        const bucket = sandbox.places
         const parsed = normalizeObject(
           {
             id: typeof args.objectId === 'string' && args.objectId !== '' ? args.objectId : undefined,
@@ -593,7 +619,7 @@ export function makeTools(deps: ToolDeps): {
         return {
           text: [
             `沙盒库（${list.length} 个，当前：${current.sandbox.id}）`,
-            ...list.map((s) => `- ${s.name}（id=${s.id}${s.builtin === true ? '｜发货镜像' : ''}）：${s.places.length} 地标 / ${s.objects.length} 物件 / ${s.agents.length} 智能体\n    ${s.desc}${s.attribution === undefined ? '' : `\n    出处：${s.attribution}（${s.license ?? '许可见素材索引'}）`}`),
+            ...list.map((s) => `- ${s.name}（id=${s.id}${s.builtin === true ? '｜发货镜像' : ''}）：${s.places.length} 地标 / ${s.objects} 物件 / ${s.agents.length} 智能体\n    ${s.desc}${s.attribution === undefined ? '' : `\n    出处：${s.attribution}（${s.license ?? '许可见素材索引'}）`}`),
           ].join('\n'),
         }
       }
@@ -618,9 +644,8 @@ export function makeTools(deps: ToolDeps): {
           desc: String(args.desc ?? '空沙盒：自己摆一座镇。'),
           createdAt: Date.now(),
           updatedAt: Date.now(),
-          map: { width: 120, height: 90, ground: '#1f2430' },
+          map: { width: 120, height: 90, tilesets: [], layers: emptyLayers(120, 90) },
           places: [],
-          objects: [],
           relations: [],
           agents: [],
         })

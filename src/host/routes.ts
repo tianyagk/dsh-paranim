@@ -27,15 +27,15 @@ import {
   type AgentModelRoute,
   type StepConfig,
   type WorldObject,
-  type Structure,
   type RunState,
 } from '../shared/model.ts'
 import { findObject } from '../shared/rules.ts'
+import { objectsOf, resolveRef } from '../shared/tilemap.ts'
 import { isTrustedApiRequest } from './fence.ts'
 import { messageOf, type LlmMessage, type PluginLlm, type PluginWebRoute } from './context.ts'
 import { log } from './context.ts'
 import { issueDirective, listModelChoices, runTick, type TickResult } from './engine.ts'
-import { RunStore, SandboxStore, StepStore, normalizeObject, normalizeSandbox, GROUND_KINDS } from './store.ts'
+import { RunStore, SandboxStore, StepStore, normalizeObject, normalizeSandbox } from './store.ts'
 
 /** 一次模型调用的描述（与 engine.ts 内部同名结构对齐：路由 + 系统提示 + 用户观察）。 */
 interface LlmCall {
@@ -539,6 +539,13 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
 /** 每个工作区一条写队列，见 handler 里的 serialize。 */
 const writeQueues = new Map<string, Promise<unknown>>()
 
+/** 图层的中文名（事件流里用）。 */
+const LAYER_LABEL: Record<string, string> = {
+  background: '地图图层',
+  structure: '建筑图层',
+  object: '物件图层',
+}
+
   const routes: PluginWebRoute[] = [
     {
       kind: 'prefix',
@@ -574,6 +581,19 @@ const writeQueues = new Map<string, Promise<unknown>>()
             const run = prev.then(job, job)
             writeQueues.set(key, run.then(() => undefined, () => undefined))
             return run
+          }
+
+          /**
+           * 记一条"玩家动了世界"的事件。
+           *
+           * 改动必须留下线索：只落盘不写事件的话，复盘时"这一步地图怎么变的"
+           * 就断了，而这正是事件流存在的意义。
+           */
+          const logMutate = (view: { run: RunState }, text: string, by: string, targetId?: string): void => {
+            view.run.events.push({
+              id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate',
+              actor: 'gm', actorName: by, text, targetId,
+            })
           }
 
           const routeTable: Record<string, () => Promise<void>> = {
@@ -674,117 +694,59 @@ const writeQueues = new Map<string, Promise<unknown>>()
               return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: saved.id, create: true }) })
             },
 
-            // POST /paranim/map —— 增删地标/物件
-            'POST /map': async () => {
+            /**
+             * POST /paranim/paint —— 在某一层的一格上放/清一个瓦片。
+             *
+             * 编辑器**只有一个写入口**。"一格一个瓦片"这条约定在这里强制，
+             * 前端怎么画都破坏不了它——而通行性判定（rules.canEnter）依赖
+             * "每格只有一个答案"才成立。
+             *
+             * 一次可以带一串格子（拖动涂抹会连点），所以入参是 cells 数组。
+             */
+            'POST /paint': async () => {
               const view = await world({ workspace, sandboxId, create: true })
-              const op = String(body.op ?? 'upsert')
-              /**
-               * place 写进 structure 层,而不是 places 字段。
-               *
-               * places 是三层的投影(由 structure 导出),往投影里 push 会在下一次
-               * 归一化时被覆盖——表现为"放了地标但刷新就没了"。规范表示只有一份,
-               * 写入必须落在它上面。
-               */
-              const isPlace = body.kind === 'place'
-              const layers = view.sandbox.map.layers
-              const bucket = isPlace ? (layers?.structure ?? []) : view.sandbox.objects
-              /**
-               * 对象 id 的两种写法都收:`id` 与 `objectId`。
-               *
-               * 这个接口原本只认 `id`,而 /object 与 MapCanvas 那边用的是 `objectId`——
-               * 名字不统一时,传错了不会报错,而是**静默新建一个对象**(走到 fallbackId 分支),
-               * 看上去像"改了没生效"。宁可在这一层兜住两种写法,也不让调用方差一个字就出鬼。
-               */
-              const wantedId = String(body.id ?? body.objectId ?? '')
               const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
-              /**
-               * 布局改动必须写进事件流。
-               *
-               * 此前这条支线完全静默:改了地图或放了个物件,事件列表里什么都没有,
-               * 于是"刚才谁动了这个世界"这条线索断了——而这正是事件流存在的意义。
-               */
-              const logMutate = (text: string, targetId?: string): void => {
-                view.run.events.push({
-                  id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate',
-                  actor: 'gm', actorName: by, text, targetId,
-                })
+              const layerName = String(body.layer ?? '')
+              if (layerName !== 'background' && layerName !== 'structure' && layerName !== 'object') {
+                throw new HttpError(`未知图层 ${layerName}`, 400)
               }
-              if (op === 'remove') {
-                const index = bucket.findIndex((o) => o.id === wantedId)
-                if (index < 0) throw new HttpError(`找不到对象 ${wantedId}`, 404)
-                const [gone] = bucket.splice(index, 1)
-                logMutate(`${by}移走了「${gone.name}」。`)
-              } else if (isPlace) {
-                // structure 层:建筑轮廓 + 门窗。形状与 WorldObject 不同,不能共用那条路径。
-                const structs = bucket as Structure[]
-                const inner = (body.object ?? body) as Record<string, unknown>
-                const id = String(inner.id ?? wantedId ?? '') || shortId('place')
-                const prev = structs.find((o) => o.id === id)
-                const next: Structure = {
-                  id,
-                  name: String(inner.name ?? prev?.name ?? '新建筑').slice(0, 24),
-                  x: Math.max(0, Math.round(Number(inner.x ?? prev?.x ?? view.sandbox.map.width / 2))),
-                  y: Math.max(0, Math.round(Number(inner.y ?? prev?.y ?? view.sandbox.map.height / 2))),
-                  w: Math.max(2, Math.round(Number(inner.w ?? prev?.w ?? 6))),
-                  h: Math.max(2, Math.round(Number(inner.h ?? prev?.h ?? 5))),
-                  ...(typeof inner.roofSlot === 'string' && inner.roofSlot !== ''
-                    ? { roofSlot: inner.roofSlot }
-                    : prev?.roofSlot !== undefined ? { roofSlot: prev.roofSlot } : {}),
-                  ...(Array.isArray(inner.doors) ? { doors: inner.doors as Structure['doors'] } : prev?.doors !== undefined ? { doors: prev.doors } : {}),
-                  ...(Array.isArray(inner.windows) ? { windows: inner.windows as Structure['windows'] } : prev?.windows !== undefined ? { windows: prev.windows } : {}),
-                  ...(typeof inner.color === 'string' ? { color: inner.color } : prev?.color !== undefined ? { color: prev.color } : {}),
-                  ...(typeof inner.desc === 'string' ? { desc: inner.desc.slice(0, 400) } : prev?.desc !== undefined ? { desc: prev.desc } : {}),
-                }
-                const index = structs.findIndex((o) => o.id === id)
-                if (index < 0) {
-                  structs.push(next)
-                  logMutate(`${by}建了一栋「${next.name}」(${next.w}×${next.h} @${next.x},${next.y})。`, next.id)
-                } else {
-                  structs[index] = next
-                  logMutate(`${by}改了建筑「${next.name}」:${next.w}×${next.h} @${next.x},${next.y}。`, next.id)
-                }
-              } else {
-                // id 的优先级:`object.id` > `body.id`/`body.objectId` > 兜底生成。
-                // 先取内层的、再回退外层的——外层 id 是"我要改哪个",内层是"它自己叫什么",
-                // 让外层赢会把[改名]变成"照抄外层",而这里是upsert,不该那样。
-                const inner = (body.object ?? body) as Record<string, unknown>
-                const raw = { kind: body.kind, ...inner, id: String(inner.id ?? wantedId ?? '') }
-                const fallbackId = shortId('obj')
-                const parsed = normalizeObject(raw, view.sandbox.map.width, view.sandbox.map.height, 'prop', fallbackId)
-                if (parsed === undefined) throw new HttpError('对象缺少合法 id', 400)
-                const list = bucket as WorldObject[]
-                const index = list.findIndex((o) => o.id === parsed.id)
-                if (index < 0) {
-                  list.push(parsed)
-                  logMutate(`${by}在世界里放了一件「${parsed.name}」(sprite=${parsed.sprite ?? 'auto'} @${parsed.x},${parsed.y})。`, parsed.id)
-                } else {
-                  // 只覆盖请求里**真的给了**的字段。
-                  // 直接 `{ ...旧值, ...parsed }` 是错的：parsed 里没给的字段是 undefined，
-                  // 会把已有值抹掉——想只改 sprite 却把 description 清了就是这么来的。
-                  const kept = list[index]
-                  const patch = Object.fromEntries(
-                    Object.entries(parsed).filter(([, v]) => v !== undefined),
-                  ) as Partial<WorldObject>
-                  patch.state = { ...kept.state, ...parsed.state }
-                  list[index] = { ...kept, ...patch }
-                  const changedKeys = Object.keys(patch).filter((k) => k !== 'state')
-                  logMutate(`${by}改了「${kept.name}」:${changedKeys.length === 0 ? '状态有变动' : changedKeys.join('、')}。`, kept.id)
-                }
+              const layer = view.sandbox.map.layers[layerName]
+              const W = view.sandbox.map.width
+              const H = view.sandbox.map.height
+              // null / 空串 = 橡皮
+              const ref = body.ref === null || body.ref === undefined || body.ref === '' ? null : String(body.ref)
+              if (ref !== null && resolveRef(view.sandbox.map, ref) === undefined) {
+                throw new HttpError(`瓦片引用无效或图集不存在：${ref}`, 400)
               }
-              view.sandbox.updatedAt = Date.now()
-              const saved = await commit(view, workspace)
-              return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: saved.id, create: true }) })
+              const list = Array.isArray(body.cells) ? body.cells.slice(0, 4096) : []
+              let painted = 0
+              for (const cell of list) {
+                const c = (cell ?? {}) as Record<string, unknown>
+                const x = Math.round(Number(c.x))
+                const y = Math.round(Number(c.y))
+                if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= W || y >= H) continue
+                const idx = y * W + x
+                if (layer.cells[idx] === ref) continue
+                layer.cells[idx] = ref
+                // 清空时连状态一起丢掉：格上没东西了，状态就没有宿主
+                if (ref === null && layer.states !== undefined) delete layer.states[String(idx)]
+                painted += 1
+              }
+              if (painted > 0) {
+                view.sandbox.updatedAt = Date.now()
+                logMutate(view, `${by}在「${LAYER_LABEL[layerName]}」上画了 ${painted} 格${ref === null ? '（擦除）' : ''}。`, by)
+                await sendWorld(res, view, workspace)
+                return
+              }
+              await sendWorld(res, view, workspace)
+              return
             },
 
             /**
-             * POST /paranim/place —— 增删改 structure layer 里的建筑。
+             * POST /paranim/place —— 命名地标的增删改。
              *
-             * 与 /object 分开是有意的：建筑参与 ① 墙体绘制 ② 移动边界（见
-             * rules.blockedByStructure）③ 智能体的"所在地点数"，改一个矩形会牵动
-             * 这三处，所以它有自己的校验（宽高下限、必须落在图内）与自己的事件类型。
-             *
-             * 写的是 structure 层而不是 places 字段：places 是三层的投影，
-             * 往投影里写在下一次归一化时会被覆盖，表现为"改了又变回去"。
+             * 地标是**逻辑概念**（"咖啡馆在哪儿"），不是地图上的东西——地图由三个
+             * 瓦片图层表达，包括建筑。所以这里只动名字与范围，不碰任何图层。
              */
             'POST /place': async () => {
               const view = await world({ workspace, sandboxId, create: true })
@@ -792,145 +754,47 @@ const writeQueues = new Map<string, Promise<unknown>>()
               const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
               const W = view.sandbox.map.width
               const H = view.sandbox.map.height
-              const clampX = (v: number): number => Math.min(W - 1, Math.max(0, Math.round(v)))
-              const clampY = (v: number): number => Math.min(H - 1, Math.max(0, Math.round(v)))
-              /**
-               * structure 层必须真的存在再往里加。
-               *
-               * `?? []` 看着安全,其实是个陷阱:新建的空沙盒可能还没走过一次归一化,
-               * map.layers 仍是 undefined——此时 push 进这个临时数组,谁也不持有它,
-               * 请求返回 200 但建筑根本没落上。宁可就地补一层。
-               */
-              if (view.sandbox.map.layers === undefined) {
-                view.sandbox.map.layers = {
-                  background: Array.from({ length: view.sandbox.map.height }, () => 'g'.repeat(view.sandbox.map.width)),
-                  structure: [],
-                  object: [],
-                }
-              }
-              const structs = view.sandbox.map.layers.structure
-              const logMutate = (text: string, targetId?: string): void => {
-                view.run.events.push({
-                  id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate', actor: 'gm', actorName: by,
-                  text, targetId,
-                })
-              }
+              const placeId = String(body.placeId ?? body.id ?? '')
+              const index = view.sandbox.places.findIndex((p) => p.id === placeId)
 
               if (op === 'add') {
-                const name = typeof body.name === 'string' && body.name.trim() !== '' ? body.name.trim().slice(0, 24) : '新建筑'
-                const w = Math.min(W, Math.max(2, Math.round(Number(body.w ?? 6)) || 6))
-                const h = Math.min(H, Math.max(2, Math.round(Number(body.h ?? 5)) || 5))
-                const struct: Structure = {
+                const name = typeof body.name === 'string' && body.name.trim() !== '' ? body.name.trim().slice(0, 24) : '新地标'
+                const place: WorldObject = {
                   id: `place-${randomToken(6)}`,
                   name,
-                  x: clampX(Number(body.x ?? W / 2)),
-                  y: clampY(Number(body.y ?? H / 2)),
-                  w,
-                  h,
+                  kind: 'place',
+                  x: Math.max(0, Math.min(W - 1, Math.round(Number(body.x ?? W / 2)))),
+                  y: Math.max(0, Math.min(H - 1, Math.round(Number(body.y ?? H / 2)))),
+                  w: Math.max(1, Math.min(W, Math.round(Number(body.w ?? 12)))),
+                  h: Math.max(1, Math.min(H, Math.round(Number(body.h ?? 10)))),
                   color: typeof body.color === 'string' ? body.color : '#a8623f',
-                  roofSlot: typeof body.roofSlot === 'string' ? body.roofSlot : 'roofHome',
+                  interactive: true,
+                  state: { open: true },
                   desc: typeof body.desc === 'string' ? body.desc : '',
                 }
-                // 外框不许越界：越界的建筑画出来缺一角，移动边界也会伸到图外
-                struct.x = Math.min(W - 1 - Math.floor(w / 2), Math.max(Math.floor(w / 2), struct.x))
-                struct.y = Math.min(H - 1 - Math.floor(h / 2), Math.max(Math.floor(h / 2), struct.y))
-                structs.push(struct)
-                logMutate(`${by}新建了建筑「${struct.name}」（${struct.w}×${struct.h} @${struct.x},${struct.y}）。`, struct.id)
-                view.sandbox.updatedAt = Date.now()
-                // 必须 return：掉下去会走到"按 placeId 找建筑"，而 add 请求没带 id，
-                // 于是表现为"新建成功了却报 404"。
-                await sendWorld(res, view, workspace)
-                return
+                view.sandbox.places.push(place)
+                logMutate(view, `${by}新建了地标「${place.name}」（@${place.x},${place.y}）。`, by, place.id)
+              } else if (index < 0) {
+                throw new HttpError(`找不到地标 ${placeId}`, 404)
+              } else if (op === 'remove') {
+                const [gone] = view.sandbox.places.splice(index, 1)
+                logMutate(view, `${by}删掉了地标「${gone.name}」。`, by)
+              } else {
+                const target = view.sandbox.places[index]
+                const before = `${target.name} @${target.x},${target.y}`
+                if (typeof body.name === 'string' && body.name.trim() !== '') target.name = body.name.trim().slice(0, 24)
+                if (body.x !== undefined) target.x = Math.max(0, Math.min(W - 1, Math.round(Number(body.x))))
+                if (body.y !== undefined) target.y = Math.max(0, Math.min(H - 1, Math.round(Number(body.y))))
+                if (body.w !== undefined) target.w = Math.max(1, Math.min(W, Math.round(Number(body.w))))
+                if (body.h !== undefined) target.h = Math.max(1, Math.min(H, Math.round(Number(body.h))))
+                if (typeof body.desc === 'string') target.desc = body.desc.slice(0, 400)
+                target.lastEditedBy = by
+                target.lastEditedAt = Date.now()
+                logMutate(view, `${by}改了地标「${target.name}」：${before} → ${target.name} @${target.x},${target.y}。`, by, target.id)
               }
-
-              // id / placeId 两种写法都收：与 /map 保持一致的宽容度。
-              // 只认一种写法的后果是——调用方换了字段名就静默 404,排查起来很脏。
-              const placeId = String(body.placeId ?? body.id ?? '')
-              const index = structs.findIndex((p) => p.id === placeId)
-              if (index < 0) throw new HttpError(`找不到建筑 ${placeId}`, 404)
-
-              if (op === 'remove') {
-                const [gone] = structs.splice(index, 1)
-                logMutate(`${by}拆掉了建筑「${gone.name}」。`)
-                view.sandbox.updatedAt = Date.now()
-                // 同样必须 return：否则会带着一个已经不存在的结构掉进下面的 patch 分支。
-                await sendWorld(res, view, workspace)
-                return
-              }
-
-              // patch：只收白名单字段，改完做一次范围收敛
-              const target = structs[index]
-              const before = `${target.name} ${target.w}×${target.h} @${target.x},${target.y}`
-              if (typeof body.name === 'string' && body.name.trim() !== '') target.name = body.name.trim().slice(0, 24)
-              if (body.x !== undefined) target.x = clampX(Number(body.x))
-              if (body.y !== undefined) target.y = clampY(Number(body.y))
-              if (body.w !== undefined) target.w = Math.min(W, Math.max(2, Math.round(Number(body.w)) || target.w))
-              if (body.h !== undefined) target.h = Math.min(H, Math.max(2, Math.round(Number(body.h)) || target.h))
-              if (typeof body.desc === 'string') target.desc = body.desc.slice(0, 400)
-              if (typeof body.roofSlot === 'string' && body.roofSlot !== '') target.roofSlot = body.roofSlot
-              if (typeof body.color === 'string' && body.color !== '') target.color = body.color
-              // 门/窗：整体替换。它们是"墙体上的开口"，增量合并容易留下已经不在墙上的旧开口。
-              if (Array.isArray(body.doors)) {
-                target.doors = body.doors
-                  .filter((d) => d !== null && typeof d === 'object')
-                  .slice(0, 32)
-                  .map((d) => ({ x: clampX(Number((d as Record<string, unknown>).x)), y: clampY(Number((d as Record<string, unknown>).y)) }))
-              }
-              if (Array.isArray(body.windows)) {
-                target.windows = body.windows
-                  .filter((d) => d !== null && typeof d === 'object')
-                  .slice(0, 32)
-                  .map((d) => ({ x: clampX(Number((d as Record<string, unknown>).x)), y: clampY(Number((d as Record<string, unknown>).y)) }))
-              }
-              // 外框不许越界：越界的建筑画出来会缺一角，路网也会接到图外
-              target.x = Math.min(W - 1 - Math.floor(target.w / 2), Math.max(Math.floor(target.w / 2), target.x))
-              target.y = Math.min(H - 1 - Math.floor(target.h / 2), Math.max(Math.floor(target.h / 2), target.y))
-              target.lastEditedBy = by
-              target.lastEditedAt = Date.now()
               view.sandbox.updatedAt = Date.now()
-              logMutate(`${by}改了建筑「${target.name}」：${before} → ${target.name} ${target.w}×${target.h} @${target.x},${target.y}。`, target.id)
               await sendWorld(res, view, workspace)
               return
-            },
-
-            /**
-             * POST /paranim/tile —— 用笔刷画 background layer。
-             *
-             * 一次请求可以带一串格子（拖拽涂抹会连点），所以入参是 `cells` 数组
-             * 而不是单个 x/y：一笔刷过去要是一次请求一格，画一片草地会打出上百个请求。
-             */
-            'POST /tile': async () => {
-              const view = await world({ workspace, sandboxId, create: true })
-              const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
-              const kind = String(body.kind ?? 'grass')
-              if (!GROUND_KINDS.has(kind)) throw new HttpError(`未知地面材质 ${kind}`, 400)
-              const ch = GROUND_KINDS.get(kind) as string
-              const W = view.sandbox.map.width
-              const H = view.sandbox.map.height
-              const bg = view.sandbox.map.layers?.background ?? []
-              const rows = Array.isArray(body.cells) ? body.cells : [{ x: body.x, y: body.y }]
-              let painted = 0
-              for (const cell of rows.slice(0, 4096)) {
-                const c = cell as Record<string, unknown>
-                const x = Math.round(Number(c.x))
-                const y = Math.round(Number(c.y))
-                if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= W || y >= H) continue
-                const row = bg[y] ?? 'g'.repeat(W)
-                if (row[x] === ch) continue
-                bg[y] = row.slice(0, x) + ch + row.slice(x + 1)
-                painted += 1
-              }
-              if (painted > 0 && view.sandbox.map.layers !== undefined) {
-                view.sandbox.map.layers.background = bg
-                view.sandbox.map.tiles = bg
-                view.sandbox.updatedAt = Date.now()
-                view.run.events.push({
-                  id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate', actor: 'gm', actorName: by,
-                  text: `${by}用「${kind}」刷了 ${painted} 格地面。`,
-                })
-                await commit(view, workspace)
-              }
-              return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: view.sandbox.id, create: true }) })
             },
 
             // POST /paranim/object —— 修改物体状态（需求 5 的右键菜单落点）
