@@ -67,3 +67,47 @@ test('grass 有变体，但两种都属于草地（不会画成别的材质）',
   const kinds = new Set(layout.terrain.flat())
   for (const k of kinds) assert.ok(k === 'grass' || k === 'grassAlt', `草地上出现了 ${k}`)
 })
+
+// ── 推导层不许盖掉玩家显式写下的东西 ──────────────────────────────────────
+//
+// 这一条对应的真实故障：house 沙盒有 20×17 的室内区域，室内地板与房间之间的
+// 走廊都是**推导**出来的，而它们原来会无条件覆盖字符画。于是玩家在室内刷任何
+// 材质都会被铺回石地板，屏幕上毫无反应——看上去就是"笔刷坏了"。
+
+function mkIndoor(): Sandbox {
+  const sb = mkSandbox(['g'.repeat(20), 'g'.repeat(20), 'g'.repeat(20), 'g'.repeat(20)], 20, 4)
+  sb.map.interior = { x: 2, y: 1, w: 14, h: 3 }
+  return sb
+}
+
+test('室内地板：没涂过的格子自动铺石地板（保持原有外观）', () => {
+  const layout = buildLayout(mkIndoor())
+  assert.equal(layout.terrain[2][5], 'stone', '室内默认应是石地板')
+})
+
+test('室内地板：玩家涂过的格子必须保留（不能被推导覆盖）', () => {
+  const sb = mkIndoor()
+  const row = sb.map.layers?.background?.[2] ?? sb.map.tiles![2]
+  const painted = row.slice(0, 5) + 'o' + row.slice(6)
+  sb.map.tiles![2] = painted
+  if (sb.map.layers) sb.map.layers.background[2] = painted
+  const layout = buildLayout(sb)
+  assert.equal(layout.terrain[2][5], 'wood', '涂了木地板就该是木地板，哪怕它在室内区域里')
+  assert.equal(layout.terrain[2][6], 'stone', '同一行没涂的格子仍铺石地板')
+})
+
+test('路网：不会盖掉玩家涂过的格子', () => {
+  const sb = mkSandbox(['g'.repeat(24), 'g'.repeat(24), 'g'.repeat(24)], 24, 3)
+  // 放两处地标让它们之间生成一条路
+  sb.places = [
+    { id: 'a', name: '甲', kind: 'place', x: 3, y: 1, w: 4, h: 2, interactive: true, state: {} },
+    { id: 'b', name: '乙', kind: 'place', x: 19, y: 1, w: 4, h: 2, interactive: true, state: {} },
+  ]
+  // 把中间一整行涂成水泥，路本会从这里穿过
+  const painted = 'z'.repeat(24)
+  sb.map.tiles![1] = painted
+  if (sb.map.layers) sb.map.layers.background[1] = painted
+  const layout = buildLayout(sb)
+  const kept = layout.terrain[1].filter((t) => t === 'concrete').length
+  assert.ok(kept >= 8, `玩家涂的水泥应大范围保留，实际只剩 ${kept} 格`)
+})

@@ -35,6 +35,9 @@ export interface View {
   offsetY: number
 }
 
+/** 镜像的三个图层。 */
+export type LayerName = 'background' | 'structure' | 'object'
+
 export interface RenderInput {
   sandbox: Sandbox
   view: View
@@ -44,6 +47,14 @@ export interface RenderInput {
   hover?: { objectId?: string; agentId?: string }
   bubbles?: Map<string, string>
   tick?: number
+  /**
+   * 只画这一层（编辑镜像时用）。
+   *
+   * 不隔离的话，地面在建筑、植物、物件之下——玩家刷的那一格若正好被谁盖住，
+   * 屏幕上不会有任何变化，看上去就是"涂了没反应"。分层显示让当前层的改动
+   * 独占画面，所见即所改。
+   */
+  only?: LayerName
 }
 
 // 布局缓存：同一份沙盒只算一次。键是地标几何 + 地图尺寸 + 自带地形长度。
@@ -180,7 +191,7 @@ function drawBuilding(ctx: CanvasRenderingContext2D, view: View, layout: TownLay
  * 显式字段优先是刻意的：物件的样子是数据，玩家在资源池里挑了哪张贴图就该用哪张，
  * 不该被名字里的某个字重新决定。
  */
-function propSlotOf(object: WorldObject): string {
+export function propSlotOf(object: WorldObject): string {
   if (typeof object.sprite === 'string' && object.sprite !== '') return object.sprite
   const text = `${object.id} ${object.name}`.toLowerCase()
   for (const entry of OBJECT_LIBRARY) {
@@ -295,10 +306,86 @@ function drawBubble(ctx: CanvasRenderingContext2D, text: string, cx: number, top
   ctx.fillText(clipped, Math.round(cx), y + h / 2 + 0.5)
 }
 
+/**
+ * 编辑时的格子辅助线。
+ *
+ * 只画当前图层之后，画面会失去参照（一片同色地面看不出自己站在哪一格）。
+ * 网格不是"别的图层的内容"，它只帮人定位。
+ */
+function drawGrid(ctx: CanvasRenderingContext2D, view: View, size: { w: number; h: number }, sandbox: Sandbox): void {
+  const step = TILE_PX * view.scale
+  // 格子小于 6 像素时画线会糊成一片，直接不画
+  if (step < 6) return
+  const minX = Math.max(0, Math.floor(-view.offsetX / step))
+  const maxX = Math.min(sandbox.map.width, Math.ceil((size.w - view.offsetX) / step))
+  const minY = Math.max(0, Math.floor(-view.offsetY / step))
+  const maxY = Math.min(sandbox.map.height, Math.ceil((size.h - view.offsetY) / step))
+  // 每 8 格加粗一条，便于数格子
+  ctx.lineWidth = 1
+  for (let x = minX; x <= maxX; x += 1) {
+    const px = Math.round(view.offsetX + x * step) + 0.5
+    ctx.strokeStyle = x % 8 === 0 ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.06)'
+    ctx.beginPath()
+    ctx.moveTo(px, view.offsetY + minY * step)
+    ctx.lineTo(px, view.offsetY + maxY * step)
+    ctx.stroke()
+  }
+  for (let y = minY; y <= maxY; y += 1) {
+    const py = Math.round(view.offsetY + y * step) + 0.5
+    ctx.strokeStyle = y % 8 === 0 ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.06)'
+    ctx.beginPath()
+    ctx.moveTo(view.offsetX + minX * step, py)
+    ctx.lineTo(view.offsetX + maxX * step, py)
+    ctx.stroke()
+  }
+}
+
+/**
+ * structure 层的编辑视图：画**墙圈与门窗**，不画屋顶。
+ *
+ * 屋顶是给"看世界"用的；编辑边界时要看的是墙在哪、门开在哪一格——
+ * 盖着屋顶就什么都判断不了。门的可通行位置直接决定智能体能不能进去。
+ */
+function drawStructureLayer(ctx: CanvasRenderingContext2D, view: View, sandbox: Sandbox): void {
+  const step = TILE_PX * view.scale
+  if (step <= 0.05) return
+  const structs = sandbox.map.layers?.structure ?? []
+  for (const s of structs) {
+    const x = view.offsetX + s.x * step
+    const y = view.offsetY + s.y * step
+    const w = s.w * step
+    const h = s.h * step
+    // 墙体：实心描边围一圈
+    ctx.fillStyle = 'rgba(122,162,247,0.10)'
+    ctx.fillRect(x, y, w, h)
+    ctx.strokeStyle = '#7aa2f7'
+    ctx.lineWidth = Math.max(2, step * 0.28)
+    ctx.strokeRect(x + ctx.lineWidth / 2, y + ctx.lineWidth / 2, w - ctx.lineWidth, h - ctx.lineWidth)
+    // 门：绿色（可通行）
+    ctx.fillStyle = '#7fc98b'
+    for (const d of s.doors ?? []) {
+      ctx.fillRect(view.offsetX + d.x * step, view.offsetY + d.y * step, step, step)
+    }
+    // 窗：青色（不可通行，只供隔窗相望）
+    ctx.fillStyle = '#7ac7d9'
+    for (const win of s.windows ?? []) {
+      ctx.fillRect(view.offsetX + win.x * step, view.offsetY + win.y * step, step, step)
+    }
+    // 名字：格子够大才画，否则会糊成一团
+    if (step >= 10) {
+      ctx.fillStyle = 'rgba(238,242,248,0.85)'
+      ctx.font = `${Math.max(9, Math.min(13, step))}px system-ui, sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(s.name, x + w / 2, y + h / 2)
+    }
+  }
+}
+
 // ── 主入口 ────────────────────────────────────────────────────────────────
 
 export function renderTown(ctx: CanvasRenderingContext2D, input: RenderInput): void {
-  const { sandbox, view, size, agents, selectedId, hover } = input
+  const { sandbox, view, size, agents, selectedId, hover, only } = input
   const tick = input.tick ?? 0
   const layout = townLayout(sandbox)
 
@@ -306,6 +393,19 @@ export function renderTown(ctx: CanvasRenderingContext2D, input: RenderInput): v
   ctx.fillStyle = '#0d1014'
   ctx.fillRect(0, 0, size.w, size.h)
   ctx.imageSmoothingEnabled = false
+
+  if (only !== undefined) {
+    drawGrid(ctx, view, size, sandbox)
+    if (only === 'background') {
+      drawTerrain(ctx, input, layout)
+    } else if (only === 'structure') {
+      drawStructureLayer(ctx, view, sandbox)
+    } else {
+      // 物件层：只画物件（含植物，它们也是物件层的东西）
+      for (const object of sandbox.objects) drawObject(ctx, view, object)
+    }
+    return
+  }
 
   drawTerrain(ctx, input, layout)
 

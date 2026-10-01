@@ -82,6 +82,20 @@ export function buildLayout(sandbox: Sandbox): TownLayout {
   }
   const road: boolean[][] = Array.from({ length: height }, () => Array.from({ length: width }, () => false))
 
+  /**
+   * 该格是否"没被玩家显式指定过"。
+   *
+   * 字符 'g'（草地）兼作**默认值**：整张字符画里没被改过的格子都是它。
+   * 后面几步的生成器（室内地板、路网）只允许动这些格子——否则玩家用笔刷
+   * 写下的东西会被推导覆盖，表现成"涂了完全没反应"，而且不报任何错。
+   * house 这类沙盒的字符画全是 'g'，所以它的室内地板与走廊照旧自动生成；
+   * 一旦玩家改了某一格，那一格就归玩家。
+   */
+  const isDefault = (x: number, y: number): boolean => {
+    const ch = sandbox.map.tiles?.[y]?.[x]
+    return ch === undefined || ch === 'g'
+  }
+
   // ── 1) 沙盒自带的字符画地形优先（它是世界数据，玩家可以手改）────────────
   if (sandbox.map.tiles !== undefined) {
     for (let y = 0; y < Math.min(height, sandbox.map.tiles.length); y += 1) {
@@ -107,7 +121,16 @@ export function buildLayout(sandbox: Sandbox): TownLayout {
   if (interior !== undefined) {
     for (let y = Math.max(0, Math.round(interior.y)); y < Math.min(height, Math.round(interior.y + interior.h)); y += 1) {
       for (let x = Math.max(0, Math.round(interior.x)); x < Math.min(width, Math.round(interior.x + interior.w)); x += 1) {
-        terrain[y][x] = 'stone'
+        /**
+         * 只覆盖"还没被指定过"的格子。
+         *
+         * 室内地板是**推导出来的默认值**，而字符画是玩家显式写下的世界数据——
+         * 推导不该盖掉显式。原来这里无条件 `= 'stone'`，于是 house 沙盒里那
+         * 20×17 的一大片室内，玩家用笔刷刷什么都会被铺回石地板，看上去就是
+         * "涂了完全没反应"（实测确认过）。
+         * 约定：字符 'g'（草地）兼作"未指定"，所以刷草地仍会被地板覆盖。
+         */
+        if (isDefault(x, y)) terrain[y][x] = 'stone'
       }
     }
   }
@@ -153,7 +176,7 @@ export function buildLayout(sandbox: Sandbox): TownLayout {
   // ── 3) 路网：最小生成树 + 少量环路。Smallville 的辨识度就在这条路上。──
   const edges = minimumSpanningEdges(sandbox.places)
   for (const [a, b] of edges) {
-    carvePath(terrain, road, sandbox.places[a], sandbox.places[b], width, height)
+    carvePath(terrain, road, sandbox.places[a], sandbox.places[b], width, height, isDefault)
   }
   // 每个门口接一条短引道到底下的路（或直接向下铺 2 格，保证门不是悬空的）
   for (const b of buildings) {
@@ -211,6 +234,7 @@ function carvePath(
   to: WorldObject,
   width: number,
   height: number,
+  isDefault: (x: number, y: number) => boolean,
 ): void {
   const half = 1 // 路宽 = 3 格（中心 ± 1）
   const paint = (x: number, y: number): void => {
@@ -219,6 +243,8 @@ function carvePath(
         const px = Math.round(x) + dx
         const py = Math.round(y) + dy
         if (px < 0 || py < 0 || px >= width || py >= height) continue
+        // 玩家显式写下的格子不许被路网盖掉（同 interior 的约定）
+        if (!isDefault(px, py)) continue
         if (terrain[py][px] === 'water') continue
         terrain[py][px] = 'dirt'
         road[py][px] = true

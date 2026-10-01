@@ -36,8 +36,9 @@ import {
 } from '../shared/model.ts'
 import { createApi, type ParanimApi, type SandboxSummary, type WorldView } from './api.ts'
 import { MapCanvas } from './MapCanvas.tsx'
+import { propSlotOf } from './town.ts'
 import { SpriteButton, SpritePalette } from './SpritePalette.tsx'
-import { SLOT_LABEL } from './mapStyle.ts'
+import { SLOT_LABEL, OBJECT_LIBRARY } from './mapStyle.ts'
 import {
   DEFAULT_FEED_MODE,
   DEFAULT_THEME,
@@ -423,6 +424,7 @@ function ParanimApp(props: TabProps): React.ReactElement {
                   setEditLayer,
                   brushKind,
                   setBrushKind,
+                  dropSprite,
                   setDropSprite,
                 })
               : React.createElement(EventsPage, { world, selected, feedMode }),
@@ -1176,11 +1178,14 @@ function SandboxPage(props: {
   setEditLayer: (layer: 'background' | 'structure' | 'object') => void
   brushKind: string
   setBrushKind: (kind: string) => void
+  dropSprite: { sprite: string; name: string } | undefined
   setDropSprite: (value: { sprite: string; name: string } | undefined) => void
 }): React.ReactElement {
-  const { world, sandboxes, api, run, applyWorld, setSandboxes, flash, editLayer, setEditLayer, brushKind, setBrushKind, setDropSprite } = props
+  const { world, sandboxes, api, run, applyWorld, setSandboxes, flash, editLayer, setEditLayer, brushKind, setBrushKind, dropSprite, setDropSprite } = props
   /** 资源池要知道"现在是新建还是换贴图"，所以记一个选中态。 */
   const [objectFocus, setObjectFocus] = React.useState<string | undefined>(undefined)
+  /** 被选中、准备换贴图的那件物件（没选就是 undefined）。 */
+  const focusedObject = objectFocus === undefined ? undefined : world.sandbox.objects.find((o) => o.id === objectFocus)
   /**
    * 正在编辑哪一层。
    *
@@ -1412,6 +1417,11 @@ function SandboxPage(props: {
             '从下面的「物件资源池」挑一张贴图，然后在地图上点一下就放一件进去。')
         : null,
     ),
+    // ── 物件资源池：**只是贴图工具箱**，不代表世界里已经有这些东西 ──────────
+    //
+    // 此前它和"镜像里实际有哪些物件"挤在同一个区块里，标题写着"资源池"，
+    // 下面却列着一堆带状态位的具体物件（双人床、旧沙发…），看起来像是资源池
+    // 的一部分。两者是两回事：这里是可选的素材，下面那节是已落在镜像里的实例。
     React.createElement(
       'div',
       { className: 'pa-sec' },
@@ -1419,76 +1429,87 @@ function SandboxPage(props: {
         'h4',
         null,
         '物件资源池',
-        React.createElement('span', { className: 'pa-chip' }, `${world.sandbox.objects.length} 件在场`),
+        React.createElement('span', { className: 'pa-chip' }, `${OBJECT_LIBRARY.length} 种素材`),
       ),
       React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
-        '先选中下面某件物件（点它的贴图），再点一张贴图＝换掉它的样子；不选中则＝在世界中心新建。'),
+        '这里只是"可用的贴图"。点一张＝拿起这支笔，然后到地图上点一下就放一件；'
+        + '若先在下面选中了某件已存在的物件，点贴图则是换掉它的样子。'),
       React.createElement(
         'div',
         { className: 'pa-line', style: { marginBottom: 5 } },
         React.createElement('span', { className: 'pa-dim' }, objectFocus === undefined
-          ? '当前：新建（落在世界中心）'
-          : `当前：换掉「${world.sandbox.objects.find((o) => o.id === objectFocus)?.name ?? ''}」`),
-        objectFocus === undefined ? null : React.createElement('button', {
+          ? (dropSprite === undefined ? '当前：未选素材' : `当前笔刷：${dropSprite.name}（点地图放置）`)
+          : `当前：换掉「${focusedObject?.name ?? ''}」`),
+        objectFocus === undefined && dropSprite === undefined ? null : React.createElement('button', {
           className: 'pa-btn', 'data-tiny': 'true',
-          onClick: () => setObjectFocus(undefined),
-        }, '取消选中'),
+          onClick: () => { setObjectFocus(undefined); setDropSprite(undefined) },
+        }, '放下'),
       ),
       React.createElement(SpritePalette, {
-        activeSlot: objectFocus === undefined ? undefined : world.sandbox.objects.find((o) => o.id === objectFocus)?.sprite,
+        activeSlot: focusedObject === undefined ? dropSprite?.sprite : propSlotOf(focusedObject),
         onPick: (slot: string, label: string) => {
-          const target = objectFocus === undefined ? undefined : world.sandbox.objects.find((o) => o.id === objectFocus)
-          /**
-           * 挑了贴图就把"这支笔"交给地图。
-           *
-           * 切到 object 层之后,点地图即可落一件——而不必先在这儿新建一个落在
-           * 世界中心、再手动拖过去。资源池因此既是"换贴图的抽屉",也是"当前画笔"。
-           */
-          if (target === undefined) {
+          if (focusedObject === undefined) {
             setDropSprite({ sprite: slot, name: label })
             setEditLayer('object')
-            flash(`已拿起「${label}」。切到 object 层，在地图上点一下就放下`)
+            flash(`已拿起「${label}」。在地图上点一下就放下一件`)
             return
           }
           void run('换贴图', async () => {
-            applyWorld(await api.mapObject({ op: 'upsert', kind: 'prop', objectId: target.id, sprite: slot }))
-            flash(`「${target.name}」换成了「${label}」`)
+            applyWorld(await api.mapObject({ op: 'upsert', kind: 'prop', objectId: focusedObject.id, sprite: slot }))
+            flash(`「${focusedObject.name}」换成了「${label}」`)
           })
         },
       }),
+    ),
+    // ── 镜像里已有的物件：改贴图、移走 ─────────────────────────────────────
+    React.createElement(
+      'div',
+      { className: 'pa-sec' },
+      React.createElement(
+        'h4',
+        null,
+        '镜像里的物件',
+        React.createElement('span', { className: 'pa-chip' }, `${world.sandbox.objects.length} 件`),
+      ),
+      React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
+        '点一件选中它（再点上面的贴图即可换样子）。「用的图」是按名字推出来的——'
+        + '推得不对的，选中它换一张就会写死成你选的那张。'),
       React.createElement(
         'div',
-        { className: 'pa-scroll', style: { maxHeight: 190, marginTop: 6 } },
-        ...world.sandbox.objects.map((object) =>
-          React.createElement(
+        { className: 'pa-scroll', style: { maxHeight: 220 } },
+        ...world.sandbox.objects.map((object) => {
+          const slot = propSlotOf(object)
+          return React.createElement(
             'div',
             { key: object.id, className: 'pa-item', 'data-on': object.id === objectFocus },
             React.createElement(SpriteButton, {
-              slot: object.sprite ?? '',
+              slot,
               title: object.name,
-              onClick: () => setObjectFocus(object.id === objectFocus ? undefined : object.id),
+              onClick: () => { setObjectFocus(object.id === objectFocus ? undefined : object.id); setDropSprite(undefined) },
             }),
             React.createElement(
               'span',
               { className: 'pa-main' },
               React.createElement('b', null, object.name),
               React.createElement('span', { className: 'pa-chip' }, OBJECT_KIND_LABEL[object.kind] ?? object.kind),
-              object.sprite === undefined ? null : React.createElement('span', { className: 'pa-chip' }, SLOT_LABEL[object.sprite] ?? object.sprite),
-              React.createElement('div', { className: 'pa-dim' }, Object.entries(object.state).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('/') : String(v)}`).join('　') || '（无状态槽）'),
+              // 显示"实际会画成哪张图"：推断错了才能被发现（以前只显示 sprite 字段，
+              // 而绝大多数物件没有这个字段，于是永远是空白）
+              React.createElement('span', { className: 'pa-chip' }, `用的图：${SLOT_LABEL[slot] ?? slot}`),
+              React.createElement('div', { className: 'pa-dim pa-mono' }, `@${object.x},${object.y}${object.w === undefined ? '' : ` ${object.w}×${object.h ?? 1}`}`),
               React.createElement(
                 'div',
                 { className: 'pa-line', style: { marginTop: 3 } },
-                ...quickActions(object, (state) =>
-                  void run('改状态', async () => {
-                    const result = await api.object({ objectId: object.id, state, by: '玩家' })
-                    applyWorld(result.world)
-                    flash(`${object.name}：${result.changes.join('，')}`)
+                React.createElement('button', {
+                  className: 'pa-btn', 'data-tiny': 'true', 'data-danger': 'true',
+                  onClick: () => void run('移走物件', async () => {
+                    applyWorld(await api.mapObject({ op: 'remove', id: object.id, kind: 'prop' }))
+                    flash(`已从镜像里移走「${object.name}」`)
                   }),
-                ),
+                }, '移走'),
               ),
             ),
-          ),
-        ),
+          )
+        }),
       ),
     ),
   )

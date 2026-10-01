@@ -3,6 +3,9 @@ node_modules/
 lib/
 *.tsbuildinfo
 
+# 素材核对表（生成物，npm run assets:review 随时可重建）
+素材核对表.html
+
 # npm / pnpm
 .npm-cache/
 .pnpm-store/

@@ -164,6 +164,8 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
       hover: { objectId: hover.object?.id, agentId: hover.agentId },
       bubbles,
       tick,
+      // 编辑某一层时只画那一层：不然地面被建筑/物件盖住，刷了也看不见
+      only: edit?.layer,
     })
 
     // 地标名下方补一行小字：所属类别，帮玩家认出"这是什么地方"
@@ -180,7 +182,7 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
         ctx.fillText(label, x, y)
       }
     }
-  }, [sandbox, view, size, agents, selectedId, hover, bubbles, tick, sheetsReady])
+  }, [sandbox, view, size, agents, selectedId, hover, bubbles, tick, sheetsReady, edit?.layer])
 
   // ── 命中判定 ──────────────────────────────────────────────────────────
   const hitTest = useCallback(
