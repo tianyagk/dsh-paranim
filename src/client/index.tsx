@@ -131,6 +131,64 @@ function currentThought(agent: RunAgent): string | undefined {
  * 心情徽标，形式是「生气 4/10」：词给色彩、指数给高低。
  * 低于 4 偏红、7 以上偏绿——颜色比形容词更快看出状态。
  */
+/**
+ * 可拖拽的分隔线（Dragging the Divider）。
+ *
+ * 各板块该占多大，**只有看的人知道**——固定比例永远有一半人在迁就另一半。
+ * 这里只管"拖了多少像素"，怎么换算成尺寸由调用方决定（左右分栏按宽度算
+ * 百分比，上下分栏按高度算像素）。
+ *
+ * 两个细节：
+ *  · 按住后监听挂在 document 上：鼠标划出这条线（甚至划出面板）也得继续
+ *    跟手，只挂在分隔线自己身上会"拖到一半就断"。
+ *  · 双击复位。
+ */
+function Splitter(props: {
+  dir: 'v' | 'h'
+  onDelta: (deltaPx: number) => void
+  onReset?: () => void
+  title?: string
+}): React.ReactElement {
+  const { dir, onDelta, onReset, title } = props
+  const [dragging, setDragging] = React.useState(false)
+  const lastRef = React.useRef(0)
+
+  const onDown = (event: React.MouseEvent<HTMLDivElement>): void => {
+    event.preventDefault()
+    lastRef.current = dir === 'v' ? event.clientX : event.clientY
+    setDragging(true)
+  }
+
+  React.useEffect(() => {
+    if (!dragging) return undefined
+    const move = (event: MouseEvent): void => {
+      const at = dir === 'v' ? event.clientX : event.clientY
+      onDelta(at - lastRef.current)
+      lastRef.current = at
+    }
+    const up = (): void => setDragging(false)
+    document.addEventListener('mousemove', move)
+    document.addEventListener('mouseup', up)
+    // 拖动期间禁止全局选中文本，否则整块面板会被刷成蓝色
+    const prev = document.body.style.userSelect
+    document.body.style.userSelect = 'none'
+    return () => {
+      document.removeEventListener('mousemove', move)
+      document.removeEventListener('mouseup', up)
+      document.body.style.userSelect = prev
+    }
+  }, [dragging, dir, onDelta])
+
+  return React.createElement('div', {
+    className: 'pa-splitter',
+    'data-dir': dir,
+    'data-dragging': dragging ? 'true' : undefined,
+    title: title ?? '拖动调整大小（双击复位）',
+    onMouseDown: onDown,
+    onDoubleClick: () => onReset?.(),
+  })
+}
+
 function MoodChip(props: { mood?: { value: number; label: string } }): React.ReactElement | null {
   if (props.mood === undefined) return null
   const { value, label } = props.mood
@@ -162,6 +220,15 @@ function ParanimApp(props: TabProps): React.ReactElement {
   const api = useMemo<ParanimApi>(() => createApi(() => scopeRef.current), [])
 
   const [page, setPage] = useState<PageKey>('world')
+  /**
+   * 世界页右侧日志占的百分比。可拖拽调整，并记住上次的位置——
+   * 每次打开都要重新拖一遍的分隔线等于没有。
+   */
+  const [feedPct, setFeedPct] = useState<number>(() => {
+    const saved = Number(window.localStorage?.getItem('paranim.feedPct'))
+    return Number.isFinite(saved) && saved >= 10 && saved <= 80 ? saved : 40
+  })
+  const splitBoxRef = useRef<HTMLDivElement | null>(null)
   const [world, setWorld] = useState<WorldView | null>(null)
   const [sandboxes, setSandboxes] = useState<SandboxSummary[]>([])
   const [models, setModels] = useState<ModelChoice[]>([])
@@ -410,7 +477,7 @@ function ParanimApp(props: TabProps): React.ReactElement {
         page === 'world'
           ? React.createElement(
               'div',
-              { className: 'pa-split' },
+              { className: 'pa-split', ref: splitBoxRef },
               React.createElement(
                 'div',
                 { className: 'pa-split-main pa-col' },
@@ -431,9 +498,27 @@ function ParanimApp(props: TabProps): React.ReactElement {
                * 看地图和"刚才发生了什么"本来就是同一件事的两面：来回切页签时
                * 地图的缩放与选中状态都在，切回去反而像换了个地方。
                */
+              React.createElement(Splitter, {
+                dir: 'v',
+                // 左右拖：往左拖 = 日志变窄。用容器宽度换算成百分比，
+                // 这样调整过窗口大小之后比例仍然成立（存 px 就不成立了）。
+                onDelta: (dx: number) => {
+                  const width = splitBoxRef.current?.getBoundingClientRect().width ?? 0
+                  if (width <= 0) return
+                  setFeedPct((pct) => {
+                    const next = Math.max(15, Math.min(75, pct - (dx / width) * 100))
+                    window.localStorage?.setItem('paranim.feedPct', String(Math.round(next)))
+                    return next
+                  })
+                },
+                onReset: () => {
+                  setFeedPct(40)
+                  window.localStorage?.setItem('paranim.feedPct', '40')
+                },
+              }),
               React.createElement(
                 'div',
-                { className: 'pa-split-feed pa-col' },
+                { className: 'pa-split-feed pa-col', style: { flex: `0 0 ${feedPct}%` } },
                 React.createElement(EventsPage, { world, selected, feedMode }),
               ),
             )
@@ -1314,8 +1399,11 @@ function TilesetPanel(props: {
   onNote: (key: string) => void
   onSaveNote: (key: string, note: { name?: string; pass?: string; use?: string; desc?: string; states?: string }) => void
   onSlice: (slice: { w: number; h: number; spacing: number }) => void
+  gridHeight: number
+  onGridDelta: (dy: number) => void
+  onGridReset: () => void
 }): React.ReactElement {
-  const { tileset, brushRef, noteTarget, onPick, onNote, onSaveNote, onSlice } = props
+  const { tileset, brushRef, noteTarget, onPick, onNote, onSaveNote, onSlice, gridHeight, onGridDelta, onGridReset } = props
   const grid = gridOf(tileset)
   /** 这一张图集自己的编辑目标；别的图集的面板拿到的不等于它，就不会显示卡片。 */
   const myTarget = `${tileset.id}#${noteTarget ?? ''}`
@@ -1362,7 +1450,7 @@ function TilesetPanel(props: {
          * 裁掉"。给它一个明确的高度上限 + 内部滚动，无论外层布局怎么变，
          * 每一格都够得着。
          */
-        style: { display: 'flex', flexWrap: 'wrap', gap: 3, margin: '4px 0', maxHeight: 264, overflowY: 'auto' },
+        style: { display: 'flex', flexWrap: 'wrap', gap: 3, margin: '4px 0', height: gridHeight, overflowY: 'auto' },
       },
       ...Array.from({ length: Math.min(grid.cols * grid.rows, 400) }, (_, i) => {
         const col = i % grid.cols
@@ -1380,6 +1468,8 @@ function TilesetPanel(props: {
         })
       }),
     ),
+    // 网格高度可拖（双击复位）。放在网格**下方**：拖它等于拖网格的下边缘。
+    React.createElement(Splitter, { dir: 'h', onDelta: onGridDelta, onReset: onGridReset, title: '拖动调整瓦片库高度（双击复位）' }),
     // 切片参数：只对导入的图集显示——内置图集的网格是固定的（归一化过的）
     tileset.image === ''
       ? null
@@ -1574,6 +1664,14 @@ function SandboxPage(props: {
   const [noteTarget, setNoteTarget] = React.useState<string | undefined>(undefined)
   /** 正在等待二次确认的镜像 id（不用 window.confirm，见删除按钮处的说明）。 */
   const [confirming, setConfirming] = React.useState<string | undefined>(undefined)
+  /**
+   * 瓦片库网格的高度（可拖拽）。一张内置图集有 132 格，固定高度要么看不全、
+   * 要么白占半屏——所以让它可调，并记住上次的。
+   */
+  const [gridH, setGridH] = React.useState<number>(() => {
+    const saved = Number(window.localStorage?.getItem('paranim.gridH'))
+    return Number.isFinite(saved) && saved >= 80 && saved <= 900 ? saved : 264
+  })
   /** 隐藏的文件选择框——由「导入素材图」按钮代点。 */
   const importRef = React.useRef<HTMLInputElement | null>(null)
 
@@ -1881,6 +1979,18 @@ function SandboxPage(props: {
               applyWorld(await api.tileset({ op: 'note', tilesetId: tileset.id, key, note: { ...note, states } }))
               flash(note.name === undefined ? `已清除「${tileset.name} ${key}」的注释` : `已标注「${note.name}」`)
             })
+          },
+          gridHeight: gridH,
+          onGridDelta: (dy: number) => {
+            setGridH((h) => {
+              const next = Math.max(80, Math.min(900, h + dy))
+              window.localStorage?.setItem('paranim.gridH', String(Math.round(next)))
+              return next
+            })
+          },
+          onGridReset: () => {
+            setGridH(264)
+            window.localStorage?.setItem('paranim.gridH', '264')
           },
           onSlice: (slice: { w: number; h: number; spacing: number }) => {
             void run('改切片', async () => {

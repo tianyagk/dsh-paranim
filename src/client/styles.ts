@@ -232,10 +232,18 @@ const CSS = `
  */
 .pa-split { display: flex; gap: 8px; flex: 1; min-height: 0; }
 .pa-split-main { flex: 1 1 auto; min-width: 0; overflow: auto; }
-.pa-split-feed {
-  flex: 0 0 40%; min-width: 0; overflow: auto;
-  border-left: 1px solid var(--pa-border); padding-left: 8px;
+.pa-split-feed { min-width: 0; overflow: auto; padding-left: 8px; }
+
+/* 可拖拽的分隔线：细但好抓（命中区 9px，视觉只有 1px 线） */
+.pa-splitter { flex: 0 0 auto; position: relative; background: transparent; }
+.pa-splitter[data-dir="v"] { width: 9px; cursor: col-resize; margin-left: -4px; }
+.pa-splitter[data-dir="h"] { height: 9px; cursor: row-resize; margin-top: -4px; }
+.pa-splitter::after {
+  content: ''; position: absolute; background: var(--pa-border); transition: background .12s ease;
 }
+.pa-splitter[data-dir="v"]::after { left: 4px; top: 0; bottom: 0; width: 1px; }
+.pa-splitter[data-dir="h"]::after { top: 4px; left: 0; right: 0; height: 1px; }
+.pa-splitter:hover::after, .pa-splitter[data-dragging="true"]::after { background: var(--pa-gold); }
 
 /* ── 列表项 ───────────────────────────────────────────────────────── */
 .pa-list { margin: 0; padding: 0; list-style: none; }
