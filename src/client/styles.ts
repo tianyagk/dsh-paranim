@@ -85,30 +85,49 @@ const CSS = `
 }
 
 /* ── 按钮 / 徽标 / 文本 ───────────────────────────────────────────── */
+/**
+ * 按钮（Material 三变体）。
+ *
+ *  · 默认 = **outlined**：透明底 + 描边。次级动作最多，用最轻的形态。
+ *  · [data-primary] = **filled**：实心 primary，一屏只有一个。
+ *  · [data-danger] = outlined error 色。
+ *
+ * 状态一律走**状态层**（叠一层半透明前景），不换颜色——这样任何底色上都
+ * 成立，也不必给每个变体单独配 hover 色。原先的立体渐变（layer3→layer）
+ * 换成了扁平：Material 的层级由表面色表达，按钮自己不该再"浮起来"。
+ */
 .pa-btn {
-  border: 1px solid var(--pa-border);
-  background: linear-gradient(180deg, var(--pa-layer3), var(--pa-layer));
-  color: var(--pa-text);
-  padding: 3px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--pa-space-1);
+  min-height: var(--pa-control-h);
+  padding: 0 var(--pa-space-3);
+  border: 1px solid var(--pa-outline);
+  border-radius: var(--pa-radius-full);
+  background: transparent;
+  color: var(--pa-on-surface);
+  font: inherit;
+  font-size: var(--pa-font-label);
+  font-weight: 500;
   white-space: nowrap;
-  transition: border-color .12s ease, transform .06s ease, background .12s ease;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease;
 }
-.pa-btn:hover { border-color: var(--pa-textFaint); background: linear-gradient(180deg, var(--pa-layer4), var(--pa-layer3)); }
-.pa-btn:active { transform: translateY(1px); }
-.pa-btn[disabled] { opacity: .42; cursor: not-allowed; }
+.pa-btn:hover { background: var(--pa-state-hover); }
+.pa-btn:active { background: var(--pa-state-pressed); }
+.pa-btn[disabled] { opacity: var(--pa-state-disabled); cursor: not-allowed; background: transparent; }
+/* 键盘用户必须看得出焦点在哪（鼠标点击不触发 :focus-visible） */
+.pa-btn:focus-visible { outline: 2px solid var(--pa-primary); outline-offset: 2px; }
 .pa-btn[data-primary="true"] {
-  background: linear-gradient(180deg, var(--pa-gold), var(--pa-goldDim));
-  border-color: var(--pa-gold);
-  color: var(--pa-bg);
-  font-weight: 650;
+  background: var(--pa-primary);
+  color: var(--pa-on-primary);
+  border-color: transparent;
+  font-weight: 600;
 }
-.pa-btn[data-primary="true"]:hover { filter: brightness(1.08); }
-.pa-btn[data-danger="true"] { color: var(--pa-danger); border-color: var(--pa-danger); background: transparent; }
-.pa-btn[data-danger="true"]:hover { background: var(--pa-layer3); }
-.pa-btn[data-tiny="true"] { padding: 1px 7px; font-size: 11px; border-radius: 5px; }
+/* 状态层叠在实色上：用 inset 阴影而不是 background，否则会把底色整个盖掉 */
+.pa-btn[data-primary="true"]:hover { background: var(--pa-primary); box-shadow: inset 0 0 0 999px var(--pa-state-hover); }
+.pa-btn[data-primary="true"]:active { background: var(--pa-primary); box-shadow: inset 0 0 0 999px var(--pa-state-pressed); }
+.pa-btn[data-danger="true"] { color: var(--pa-error); border-color: var(--pa-error); background: transparent; }
+.pa-btn[data-danger="true"]:hover { background: color-mix(in srgb, var(--pa-error) 10%, transparent); }
+.pa-btn[data-tiny="true"] { min-height: 22px; padding: 0 var(--pa-space-2); font-size: var(--pa-font-label); }
 .pa-spacer { flex: 1; }
 .pa-dim { color: var(--pa-textDim); }
 .pa-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -224,6 +243,54 @@ const CSS = `
   color: var(--pa-text);
   display: flex; align-items: center; gap: 6px;
 }
+/**
+ * ── 设计令牌（第一步）────────────────────────────────────────────────────
+ *
+ * Material 的三块基础：**排版刻度、8dp 间距网格、圆角阶梯**。
+ * 现状是字号 5 档混用（10/11/12/13/14/15）、间距 3/4/5/6px 乱排、
+ * 圆角 5/6/7/8px 不统一——单看每处都说得过去，合起来就是"不够整"。
+ *
+ * 密度取**紧凑**：侧栏约 400px 宽，Material 标准的 48px 触摸目标在这里
+ * 会显得很空（Material 本身也允许 dense 变体）。所以基准是 4px，
+ * 正文 12px、行高 32px、图标 16px。
+ *
+ * 这些与主题无关，所以放在这里而不是 theme.ts 注入。
+ */
+.pa-root {
+  /* 排版：Material 的 type scale 收窄到三档，够用且不会失控 */
+  --pa-font-body: 12px;
+  --pa-font-label: 11px;
+  --pa-font-title: 13px;
+  --pa-font-mono: 11px;
+  --pa-line-body: 18px;
+  --pa-line-title: 20px;
+
+  /* 间距：4px 基准的 8dp 网格（material 的 4dp 单位取偶数） */
+  --pa-space-1: 4px;
+  --pa-space-2: 8px;
+  --pa-space-3: 12px;
+  --pa-space-4: 16px;
+  --pa-space-5: 24px;
+
+  /* 圆角阶梯：M3 的 extra-small / small / medium / full */
+  --pa-radius-xs: 4px;
+  --pa-radius-sm: 8px;
+  --pa-radius-md: 12px;
+  --pa-radius-full: 999px;
+
+  /* 控件尺寸（紧凑） */
+  --pa-row-h: 32px;
+  --pa-control-h: 28px;
+  --pa-icon: 16px;
+
+  /* 状态层：Material 用"叠加一层半透明前景色"表达 hover/pressed/disabled，
+     而不是换一个颜色——这样任何底色上都能成立，不必为每个组件配色 */
+  --pa-state-hover: color-mix(in srgb, var(--pa-on-surface) 8%, transparent);
+  --pa-state-pressed: color-mix(in srgb, var(--pa-on-surface) 12%, transparent);
+  --pa-state-disabled: 0.38;
+  --pa-state-disabled-bg: 0.12;
+}
+
 .pa-scroll { overflow: auto; min-height: 0; overscroll-behavior: contain; }
 
 /**
@@ -521,6 +588,60 @@ const CSS = `
 }
 .pa-seg button[data-on="true"] { background: var(--pa-layer4); color: var(--pa-text); }
 .pa-seg button:hover { color: var(--pa-text); }
+
+/* ── 输入控件（第二步：基础组件）────────────────────────────────────────
+ *
+ * 原先这些规则**分散在五处**（.pa-menu .pa-row input / .pa-place-cell input /
+ * .pa-foot input[type=text] / .pa-form input …），各写各的边框与圆角——
+ * 这就是"令牌缺失"最直观的样子：同一件事有五个版本。
+ *
+ * 这里统一成 Material 的 outlined text field。放在文件末尾，靠**顺序**
+ * 覆盖前面那些零散规则（而不是去删它们）：旧的仍然生效于我没覆盖到的
+ * 角落，改动可以随时回退。
+ */
+.pa-root input[type="text"],
+.pa-root input[type="number"],
+.pa-root input:not([type]),
+.pa-root textarea,
+.pa-root select {
+  min-height: var(--pa-control-h);
+  padding: 0 var(--pa-space-2);
+  border: 1px solid var(--pa-outline);
+  border-radius: var(--pa-radius-xs);
+  background: var(--pa-surface-container-lowest);
+  color: var(--pa-on-surface);
+  font: inherit;
+  font-size: var(--pa-font-body);
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.pa-root input:hover:not([disabled]),
+.pa-root textarea:hover,
+.pa-root select:hover { border-color: var(--pa-on-surface-variant); }
+/* 聚焦：边框转主色 + 内描边加粗。M3 不用外发光——那在深色底上会糊成一团 */
+.pa-root input:focus,
+.pa-root textarea:focus,
+.pa-root select:focus {
+  outline: none;
+  border-color: var(--pa-primary);
+  box-shadow: inset 0 0 0 1px var(--pa-primary);
+}
+.pa-root input[disabled], .pa-root textarea[disabled], .pa-root select[disabled] {
+  opacity: var(--pa-state-disabled);
+  cursor: not-allowed;
+}
+/* 滑块（心情/流速）：细轨 + 主色 */
+.pa-root input[type="range"] { accent-color: var(--pa-primary); }
+
+/* 卡片/区块：M3 的表面层级靠**容器色**表达，不是阴影 */
+.pa-sec {
+  background: var(--pa-surface-container-low);
+  border: 1px solid var(--pa-outline-variant);
+  border-radius: var(--pa-radius-sm);
+}
+/* 列表项：统一行高与状态层 */
+.pa-item { border-radius: var(--pa-radius-sm); }
+.pa-item:hover { background: var(--pa-state-hover); }
+.pa-item[data-on="true"] { background: var(--pa-surface-container-high); border-color: var(--pa-primary); }
 `
 
 let inserted = false

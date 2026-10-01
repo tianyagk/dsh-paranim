@@ -169,8 +169,55 @@ export function themeById(id: ThemeId | string | undefined): Theme {
 }
 
 /** 生成注入用的 CSS 文本（`:root` 作用域由调用方给选择器）。 */
+/**
+ * Material 3 的语义色角色（第一步：设计令牌）。
+ *
+ * **补别名而不是重做配色**：现有那 21 个变量已经被几十条 CSS 规则用着，
+ * 换名字等于全量重写——那正是"分三步推进"要避免的。这里把 M3 的角色名
+ * 映射到已有的色阶上，新写的组件用角色名，老规则照旧。
+ *
+ * 深色主题下 M3 的关键约定：
+ *  · primary 用**高亮度**的那一档（暗底上要够亮才看得清）；
+ *  · on-primary 是**深色**（它是印在 primary 上的文字）；
+ *  · container 比 primary 更暗，on-container 比 container 更亮。
+ */
+export function m3Roles(v: Record<string, string>): Record<string, string> {
+  return {
+    primary: v.gold,
+    'on-primary': v.bg,
+    'primary-container': v.goldDim,
+    'on-primary-container': v.gold,
+    secondary: v.accent,
+    'on-secondary': v.bg,
+    'secondary-container': v.layer4,
+    'on-secondary-container': v.text,
+    error: v.danger,
+    'on-error': v.bg,
+    'error-container': v.border,
+    'on-error-container': v.danger,
+    // 表面：从最暗（bg）到最亮（layer4），M3 用"表面色随层级变亮"表达 elevation，
+    // 而不是叠阴影——这一点和本文件原有的设计立场（深色界面里大阴影显脏）一致。
+    surface: v.bg,
+    'surface-dim': v.bg,
+    'surface-container-lowest': v.bg,
+    'surface-container-low': v.layer,
+    'surface-container': v.layer3,
+    'surface-container-high': v.layer4,
+    'surface-container-highest': v.layer4,
+    'on-surface': v.text,
+    'on-surface-variant': v.textDim,
+    'surface-variant': v.layer3,
+    outline: v.border,
+    'outline-variant': v.borderSoft,
+    'inverse-surface': v.text,
+    'inverse-on-surface': v.bg,
+  }
+}
+
 export function themeCss(theme: Theme, selector = '.pa-root'): string {
-  const lines = Object.entries(theme.vars).map(([key, value]) => `  --pa-${key}: ${value};`)
+  // M3 角色排在后面，名字不冲突（前者是 bg/layer/text…，后者是 surface/on-surface…）
+  const all = { ...theme.vars, ...m3Roles(theme.vars) }
+  const lines = Object.entries(all).map(([key, value]) => `  --pa-${key}: ${value};`)
   return `${selector} {\n${lines.join('\n')}\n}`
 }
 
