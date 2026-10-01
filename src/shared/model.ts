@@ -364,43 +364,39 @@ export interface WorldObject {
   lastEditedAt?: number
 }
 
-/** 心情：指数 + 标签。指数 0–10，越高越好。 */
-export interface Mood {
-  /** 0–10。 */
-  value: number
-  /** 一个词，例如「开心」「烦躁」「疲惫」。 */
-  label: string
-}
+/**
+ * 心情：**一个 0–10 的指数**，没有别的。
+ *
+ * 原先它是「指数 + 一个词」两件套，而那个词由模型自由发挥——同一档心情
+ * 在不同角色嘴里有十几种说法，既没法比较也没法排序。用户要求收敛成一个数：
+ * 能排序、能做阈值判断，界面上一眼看得出高低。
+ */
 
 const MOOD_MIN = 0
 export const MOOD_MAX = 10
 /** 新角色的默认心情：不上不下，留给第一步去改变。 */
-export const MOOD_DEFAULT: Mood = { value: 6, label: '平静' }
+export const MOOD_DEFAULT = 6
 
 /** 夹紧到 0–10 的整数。 */
-export function clampMood(value: unknown, fallback = MOOD_DEFAULT.value): number {
+export function clampMood(value: unknown, fallback = MOOD_DEFAULT): number {
   const n = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(n)) return fallback
   return Math.min(MOOD_MAX, Math.max(MOOD_MIN, Math.round(n)))
 }
 
-/** 归一一条心情；缺标签时按指数给一个。 */
-export function normalizeMood(input: unknown): Mood {
-  const raw = (input ?? {}) as Record<string, unknown>
-  const value = clampMood(raw.value)
-  const label = typeof raw.label === 'string' && raw.label.trim() !== '' ? raw.label.trim().slice(0, 8) : moodLabel(value)
-  return { value, label }
+/**
+ * 归一一条心情 → 0–10 的整数。
+ *
+ * 兼容老数据：那时候心情是 `{ value, label }`，这里只取指数、把词丢掉
+ * （用户要求心情就是一个数）。
+ */
+export function normalizeMood(input: unknown): number {
+  if (input !== null && typeof input === 'object' && !Array.isArray(input)) {
+    return clampMood((input as { value?: unknown }).value)
+  }
+  return clampMood(input)
 }
 
-/** 指数 → 默认词（模型没给词时用它）。 */
-export function moodLabel(value: number): string {
-  if (value >= 9) return '兴奋'
-  if (value >= 7) return '开心'
-  if (value >= 5) return '平静'
-  if (value >= 3) return '烦躁'
-  if (value >= 1) return '生气'
-  return '崩溃'
-}
 
 export interface AgentModelRoute {
   provider: string
@@ -427,12 +423,20 @@ export interface SandboxAgent {
   /** 性格与说话方式（需求 3 可自定义）。 */
   persona: string
   backstory: string
-  goal: string
   /**
    * 心情：0–10 的指数 + 一个词。**由模型在动作里顺带给出**（见 AgentAction.moodDelta），
    * 不是引擎从属性推导的——心情是对"刚才那件事"的反应，只有当事者知道该是什么。
    */
-  mood?: Mood
+  /** 心情：0–10 的指数。缺省用 MOOD_DEFAULT。 */
+  mood?: number
+  /**
+   * 自定义外观：一个瓦片引用（"图集:列,行"）。
+   *
+   * 给了就用它画，没给就用内置角色表（那 6 帧朝下/侧/上）。用户可以上传
+   * 一张图（自动登记成单格图集）或从已有图集里挑一格——满足"每个角色长得
+   * 不一样"这件事，而不用改代码。
+   */
+  sprite?: string
   x: number
   y: number
   /** 六维属性（需求 4）。 */

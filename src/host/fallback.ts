@@ -746,7 +746,6 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "appearance": "二十五岁，短而利落的黑发常别在耳后，指节上留着数位笔磨出的薄茧…",
       "persona": "开放、好奇、认死理。她对「技术能怎么承载情绪」这件事有近乎偏执的兴趣，聊到这个会突然语速变快、把屏幕转过来给你…",
       "backstory": "在合居空间住了几年，靠接客户的动画项目过活。工作室就是卧室，墙上贴着做废的分镜稿。她和拉托雅、拉吉夫、弗朗西斯科、海莉共用一个厨房和大客厅，晚…",
-      "goal": "把手上这个客户项目做出真正让她自己满意的东西，并搞明白怎样把互动艺术变成能持续…",
       "attrs": {
         "str": 5,
         "con": 6,
@@ -763,7 +762,8 @@ export const INLINE_SMALLVILLE: Sandbox = {
       ],
       "inventory": [],
       "color": "#7aa2f7",
-      "portrait": "🙂"
+      "portrait": "🙂",
+      "mood": 6
     },
     {
       "id": "klaus",
@@ -774,7 +774,6 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "appearance": "二十岁，瘦高，深色卷发有点乱，眼镜片后是常年缺觉的红眼，外套口…",
       "persona": "温和、爱追问、心里烧着一团火。他习惯先听别人说完再开口，但一旦谈到社会公平，句子会变得又快又密。对人不设防，容…",
       "backstory": "从外地考进橡树山学院读社会学，宿舍隔壁住着沃尔夫冈——两人只是点头之交。他最近频繁跑霍布斯咖啡馆，因为那里能观察人，也因为玛丽亚总在那儿看书。",
-      "goal": "写完那篇关于低收入社区中产阶级化影响的研究论文，并且真的做出一点不只是在纸上的…",
       "attrs": {
         "str": 5,
         "con": 6,
@@ -791,7 +790,8 @@ export const INLINE_SMALLVILLE: Sandbox = {
       ],
       "inventory": [],
       "color": "#7aa2f7",
-      "portrait": "🙂"
+      "portrait": "🙂",
+      "mood": 6
     },
     {
       "id": "isabella",
@@ -802,7 +802,6 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "appearance": "三十四岁，头发利落地盘成髻，围裙上总有咖啡渍，笑起来眼角先弯；…",
       "persona": "外向、热络、天生让人放松。她记得每个熟客的口味和忌讳，也记得谁上周看起来不太开心。做事风风火火，但从不把忙写在…",
       "backstory": "接手霍布斯咖啡馆多年，把它做成了小镇的公共客厅。最近满脑子都是二月十四号那场情人节派对：物料、菜单、邀请，还有到底会有多少人来。",
-      "goal": "把二月十四日下午五点到七点的情人节派对办成全镇都会记住的一晚，让每个推门进来的…",
       "attrs": {
         "str": 6,
         "con": 7,
@@ -819,7 +818,8 @@ export const INLINE_SMALLVILLE: Sandbox = {
       ],
       "inventory": [],
       "color": "#7aa2f7",
-      "portrait": "🙂"
+      "portrait": "🙂",
+      "mood": 6
     },
     {
       "id": "maria",
@@ -830,7 +830,6 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "appearance": "二十一岁，扎着高马尾，耳机线常挂在脖子上，背包侧袋塞着游戏手柄…",
       "persona": "精力旺盛、热情、问题多。她能在同一小时里讨论薛定谔方程和昨晚的直播弹幕，而且真心觉得两件事一样有趣。对人毫无距…",
       "backstory": "一边读物理学位一边靠直播打游戏补贴开销。宿舍房间桌上摊着习题，旁边就是补光灯和麦克风。她几乎每天都去霍布斯咖啡馆学习和吃饭，也是在那里和伊莎贝…",
-      "goal": "把学位读下来，同时让直播这一摊做出稳定的收入，不必再为下个月的账单分心。",
       "attrs": {
         "str": 5,
         "con": 6,
@@ -847,7 +846,8 @@ export const INLINE_SMALLVILLE: Sandbox = {
       ],
       "inventory": [],
       "color": "#7aa2f7",
-      "portrait": "🙂"
+      "portrait": "🙂",
+      "mood": 6
     },
     {
       "id": "mei",
@@ -858,7 +858,6 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "appearance": "四十四岁，齐肩黑发里夹着几根白，戴细框眼镜，袖口常沾粉笔灰；说…",
       "persona": "温和、耐心、有分寸。她有种让人愿意把话说完的本事——不急着反驳，也不轻易给答案。在家里是那个记得所有事的人：谁…",
       "backstory": "和丈夫约翰、儿子埃迪一起住在林家宅。白天在学院教哲学，晚上改论文、听埃迪弹琴、顺手把家里的事都理一遍。她也在断断续续写自己的研究论文。",
-      "goal": "在教课、带家和自己的研究之间找到那个能撑住的平衡点，把那篇停了大半年的论文写完。",
       "attrs": {
         "str": 5,
         "con": 7,
@@ -875,7 +874,8 @@ export const INLINE_SMALLVILLE: Sandbox = {
       ],
       "inventory": [],
       "color": "#7aa2f7",
-      "portrait": "🙂"
+      "portrait": "🙂",
+      "mood": 6
     },
     {
       "id": "john",
@@ -886,7 +886,6 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "appearance": "四十五岁，头发梳得整齐，穿浅色衬衫袖口永远卷到同一高度，胸前别…",
       "persona": "耐心、和善、有条理。他天生记性好，能记住老顾客吃什么药、什么时候该来续方。不爱争辩，遇到冲突宁可多解释两遍。有…",
       "backstory": "在柳树超市与药房管着药房那一半，汤姆·莫雷诺管杂货那一半——两人相处得不算融洽。他和妻子梅、儿子埃迪住在林家宅，最近还在上网课补新药知识。邻居…",
-      "goal": "把药房守好、让每个顾客拿药这件事变得更省心，同时别错过儿子埃迪长大的这段日子。",
       "attrs": {
         "str": 6,
         "con": 7,
@@ -903,7 +902,8 @@ export const INLINE_SMALLVILLE: Sandbox = {
       ],
       "inventory": [],
       "color": "#7aa2f7",
-      "portrait": "🙂"
+      "portrait": "🙂",
+      "mood": 6
     },
     {
       "id": "tom",
@@ -914,7 +914,6 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "appearance": "五十二岁，体格壮实，前臂有旧疤，爱穿深色Polo衫，说话时习惯…",
       "persona": "粗声粗气、急躁、精力旺盛。他把店当成自己的地盘，对顾客却出奇地肯帮忙——只要你别越界。说话不绕弯，得罪人也不在…",
       "backstory": "和妻子简住在莫雷诺家，每天打理柳树超市与药房的杂货部分。他干了这行很多年，店里的每一寸货架该怎么摆他心里有数。和同店的药剂师约翰·林算不上朋友。",
-      "goal": "把店的日常攥在自己手里，绝不让那个自以为是的老兵山姆·摩尔在这镇上说了算。",
       "attrs": {
         "str": 8,
         "con": 8,
@@ -931,7 +930,8 @@ export const INLINE_SMALLVILLE: Sandbox = {
       ],
       "inventory": [],
       "color": "#7aa2f7",
-      "portrait": "🙂"
+      "portrait": "🙂",
+      "mood": 6
     },
     {
       "id": "sam",
@@ -942,7 +942,6 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "appearance": "六十五岁，身板笔直，头发花白剪得很短，常戴一顶旧棒球帽，手上有…",
       "persona": "通达、随和、满肚子故事。他讲起海军那些年能讲一整晚，而且总能从故事里抖出点用得上的道理。闲不住——公园的活他抢…",
       "backstory": "和结婚四十年的妻子珍妮弗住在摩尔家，两人一个画画一个打理公园。他是镇上的老面孔，认识几乎所有街坊。决定参选市长之后，他更频繁地出现在公共场合。",
-      "goal": "赢下下个月的市长选举，把这个他住了一辈子的镇子推到一条更像样的路上去。",
       "attrs": {
         "str": 7,
         "con": 7,
@@ -959,7 +958,8 @@ export const INLINE_SMALLVILLE: Sandbox = {
       ],
       "inventory": [],
       "color": "#7aa2f7",
-      "portrait": "🙂"
+      "portrait": "🙂",
+      "mood": 6
     }
   ],
   startTick: 0,

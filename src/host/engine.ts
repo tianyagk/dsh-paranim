@@ -17,7 +17,6 @@ import {
   MOOD_DEFAULT,
   MOOD_MAX,
   clampMood,
-  moodLabel,
   normalizeMood,
   shortId,
   type AgentAction,
@@ -153,7 +152,6 @@ function buildObservation(sandbox: Sandbox, run: RunState, agent: RunAgent): str
     `【你是谁】${agent.name}（id=${agent.id}），${agent.concept}。`,
     `外貌：${agent.appearance === '' ? '（未描述）' : agent.appearance}`,
     `性格：${agent.persona === '' ? '（未描述）' : agent.persona}`,
-    `你想要的：${agent.goal === '' ? '（未设定）' : agent.goal}`,
     `你现在的心情：${moodText(agent)}`,
     `你此刻在想：${currentThoughtOf(agent) ?? '（脑子里空空的）'}`,
     `你的六维（1D6 + 属性 ≥ 难度即成功）：${ATTR_EN.str} ${agent.attrs.str}｜${ATTR_EN.con} ${agent.attrs.con}｜${ATTR_EN.dex} ${agent.attrs.dex}｜${ATTR_EN.app} ${agent.attrs.app}｜${ATTR_EN.int} ${agent.attrs.int}｜${ATTR_EN.pow} ${agent.attrs.pow}`,
@@ -299,27 +297,25 @@ function currentThoughtOf(agent: RunAgent): string | undefined {
   return undefined
 }
 
-/** 心情的一行文本，例如「开心 6/10」。 */
+/** 心情的一行文本，例如「6/10」——心情就是一个指数，没有词可写。 */
 function moodText(agent: RunAgent): string {
-  const mood = normalizeMood(agent.mood ?? MOOD_DEFAULT)
-  return `${mood.label} ${mood.value}/${MOOD_MAX}`
+  return `${normalizeMood(agent.mood ?? MOOD_DEFAULT)}/${MOOD_MAX}`
 }
 
 /** 把一步的心情增量应用上去（没有增量就保持不变）。 */
 function applyMood(agent: RunAgent, action: AgentAction, tick: number, ts: number): void {
   const delta = action.moodDelta ?? 0
-  if (delta === 0 && action.moodLabel === undefined) return
+  if (delta === 0) return
   const before = normalizeMood(agent.mood ?? MOOD_DEFAULT)
-  const value = clampMood(before.value + delta)
-  const label = action.moodLabel ?? (value === before.value ? before.label : moodLabel(value))
-  agent.mood = { value, label }
-  if (value !== before.value) {
+  const value = clampMood(before + delta)
+  agent.mood = value
+  if (value !== before) {
     remember(agent, {
       // tick 必须是**当时**的世界步数：写死 0 会让这条记忆显示成"第 0 步的事"，
       // 越往后越离谱（本地跑了 6 步后它显示"6 步前"，而它其实是刚发生的）。
       tick,
       kind: 'event',
-      text: `心情从「${before.label} ${before.value}/${MOOD_MAX}」变成「${label} ${value}/${MOOD_MAX}」。`,
+      text: `心情从 ${before}/${MOOD_MAX} 变成 ${value}/${MOOD_MAX}。`,
       ts,
     })
   }

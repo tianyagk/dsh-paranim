@@ -14,6 +14,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  MOOD_DEFAULT,
   ATTR_EN,
   ATTR_IDS,
   ATTR_LABEL,
@@ -25,7 +26,6 @@ import {
   STEP_INTERVAL_MAX,
   MOOD_MAX,
   STEP_INTERVAL_MIN,
-  moodLabel,
   normalizeAttrs,
   type AttrId,
   type ModelChoice,
@@ -127,12 +127,17 @@ function currentThought(agent: RunAgent): string | undefined {
   return undefined
 }
 
-/** 心情徽标：0–10，低于 4 偏红、7 以上偏绿。 */
-function MoodChip(props: { mood?: { value: number; label: string } }): React.ReactElement | null {
+/**
+ * 心情徽标：0–10，低于 4 偏红、7 以上偏绿。
+ *
+ * 只显示指数，不带词——心情现在就是一个数（用户要求），颜色比形容词更快
+ * 看出高低。
+ */
+function MoodChip(props: { mood?: number }): React.ReactElement | null {
   if (props.mood === undefined) return null
-  const { value, label } = props.mood
+  const value = props.mood
   const tone = value >= 7 ? 'ok' : value < 4 ? 'danger' : undefined
-  return React.createElement('span', { className: 'pa-chip', 'data-tone': tone, title: `心情指数 ${value}/10` }, `${label} ${value}/10`)
+  return React.createElement('span', { className: 'pa-chip', 'data-tone': tone, title: `心情指数 ${value}/10` }, `心情 ${value}/10`)
 }
 
 
@@ -825,7 +830,6 @@ function AgentsPage(props: AgentsPageProps): React.ReactElement {
                     appearance: template.appearance ?? '（未描述）',
                     persona: template.persona ?? '（未设定）',
                     backstory: template.backstory ?? '',
-                    goal: template.goal ?? '',
                     attrs: template.attrs ?? normalizeAttrs(undefined),
                     x: template.x ?? Math.round(world.sandbox.map.width / 2),
                     y: template.y ?? Math.round(world.sandbox.map.height / 2),
@@ -888,14 +892,16 @@ interface AgentDraft {
   appearance: string
   persona: string
   backstory: string
-  goal: string
   attrs: { str: number; con: number; dex: number; app: number; int: number; pow: number }
   model: string
   plan: string
   inventory: string
-  mood: { value: number; label: string }
-  /** 用户是否手改过心情的词（决定指数变化时要不要跟着自动换词）。 */
-  moodManual: boolean
+  /** 心情：0–10 的指数。 */
+  mood: number
+  /** 当前想法——编辑它会往记忆里追一条 thought（见 currentThought 的取法）。 */
+  thought: string
+  /** 自定义外观（瓦片引用）；空串 = 用内置角色表。 */
+  sprite: string
 }
 
 function AgentEditor(props: {
@@ -917,15 +923,18 @@ function AgentEditor(props: {
     appearance: agent.appearance,
     persona: agent.persona,
     backstory: agent.backstory,
-    goal: agent.goal,
-    attrs: { ...agent.attrs },
+      attrs: { ...agent.attrs },
     model: agent.model === undefined || agent.model === null ? '' : `${agent.model.provider}/${agent.model.model}`,
     plan: agent.plan.join('\n'),
     inventory: agent.inventory.join('、'),
-    mood: { ...(agent.mood ?? { value: 6, label: '平静' }) },
-    moodManual: false,
+    mood: agent.mood ?? MOOD_DEFAULT,
+    thought: currentThought(agent) ?? '',
+    sprite: agent.sprite ?? '',
   })
   const [draft, setDraft] = useState<AgentDraft>(draftReset)
+  /** 瓦片选择器是否展开。 */
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const spriteImportRef = React.useRef<HTMLInputElement | null>(null)
   const dirty = JSON.stringify(draft) !== JSON.stringify(draftReset())
 
   const save = (): void => {
@@ -939,7 +948,6 @@ function AgentEditor(props: {
           appearance: draft.appearance,
           persona: draft.persona,
           backstory: draft.backstory,
-          goal: draft.goal,
           attrs: draft.attrs,
           mood: draft.mood,
           plan: draft.plan.split('\n').map((s) => s.trim()).filter((s) => s !== ''),
@@ -981,8 +989,103 @@ function AgentEditor(props: {
       'div',
       { className: 'pa-thoughtblock' },
       React.createElement('span', { className: 'pa-dim' }, '当前想法'),
-      React.createElement('div', null, currentThought(agent) ?? '（还没有想法——先推进一步）'),
+      // 可编辑：写进去会被当作"它此刻在想什么"，立刻显示（见 /agent 的 thought 处理）。
+      React.createElement('input', {
+        value: draft.thought,
+        placeholder: '它此刻在想什么？留空则不写',
+        onChange: (event: React.ChangeEvent<HTMLInputElement>) => setDraft((prev) => ({ ...prev, thought: event.target.value })),
+      }),
     ),
+
+    // ── 外观：从图集挑一格，或上传一张图 ──────────────────────────────────
+    //
+    // 不给就用内置角色表（那 6 帧）。给了就按瓦片画——"每个角色长得不一样"
+    // 这件事不必改代码。
+    React.createElement('h4', { style: { marginTop: 8 } }, '外观', React.createElement('span', { className: 'pa-dim' }, draft.sprite === '' ? '（默认角色）' : draft.sprite)),
+    React.createElement(
+      'div',
+      { className: 'pa-line' },
+      React.createElement('input', {
+        type: 'file', accept: 'image/*', ref: spriteImportRef, style: { display: 'none' },
+        onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+          const file = e.target.files?.[0]
+          e.target.value = ''
+          if (file === undefined) return
+          const reader = new FileReader()
+          reader.onload = () => {
+            const dataUri = String(reader.result ?? '')
+            const probe = new Image()
+            probe.onload = () => {
+              // 单格图集：整张图就是那一格，切格尺寸 = 图片尺寸
+              void run('换外观', async () => {
+                const setId = `skin-${Date.now().toString(36)}`
+                applyWorld(await api.tileset({
+                  op: 'add',
+                  tileset: {
+                    id: setId, name: file.name.replace(/\.[^.]+$/, '').slice(0, 30) || '外观',
+                    image: dataUri, imageW: probe.naturalWidth, imageH: probe.naturalHeight,
+                    tileW: probe.naturalWidth, tileH: probe.naturalHeight, margin: 0, spacing: 0, notes: {},
+                  },
+                }))
+                applyWorld(await api.agent({ op: 'patch', agentId: agent.id, patch: { sprite: `${setId}:0,0` } }))
+                setDraft((prev) => ({ ...prev, sprite: `${setId}:0,0` }))
+                flash('已换上这张图作为它的外观')
+              })
+            }
+            probe.src = dataUri
+          }
+          reader.readAsDataURL(file)
+        },
+      }),
+      React.createElement('button', {
+        className: 'pa-btn', 'data-tiny': 'true',
+        onClick: () => spriteImportRef.current?.click(),
+      }, '上传图片'),
+      React.createElement('button', {
+        className: 'pa-btn', 'data-tiny': 'true', 'data-on': pickerOpen,
+        onClick: () => setPickerOpen((v) => !v),
+      }, pickerOpen ? '收起瓦片' : '从瓦片库选'),
+      draft.sprite === ''
+        ? null
+        : React.createElement('button', {
+            className: 'pa-btn', 'data-tiny': 'true',
+            onClick: () => {
+              setDraft((prev) => ({ ...prev, sprite: '' }))
+              void run('恢复默认外观', async () => {
+                applyWorld(await api.agent({ op: 'patch', agentId: agent.id, patch: { sprite: '' } }))
+                flash('已恢复内置角色外观')
+              })
+            },
+          }, '用默认'),
+    ),
+    pickerOpen
+      ? React.createElement(
+          'div',
+          { style: { maxHeight: 210, overflowY: 'auto', display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 4 } },
+          ...world.sandbox.map.tilesets.flatMap((tileset) => {
+            const g = gridOf(tileset)
+            return Array.from({ length: Math.min(g.cols * g.rows, 400) }, (_, i) => {
+              const col = i % g.cols
+              const row = Math.floor(i / g.cols)
+              const ref = makeTileRef(tileset.id, col, row)
+              return React.createElement(TileThumb, {
+                key: ref, tileset, col, row,
+                active: draft.sprite === ref,
+                hasNote: tileset.notes[noteKey(col, row)] !== undefined,
+                onPick: () => {
+                  setDraft((prev) => ({ ...prev, sprite: ref }))
+                  void run('换外观', async () => {
+                    applyWorld(await api.agent({ op: 'patch', agentId: agent.id, patch: { sprite: ref } }))
+                    flash(`外观换成 ${tileset.name} ${col},${row}`)
+                  })
+                  setPickerOpen(false)
+                },
+                onNote: () => {},
+              })
+            })
+          }),
+        )
+      : null,
 
     // 六维（需求 4）
     React.createElement('h4', { style: { marginTop: 8 } }, '六维属性', React.createElement('span', { className: 'pa-dim' }, `（常人 ${HUMAN_MIN}-${HUMAN_MAX}）`)),
@@ -1050,7 +1153,7 @@ function AgentEditor(props: {
     React.createElement(
       'div',
       { className: 'pa-form' },
-      field('想要', draft.goal, (v) => setDraft((p) => ({ ...p, goal: v }))),
+
     ),
     React.createElement(
       'div',
@@ -1064,25 +1167,21 @@ function AgentEditor(props: {
       'div',
       { className: 'pa-form' },
       React.createElement('label', null, '指数'),
+      // 心情就是一个 0–10 的数：滑条调，右侧显示当前值。
+      // 原先还配一个"这个词"输入框，词由模型自由发挥，同一档心情说法各异，
+      // 既没法比较也没法排序（用户要求收敛成一个数）。
       React.createElement(
         'div',
         { className: 'pa-line' },
         React.createElement('input', {
-          type: 'range',
-          min: 0,
-          max: 10,
-          step: 1,
-          value: draft.mood.value,
+          type: 'range', min: 0, max: 10, step: 1,
+          value: draft.mood,
           style: { flex: 1, accentColor: 'var(--pa-gold)' },
           onChange: (event: React.ChangeEvent<HTMLInputElement>) =>
-            setDraft((prev) => {
-              const value = Number(event.target.value)
-              return { ...prev, mood: { value, label: prev.moodManual ? prev.mood.label : moodLabel(value) } }
-            }),
+            setDraft((prev) => ({ ...prev, mood: Number(event.target.value) })),
         }),
-        React.createElement('span', { className: 'pa-mono' }, `${draft.mood.value}/10`),
+        React.createElement('span', { className: 'pa-mono' }, `${draft.mood}/10`),
       ),
-      field('这个词', draft.mood.label, (v) => setDraft((p) => ({ ...p, mood: { ...p.mood, label: v }, moodManual: true }))),
     ),
 
     // 日程与随身
@@ -1171,10 +1270,13 @@ function TilesetPanel(props: {
   onPick: (ref: string) => void
   onNote: (key: string) => void
   onSaveNote: (key: string, note: { name?: string; pass?: string; use?: string }) => void
+  onSlice: (slice: { w: number; h: number; spacing: number }) => void
 }): React.ReactElement {
-  const { tileset, brushRef, noteTarget, onPick, onNote, onSaveNote } = props
+  const { tileset, brushRef, noteTarget, onPick, onNote, onSaveNote, onSlice } = props
   const grid = gridOf(tileset)
   const [draft, setDraft] = React.useState<{ name: string; pass: string; use: string }>({ name: '', pass: '', use: '' })
+  /** 切片草稿（导入的图集才能改）。 */
+  const [draftSlice, setDraftSlice] = React.useState({ w: tileset.tileW, h: tileset.tileH, spacing: tileset.spacing })
   const note = noteTarget === undefined ? undefined : tileset.notes[noteTarget]
 
   React.useEffect(() => {
@@ -1194,7 +1296,16 @@ function TilesetPanel(props: {
       `${tileset.name}（${grid.cols}×${grid.rows} 格${tileset.image === '' ? '，内置' : ''}）`),
     React.createElement(
       'div',
-      { style: { display: 'flex', flexWrap: 'wrap', gap: 3, margin: '4px 0' } },
+      {
+        /**
+         * 网格自己滚，不指望外层。
+         *
+         * 一张 12×11 的内置图集有 132 格，用户在窄侧栏里看到的是"最后一行被
+         * 裁掉"。给它一个明确的高度上限 + 内部滚动，无论外层布局怎么变，
+         * 每一格都够得着。
+         */
+        style: { display: 'flex', flexWrap: 'wrap', gap: 3, margin: '4px 0', maxHeight: 264, overflowY: 'auto' },
+      },
       ...Array.from({ length: Math.min(grid.cols * grid.rows, 400) }, (_, i) => {
         const col = i % grid.cols
         const row = Math.floor(i / grid.cols)
@@ -1211,6 +1322,34 @@ function TilesetPanel(props: {
         })
       }),
     ),
+    // 切片参数：只对导入的图集显示——内置图集的网格是固定的（归一化过的）
+    tileset.image === ''
+      ? null
+      : React.createElement(
+          'div',
+          { className: 'pa-line', style: { marginTop: 4 } },
+          React.createElement('span', { className: 'pa-dim' }, '切片'),
+          React.createElement('input', {
+            type: 'number', value: draftSlice.w, min: 2, max: 256, style: { width: 52 },
+            title: '每格宽（像素）',
+            onChange: (e) => setDraftSlice((d) => ({ ...d, w: Number(e.target.value) })),
+          }),
+          React.createElement('span', { className: 'pa-dim' }, '×'),
+          React.createElement('input', {
+            type: 'number', value: draftSlice.h, min: 2, max: 256, style: { width: 52 },
+            title: '每格高（像素）',
+            onChange: (e) => setDraftSlice((d) => ({ ...d, h: Number(e.target.value) })),
+          }),
+          React.createElement('span', { className: 'pa-dim' }, '间隙'),
+          React.createElement('input', {
+            type: 'number', value: draftSlice.spacing, min: 0, max: 64, style: { width: 44 },
+            onChange: (e) => setDraftSlice((d) => ({ ...d, spacing: Number(e.target.value) })),
+          }),
+          React.createElement('button', {
+            className: 'pa-btn', 'data-tiny': 'true',
+            onClick: () => onSlice(draftSlice),
+          }, '应用切片'),
+        ),
     noteTarget !== undefined
       ? React.createElement(
           'div',
@@ -1286,10 +1425,7 @@ function TileThumb(props: {
     ctx.imageSmoothingEnabled = false
     ctx.drawImage(img, o.x, o.y, tileset.tileW, tileset.tileH, 1, 1, 24, 24)
   }, [tileset, col, row])
-  return React.createElement(
-    'span',
-    { style: { display: 'inline-flex', alignItems: 'flex-end', gap: 0 } },
-    React.createElement('canvas', {
+  return React.createElement('canvas', {
       ref,
       width: 26, height: 26,
       style: {
@@ -1311,15 +1447,12 @@ function TileThumb(props: {
         backgroundSize: '8px 8px',
         backgroundPosition: '0 0, 0 4px, 4px -4px, -4px 0',
       },
-      title: `${tileset.name} ${col},${row}${hasNote ? `（${tileset.notes[`${col},${row}`]?.name ?? '已标注'}）` : ''}`,
+      title: `${tileset.name} ${col},${row}${hasNote ? `（${tileset.notes[`${col},${row}`]?.name ?? '已标注'}）` : ''}\n左键：选它当笔刷　右键：编辑注释`,
+      // 左键选中、右键注释——与 Godot/Unity 的 tileset 面板一致。
+      // 原来把注释塞在一个 8px 的「注」小按钮里，既难点中又看不出是干什么的。
       onClick: onPick,
-    }),
-    React.createElement('button', {
-      style: { fontSize: 8, padding: '0 2px', marginLeft: -1, height: 14, border: 'none', background: 'transparent', color: hasNote ? '#7fc98b' : '#5a6577', cursor: 'pointer' },
-      title: '注释这个瓦片',
-      onClick: onNote,
-    }, '注'),
-  )
+      onContextMenu: (e: React.MouseEvent) => { e.preventDefault(); onNote() },
+    })
 }
 
 function SandboxPage(props: {
@@ -1341,6 +1474,46 @@ function SandboxPage(props: {
   /** 资源池要知道"现在是新建还是换贴图"，所以记一个选中态。 */
   /** 正在注释哪个格子（"图集:列,行"）。 */
   const [noteTarget, setNoteTarget] = React.useState<string | undefined>(undefined)
+  /** 隐藏的文件选择框——由「导入素材图」按钮代点。 */
+  const importRef = React.useRef<HTMLInputElement | null>(null)
+
+  /**
+   * 导入一张素材图并切成瓦片。
+   *
+   * 尺寸从图片本身读（naturalWidth/Height），切片参数用默认值 16×16 / 间隙 1
+   * ——这是 Kenney 系素材的常见规格，也是用户定的默认。导进去之后可以在这张
+   * 图集下面改。
+   */
+  const onImportFile = (file: File | undefined): void => {
+    if (file === undefined) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUri = String(reader.result ?? '')
+      if (dataUri === '') return
+      const probe = new Image()
+      probe.onload = () => {
+        const name = file.name.replace(/\.[^.]+$/, '').slice(0, 40) || '素材图'
+        void run('导入图集', async () => {
+          applyWorld(await api.tileset({
+            op: 'add',
+            tileset: {
+              id: `user-${Date.now().toString(36)}`,
+              name,
+              image: dataUri,
+              imageW: probe.naturalWidth,
+              imageH: probe.naturalHeight,
+              tileW: 16, tileH: 16, margin: 0, spacing: 1,
+              notes: {},
+            },
+          }))
+          flash(`已导入「${name}」（${probe.naturalWidth}×${probe.naturalHeight}），可在下面切格并注释`)
+        })
+      }
+      probe.onerror = () => flash('这张图读不出来（不是有效的图片文件？）')
+      probe.src = dataUri
+    }
+    reader.readAsDataURL(file)
+  }
   /**
    * 正在编辑哪一层。
    *
@@ -1360,6 +1533,57 @@ function SandboxPage(props: {
       { className: 'pa-sec' },
       React.createElement('h4', null, '世界沙盒', React.createElement('span', { className: 'pa-chip' }, `当前：${world.sandbox.id}`)),
       React.createElement('div', { className: 'pa-dim' }, '沙盒是明文 JSON，存在 `~/.dsh/dsh-paranim/sandboxes/`；运行态按工作区分桶存在 `runs/` 下。'),
+      // ── 镜像元信息：名字、尺寸 ───────────────────────────────────────────
+      //
+      // 拿这里当"改名/改尺寸"的入口。尺寸改动会把三个图层一起重排
+      // （cells 是行优先一维数组，长度必须等于 宽×高），所以服务端做，
+      // 客户端只负责收输入。
+      React.createElement(
+        'div',
+        { className: 'pa-place-grid', style: { marginTop: 6 } },
+        React.createElement('label', { className: 'pa-place-cell' },
+          React.createElement('span', { className: 'pa-dim' }, '名称'),
+          React.createElement('input', {
+            defaultValue: world.sandbox.name,
+            onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
+              const name = e.target.value.trim()
+              if (name === '' || name === world.sandbox.name) return
+              void run('改名称', async () => {
+                applyWorld(await api.sandbox({ action: 'meta', name }))
+                flash(`已改名为「${name}」`)
+              })
+            },
+          }),
+        ),
+        React.createElement('label', { className: 'pa-place-cell' },
+          React.createElement('span', { className: 'pa-dim' }, '宽（格）'),
+          React.createElement('input', {
+            type: 'number', defaultValue: world.sandbox.map.width, min: 8, max: 400,
+            onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
+              const width = Math.round(Number(e.target.value))
+              if (!Number.isFinite(width) || width === world.sandbox.map.width) return
+              void run('改尺寸', async () => {
+                applyWorld(await api.sandbox({ action: 'meta', width }))
+                flash(`宽度改为 ${width} 格（三个图层已一起重排）`)
+              })
+            },
+          }),
+        ),
+        React.createElement('label', { className: 'pa-place-cell' },
+          React.createElement('span', { className: 'pa-dim' }, '高（格）'),
+          React.createElement('input', {
+            type: 'number', defaultValue: world.sandbox.map.height, min: 8, max: 400,
+            onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
+              const height = Math.round(Number(e.target.value))
+              if (!Number.isFinite(height) || height === world.sandbox.map.height) return
+              void run('改尺寸', async () => {
+                applyWorld(await api.sandbox({ action: 'meta', height }))
+                flash(`高度改为 ${height} 格（三个图层已一起重排）`)
+              })
+            },
+          }),
+        ),
+      ),
       React.createElement(
         'div',
         { className: 'pa-line', style: { marginTop: 6 } },
@@ -1472,7 +1696,26 @@ function SandboxPage(props: {
         React.createElement('span', { className: 'pa-chip' }, `${world.sandbox.map.tilesets.length} 张`),
       ),
       React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
-        '点一个瓦片＝选它当笔刷；点「注」＝告诉程序它是什么（名字、能不能走、是不是门）。'),
+        '**左键**点一个瓦片＝选它当笔刷；**右键**＝告诉程序它是什么（名字、能不能走、是不是门）。'),
+      React.createElement(
+        'div',
+        { className: 'pa-line', style: { marginBottom: 5 } },
+        // 导入素材图：默认按 16×16、1px 间隙切（Kenney 系素材的常见规格），
+        // 导进去之后可以在这张图集下面改切片参数
+        React.createElement('input', {
+          type: 'file', accept: 'image/*', ref: importRef, style: { display: 'none' },
+          onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+            const file = e.target.files?.[0]
+            e.target.value = ''   // 同一个文件连选两次也要能触发
+            onImportFile(file)
+          },
+        }),
+        React.createElement('button', {
+          className: 'pa-btn', 'data-tiny': 'true',
+          onClick: () => importRef.current?.click(),
+        }, '＋ 导入素材图 (PNG)'),
+        React.createElement('span', { className: 'pa-dim' }, '导入后按 16×16、间隙 1 切格，可在下面调整'),
+      ),
       ...world.sandbox.map.tilesets.map((tileset) =>
         React.createElement(TilesetPanel, {
           key: tileset.id,
@@ -1483,18 +1726,16 @@ function SandboxPage(props: {
           onNote: (key: string) => setNoteTarget(key === noteTarget ? undefined : key),
           onSaveNote: (key: string, note: { name?: string; pass?: string; use?: string }) => {
             void run('存注释', async () => {
-              // 注释直接写进沙盒的 tileset.notes，随后落盘
-              const ts = world.sandbox.map.tilesets.find((t) => t.id === tileset.id)
-              if (ts === undefined) return
-              const n: { name?: string; pass?: 'walk' | 'block' | 'water' | 'lava'; use?: 'door' | 'window' | 'switch' } = {}
-              if (note.name !== undefined && note.name !== '') n.name = note.name
-              if (note.pass === 'walk' || note.pass === 'block' || note.pass === 'water' || note.pass === 'lava') n.pass = note.pass
-              if (note.use === 'door' || note.use === 'window' || note.use === 'switch') n.use = note.use
-              if (Object.keys(n).length === 0) delete ts.notes[key]
-              else ts.notes[key] = n
-              world.sandbox.updatedAt = Date.now()
-              applyWorld(await api.sandbox({ action: 'save', name: world.sandbox.name }))
-              flash(n.name === undefined ? `已清除「${tileset.name} ${key}」的注释` : `已标注「${n.name}」`)
+              // 走 /tileset 写服务端——原先改客户端对象再调 /sandbox save，
+              // 而那条路读的是服务端自己那份沙盒，等于什么都没提交（标注完就丢）。
+              applyWorld(await api.tileset({ op: 'note', tilesetId: tileset.id, key, note }))
+              flash(note.name === undefined ? `已清除「${tileset.name} ${key}」的注释` : `已标注「${note.name}」`)
+            })
+          },
+          onSlice: (slice: { w: number; h: number; spacing: number }) => {
+            void run('改切片', async () => {
+              applyWorld(await api.tileset({ op: 'slice', tilesetId: tileset.id, tileW: slice.w, tileH: slice.h, spacing: slice.spacing }))
+              flash(`「${tileset.name}」切成 ${slice.w}×${slice.h}，间隙 ${slice.spacing}`)
             })
           },
         }),

@@ -75,12 +75,13 @@ const agents = (raw.agents ?? []).map((a) => ({
   appearance: clip(a.appearance, 32),
   persona: clip(a.persona, 56),
   backstory: clip(a.backstory, 72),
-  goal: clip(a.goal, 40),
   attrs: attrs(a.attrs),
   plan: (a.plan ?? []).map((step) => clip(step, 36)).slice(0, 4),
   inventory: (a.inventory ?? []).map((item) => clip(item, 16)).slice(0, 4),
   color: a.color ?? '#7aa2f7',
   portrait: a.portrait ?? '🙂',
+  // 心情：只带指数（老镜像里是 {value,label}，取 value）
+  mood: typeof a.mood === 'number' ? a.mood : (a.mood?.value ?? 6),
 }))
 
 const relations = (raw.relations ?? []).map((r) => ({

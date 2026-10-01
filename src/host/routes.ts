@@ -10,32 +10,14 @@
  * 的防线，不是身份认证。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import {
-  clampStepConfig,
-  isAttrId,
-  MOOD_DEFAULT,
-  normalizeAttrs,
-  normalizeMood,
-  resolveCheck,
-  randomToken,
-  shortId,
-  toStateValue,
-  type Sandbox,
-  type SandboxAgent,
-  type SandboxSaveBody,
-  type StateValue,
-  type AgentModelRoute,
-  type StepConfig,
-  type WorldObject,
-  type RunState,
-} from '../shared/model.ts'
+import {clampStepConfig, isAttrId, MOOD_DEFAULT, normalizeAttrs, normalizeMood, resolveCheck, randomToken, shortId, toStateValue, type Sandbox, type SandboxAgent, type SandboxSaveBody, type StateValue, type AgentModelRoute, type StepConfig, type WorldObject, type RunState, type SandboxMap, type TileLayer} from '../shared/model.ts'
 import { findObject } from '../shared/rules.ts'
 import { LAYER_LABEL, emptyLayers, makeBuiltinTileset, objectsOf, parseRef, positionOfObjectId, resolveRef, setObjectState } from '../shared/tilemap.ts'
 import { isTrustedApiRequest } from './fence.ts'
 import { messageOf, type LlmMessage, type PluginLlm, type PluginWebRoute } from './context.ts'
 import { log } from './context.ts'
 import { issueDirective, listModelChoices, runTick, type TickResult } from './engine.ts'
-import { RunStore, SandboxStore, StepStore, normalizeObject, normalizeSandbox } from './store.ts'
+import { RunStore, SandboxStore, StepStore, normalizeObject, normalizeSandbox, normalizeTileset } from './store.ts'
 
 /** 一次模型调用的描述（与 engine.ts 内部同名结构对齐：路由 + 系统提示 + 用户观察）。 */
 interface LlmCall {
@@ -537,6 +519,47 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
   }
 
 /** 每个工作区一条写队列，见 handler 里的 serialize。 */
+/**
+ * 改地图尺寸：三个图层一起重排。
+ *
+ * cells 是行优先的一维数组，长度必须正好是 宽×高。只改 width/height 会让
+ * 整个图层错位（第 N 格落到别的坐标上），而且不报错——画面上就是"地图花了"。
+ * 这里按左上角对齐重排：保留老图里还在范围内的格，越界的丢掉，新扩的补空。
+ */
+function resizeMap(map: SandboxMap, width: number, height: number): SandboxMap {
+  const remap = (layer: TileLayer): TileLayer => {
+    const cells: Array<string | null> = new Array(width * height).fill(null)
+    for (let y = 0; y < Math.min(height, map.height); y += 1) {
+      for (let x = 0; x < Math.min(width, map.width); x += 1) {
+        cells[y * width + x] = layer.cells[y * map.width + x] ?? null
+      }
+    }
+    const out: TileLayer = { cells }
+    if (layer.states !== undefined) {
+      const states: Record<string, Record<string, StateValue>> = {}
+      for (const [key, value] of Object.entries(layer.states)) {
+        const idx = Number(key)
+        if (!Number.isInteger(idx)) continue
+        const x = idx % map.width
+        const y = Math.floor(idx / map.width)
+        if (x < width && y < height) states[String(y * width + x)] = value
+      }
+      if (Object.keys(states).length > 0) out.states = states
+    }
+    return out
+  }
+  return {
+    ...map,
+    width,
+    height,
+    layers: {
+      background: remap(map.layers.background),
+      structure: remap(map.layers.structure),
+      object: remap(map.layers.object),
+    },
+  }
+}
+
 const writeQueues = new Map<string, Promise<unknown>>()
 
   const routes: PluginWebRoute[] = [
@@ -629,6 +652,34 @@ const writeQueues = new Map<string, Promise<unknown>>()
             // POST /paranim/sandbox —— 保存/另存/切换沙盒
             'POST /sandbox': async () => {
               const action = String(body.action ?? 'save')
+              /**
+               * 改沙盒的元信息：名字、描述、地图尺寸。
+               *
+               * 尺寸改动要把三个图层一起重排——cells 是行优先的一维数组，
+               * 长度必须等于 宽×高，只改 width/height 会让整个图层错位。
+               * 重排规则：保留左上角，越界的丢掉，新扩出来的补空。
+               * 挂在格子上的状态（states）也要跟着换算格索引。
+               */
+              if (action === 'meta') {
+                const view = await world({ workspace, sandboxId, create: true })
+                const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
+                if (typeof body.name === 'string' && body.name.trim() !== '') view.sandbox.name = body.name.trim().slice(0, 60)
+                if (typeof body.desc === 'string') view.sandbox.desc = body.desc.slice(0, 400)
+                if (typeof body.attribution === 'string') view.sandbox.attribution = body.attribution.slice(0, 300)
+                const W = body.width === undefined ? view.sandbox.map.width : Math.max(8, Math.min(400, Math.round(Number(body.width))))
+                const H = body.height === undefined ? view.sandbox.map.height : Math.max(8, Math.min(400, Math.round(Number(body.height))))
+                const changed: string[] = []
+                if (W !== view.sandbox.map.width || H !== view.sandbox.map.height) {
+                  changed.push(`尺寸 ${view.sandbox.map.width}×${view.sandbox.map.height} → ${W}×${H}`)
+                  view.sandbox.map = resizeMap(view.sandbox.map, W, H)
+                }
+                view.sandbox.updatedAt = Date.now()
+                logMutate(view, changed.length > 0
+                  ? `${by}把「${view.sandbox.name}」改成 ${changed.join('，')}。`
+                  : `${by}改了「${view.sandbox.name}」的名称或描述。`, by)
+                await sendWorld(res, view, workspace)
+                return
+              }
               if (action === 'select') {
                 const id = String(body.id ?? '')
                 const target = await deps.store.get(id)
@@ -684,6 +735,74 @@ const writeQueues = new Map<string, Promise<unknown>>()
               }
               const saved = await deps.store.save(next)
               return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: saved.id, create: true }) })
+            },
+
+            /**
+             * POST /paranim/tileset —— 图集本身的操作：注释、导入、切片参数、删除。
+             *
+             * 为什么单独一条路由：注释与切片参数属于**图集**而不属于地图，
+             * 而它们原先走的是 `/sandbox {action:'save'}`——那条路在服务端
+             * 读的是**服务端自己那份沙盒**，客户端改完再 save 等于什么都没提交。
+             * （实测：标注完瓦片，刷新就没了。）所以必须有一条真正写服务端的入口。
+             */
+            'POST /tileset': async () => {
+              const view = await world({ workspace, sandboxId, create: true })
+              const by = typeof body.by === 'string' && body.by.trim() !== '' ? body.by.trim() : '玩家'
+              const op = String(body.op ?? '')
+              const tilesets = view.sandbox.map.tilesets
+              const setId = String(body.tilesetId ?? '')
+
+              if (op === 'add') {
+                // 导入一张素材图：body.tileset 带着 data URI 与切片参数
+                const t = normalizeTileset(body.tileset, `set-${tilesets.length + 1}`)
+                if (t === undefined) throw new HttpError('图集参数不合法', 400)
+                if (t.image === '') throw new HttpError('导入的图集必须带图片数据', 400)
+                const id = tilesets.some((x) => x.id === t.id) ? `${t.id}-${randomToken(4)}` : t.id
+                tilesets.push({ ...t, id })
+                view.sandbox.updatedAt = Date.now()
+                logMutate(view, `${by}导入了素材图「${t.name}」（${t.imageW}×${t.imageH}，切 ${t.tileW}×${t.tileH}）。`, by)
+                await sendWorld(res, view, workspace)
+                return
+              }
+
+              const ts = tilesets.find((t) => t.id === setId)
+              if (ts === undefined) throw new HttpError(`找不到图集 ${setId}`, 404)
+
+              if (op === 'note') {
+                const key = String(body.key ?? '')
+                if (!/^\d{1,3},\d{1,3}$/.test(key)) throw new HttpError('格子写成「列,行」', 400)
+                const raw = (body.note ?? {}) as Record<string, unknown>
+                const note: { name?: string; pass?: 'walk' | 'block' | 'water' | 'lava'; use?: 'door' | 'window' | 'switch' } = {}
+                if (typeof raw.name === 'string' && raw.name.trim() !== '') note.name = raw.name.trim().slice(0, 40)
+                if (raw.pass === 'walk' || raw.pass === 'block' || raw.pass === 'water' || raw.pass === 'lava') note.pass = raw.pass
+                if (raw.use === 'door' || raw.use === 'window' || raw.use === 'switch') note.use = raw.use
+                if (Object.keys(note).length === 0) delete ts.notes[key]
+                else ts.notes[key] = note
+                view.sandbox.updatedAt = Date.now()
+                logMutate(view, Object.keys(note).length === 0
+                  ? `${by}清掉了「${ts.name} ${key}」的注释。`
+                  : `${by}把「${ts.name} ${key}」标注为「${note.name ?? '（无名）'}」${note.pass === 'block' ? '（挡路）' : ''}${note.use === 'door' ? '（门）' : ''}。`, by)
+              } else if (op === 'slice') {
+                const clamp = (v: unknown, lo: number, hi: number, dflt: number): number => {
+                  const n = Math.round(Number(v))
+                  return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : dflt
+                }
+                ts.tileW = clamp(body.tileW, 2, 256, ts.tileW)
+                ts.tileH = clamp(body.tileH, 2, 256, ts.tileH)
+                ts.margin = clamp(body.margin, 0, 64, ts.margin)
+                ts.spacing = clamp(body.spacing, 0, 64, ts.spacing)
+                view.sandbox.updatedAt = Date.now()
+                logMutate(view, `${by}把「${ts.name}」的切片改成 ${ts.tileW}×${ts.tileH}（间隙 ${ts.spacing}）。`, by)
+              } else if (op === 'remove') {
+                const at = tilesets.findIndex((t) => t.id === setId)
+                const [gone] = tilesets.splice(at, 1)
+                view.sandbox.updatedAt = Date.now()
+                logMutate(view, `${by}移除了素材图「${gone.name}」。`, by)
+              } else {
+                throw new HttpError(`未知操作 ${op}`, 400)
+              }
+              await sendWorld(res, view, workspace)
+              return
             },
 
             /**
@@ -963,6 +1082,25 @@ const writeQueues = new Map<string, Promise<unknown>>()
                 agent.attrs = normalizeAttrs({ ...agent.attrs, ...(patch.attrs as Record<string, number>) })
               }
               if (patch.mood !== undefined && patch.mood !== null) agent.mood = normalizeMood(patch.mood)
+              // 自定义外观：空串表示"恢复默认角色表"
+              if (typeof patch.sprite === 'string') {
+                const ref = patch.sprite.trim()
+                if (ref === '') delete agent.sprite
+                else if (parseRef(ref) !== undefined) agent.sprite = ref
+              }
+              /**
+               * 「当前想法」是可编辑的。
+               *
+               * 它不是一个独立字段，而是**记忆里最后一条 thought**（见客户端的
+               * currentThought）。所以"编辑想法"就是往记忆里追一条——这样
+               * 界面上立刻生效，而且不新增第二份真相（引擎每步也往这里写想法，
+               * 若另存一个字段，两者迟早对不上）。
+               */
+              if (typeof patch.thought === 'string' && patch.thought.trim() !== '') {
+                const text = patch.thought.trim().slice(0, 200)
+                agent.memory.push({ tick: view.run.tick, kind: 'thought', text, ts: Date.now() })
+                if (agent.memory.length > 200) agent.memory = agent.memory.slice(-200)
+              }
               if (patch.model !== undefined) {
                 if (patch.model === null) agent.model = null
                 else {
@@ -1149,7 +1287,6 @@ function normalizeAgentFromBody(raw: Record<string, unknown>, sandbox: Sandbox):
     appearance: typeof raw.appearance === 'string' ? raw.appearance : '',
     persona: typeof raw.persona === 'string' ? raw.persona : '',
     backstory: typeof raw.backstory === 'string' ? raw.backstory : '',
-    goal: typeof raw.goal === 'string' ? raw.goal : '',
     mood: normalizeMood((raw as { mood?: unknown }).mood ?? MOOD_DEFAULT),
     x: Number.isFinite(Number(raw.x)) ? Math.max(0, Math.min(sandbox.map.width, Math.round(Number(raw.x)))) : Math.round(sandbox.map.width / 2),
     y: Number.isFinite(Number(raw.y)) ? Math.max(0, Math.min(sandbox.map.height, Math.round(Number(raw.y)))) : Math.round(sandbox.map.height / 2),

@@ -168,6 +168,23 @@ type SizeAware = { w?: number; h?: number }
  * 移动难度：距离越远越难，目标地标拥挤或要穿过整张图时更难。
  * 十几格的短途是「容易」，跨镇是「艰难」，这给"去哪儿"这件事本身制造张力。
  */
+/**
+ * 多近算"日常走动"。
+ *
+ * 用户反馈："每次行动都要进行属性检定"——走过去看看、在屋里挪两步这种事
+ * 没有失败的意义，每次都赌一把只会把推演变成骰子表演，而且"判定成功"
+ * 这个结果本身也不再传达任何信息。
+ *
+ * 只有**有挑战性的行动**才掷骰：长途赶路、跨镇、有人阻拦、明确要判定的
+ * 动作（take/check/flee）、以及改动别人东西时的阻力。走近处不掷。
+ */
+export const TRIVIAL_MOVE_DIST = 6
+
+/** 这次移动值不值得掷骰。 */
+export function moveNeedsCheck(dist: number): boolean {
+  return dist > TRIVIAL_MOVE_DIST
+}
+
 export function moveDifficulty(dist: number): { step: (typeof DIFFICULTY_LADDER)[number]; mods: CheckMod[] } {
   const mods: CheckMod[] = []
   let step = DIFFICULTY_LADDER[1] // 容易 9
@@ -431,6 +448,19 @@ export function resolveAction(action: AgentAction, ctx: ActionContext): ActionOu
         const text = `${agent.name}想去${targetObj?.name ?? `(${Math.round(tx)},${Math.round(ty)})`}，但那一带过不去。`
         events.push(mkEvent({ kind: 'move', actor: agent.id, actorName: agent.name, text, from: { x: agent.x, y: agent.y }, to: { x: agent.x, y: agent.y } }, run, ts))
         memory.push({ tick: run.tick, kind: 'event', text, ts })
+        break
+      }
+      /**
+       * 日常走动不掷骰：走近处是"抬脚就到"，没有失败的可能，硬掷一次
+       * 只会让每次行动都变成赌博（用户明确反馈过这一点）。
+       */
+      if (!moveNeedsCheck(dist)) {
+        x = goalX
+        y = goalY
+        const where = targetObj !== undefined ? targetObj.name : placeAt(sandbox, x, y)?.name ?? `(${x},${y})`
+        const text = `${agent.name}走到${where}。`
+        events.push(mkEvent({ kind: 'move', actor: agent.id, actorName: agent.name, text, from: { x: agent.x, y: agent.y }, to: { x, y }, targetId: targetObj?.id }, run, ts))
+        memory.push({ tick: run.tick, kind: 'action', text, ts })
         break
       }
       const { step, mods } = moveDifficulty(dist)

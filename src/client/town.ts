@@ -177,6 +177,8 @@ function drawAgent(
   agent: SandboxAgent,
   tick: number,
   selected: boolean,
+  images: Map<string, CanvasImageSource>,
+  sandbox: Sandbox,
   bubble?: string,
 ): void {
   const { scale, offsetX, offsetY } = view
@@ -190,7 +192,20 @@ function drawAgent(
   ctx.beginPath()
   ctx.ellipse(cx, bottom - scale * 2, scale * 5.5, scale * 2, 0, 0, Math.PI * 2)
   ctx.fill()
-  if (ref !== undefined) drawTile(ctx, ref, cx, bottom, scale)
+  /**
+   * 外观优先用自定义瓦片（用户挑的/上传的），否则退回内置角色表。
+   * 自定义的那种要按**图集自己的格子尺寸**取图，不能假定 16×16。
+   */
+  const custom = agent.sprite === undefined ? undefined : resolveRef(sandbox.map, agent.sprite)
+  const customImg = custom === undefined ? undefined : images.get(custom.tileset.id)
+  if (custom !== undefined && customImg !== undefined) {
+    const o = tileOrigin(custom.tileset, custom.col, custom.row)
+    const side = TILE_PX * scale
+    ctx.drawImage(customImg, o.x, o.y, custom.tileset.tileW, custom.tileset.tileH,
+      cx - side / 2, bottom - side, side, side)
+  } else if (ref !== undefined) {
+    drawTile(ctx, ref, cx, bottom, scale)
+  }
 
   if (selected) {
     ctx.strokeStyle = '#ffc861'
@@ -300,7 +315,7 @@ export function renderTown(ctx: CanvasRenderingContext2D, input: RenderInput): v
   drawHoverCell(ctx, input)
 
   for (const agent of agents) {
-    drawAgent(ctx, input.view, agent, tick, agent.id === selectedId, bubbles?.get(agent.id))
+    drawAgent(ctx, input.view, agent, tick, agent.id === selectedId, input.images, input.sandbox, bubbles?.get(agent.id))
   }
 }
 

@@ -201,7 +201,6 @@ function normalizeAgentTemplate(input: unknown, mapW: number, mapH: number, inde
     appearance: str(a.appearance),
     persona: str(a.persona),
     backstory: str(a.backstory),
-    goal: str(a.goal),
     // 心情缺省用 MOOD_DEFAULT：新角色不该是"没有心情"，否则界面上会空一块
     mood: normalizeMood(a.mood ?? MOOD_DEFAULT),
     x: Math.max(0, Math.min(mapW, Math.round(num(a.x, mapW / 2)))),
@@ -212,6 +211,9 @@ function normalizeAgentTemplate(input: unknown, mapW: number, mapH: number, inde
     inventory: Array.isArray(a.inventory) ? a.inventory.filter((v) => typeof v === 'string').slice(0, 24) : [],
     color: str(a.color, '#7aa2f7'),
     portrait: str(a.portrait, '🙂'),
+    // 自定义外观（瓦片引用）。非法引用一律丢掉——渲染层拿到解析不了的字符串
+    // 只会静默画成默认角色，而"设了却没生效"比"没设"更难查。
+    sprite: typeof a.sprite === 'string' && /^[A-Za-z0-9._-]{1,64}:\d{1,3},\d{1,3}$/.test(a.sprite) ? a.sprite : undefined,
   }
 }
 
@@ -222,7 +224,7 @@ function normalizeAgentTemplate(input: unknown, mapW: number, mapH: number, inde
  * 推断——早期版本用"按平均色反查格子"来猜每格是什么，那对纯色地面有效，
  * 对有形状的物件完全无效，于是出现了把路面当树画出来这类错误。
  */
-function normalizeTileset(input: unknown, fallbackId: string): Tileset | undefined {
+export function normalizeTileset(input: unknown, fallbackId: string): Tileset | undefined {
   const e = (input ?? {}) as Record<string, unknown>
   const id = (str(e.id).trim() || fallbackId).slice(0, 64)
   if (id === '') return undefined

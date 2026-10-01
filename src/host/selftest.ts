@@ -18,6 +18,7 @@ import { remember, runTick, issueDirective, listModelChoices } from './engine.ts
 import { makeRoutes, type ParanimRoutes, type WorldView } from './routes.ts'
 import { RunStore, SandboxStore, StepStore, dataHome, normalizeSandbox, sandboxDir, setDataHomeForTest } from './store.ts'
 import { objectsOf } from '../shared/tilemap.ts'
+import { TRIVIAL_MOVE_DIST } from '../shared/rules.ts'
 import { makeTools } from './tools.ts'
 import { INLINE_SMALLVILLE } from './fallback.ts'
 import type { PluginLlm, PluginToolDefinition } from './context.ts'
@@ -315,8 +316,25 @@ ok(step1.events.length > 0, `本步产生了 ${step1.events.length} 条事件`)
 const modelOutcomes = step1.outcomes.filter((o) => o.source === 'model')
 ok(modelOutcomes.length === step1.outcomes.length, '所有智能体都走了模型路径（假 llm 可用）', `model=${modelOutcomes.length}/${step1.outcomes.length}`)
 
+/**
+ * 掷骰规则改过：**只有有挑战性的行动才检定**（用户反馈"每次行动都要检定"
+ * 太重——走过去看看没有失败的意义，每次都赌一把只会把推演变成骰子表演）。
+ *
+ * 所以这条不能再断言"本步一定有判定"。该守的是规则本身在两边都成立：
+ * 走远路的必须有判定，走近处的必须没有。
+ */
 const rolls = step1.events.filter((e) => e.roll !== undefined)
-ok(rolls.length > 0, `本步发生了 ${rolls.length} 次判定（需求 4：有失败可能就必须掷骰）`)
+const moveEvents = step1.events.filter((e) => e.kind === 'move' && e.from !== undefined && e.to !== undefined)
+const far = moveEvents.filter((e) => Math.hypot(e.to!.x - e.from!.x, e.to!.y - e.from!.y) > TRIVIAL_MOVE_DIST)
+const near = moveEvents.filter((e) => Math.hypot(e.to!.x - e.from!.x, e.to!.y - e.from!.y) <= TRIVIAL_MOVE_DIST)
+ok(
+  far.every((e) => e.roll !== undefined),
+  `走得远的那几步都掷了骰（远 ${far.length} 步 / 近 ${near.length} 步 / 判定 ${rolls.length} 条）`,
+)
+ok(
+  near.every((e) => e.roll === undefined),
+  `日常走动不掷骰（近 ${near.length} 步里没有一条判定）`,
+)
 ok(
   rolls.every((r) => Number.isInteger(r.roll?.roll) && (r.roll?.roll ?? 0) >= 1 && (r.roll?.roll ?? 0) <= 6),
   '每条判定记录的骰面都在 1..6',
@@ -472,82 +490,73 @@ ok(addedNullModel !== undefined, 'null 模型的智能体真的进入了世界')
 ok(addedNullModel?.model === null || addedNullModel?.model === undefined, 'null 模型被存成"跟随宿主默认"，而不是被丢掉或被编一个')
 
 // ── 心情与当前想法 ────────────────────────────────────────────────────────
-ok(typeof addedNullModel?.mood?.value === 'number', '新增的智能体带默认心情（不是空一块）')
+//
+// 心情现在就是一个 0–10 的指数（用户要求去掉"那个词"：词由模型自由发挥，
+// 同一档心情在十个角色嘴里有十种说法，既没法比较也没法排序）。
+ok(typeof addedNullModel?.mood === 'number', '新增的智能体带默认心情（不是空一块）')
 ok(
-  (addedNullModel?.mood?.value ?? -1) >= 0 && (addedNullModel?.mood?.value ?? 99) <= 10,
+  (addedNullModel?.mood ?? -1) >= 0 && (addedNullModel?.mood ?? 99) <= 10,
   '心情指数在 0–10',
 )
 const moodPatch = dataOf<WorldView>(await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
   op: 'patch',
   agentId: addedNullModel?.id ?? '',
-  patch: { mood: { value: 99, label: '亢奋' } },
+  patch: { mood: 99 },
 }))
 const patched = moodPatch.run.agents.find((a) => a.id === addedNullModel?.id)
-ok(patched?.mood?.value === 10, '越界的心情指数被夹紧到 10（不是原样落盘）', String(patched?.mood?.value))
-ok(patched?.mood?.label === '亢奋', '心情的词被保留')
-const clearedMood = dataOf<WorldView>(await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
+ok(patched?.mood === 10, '越界的心情指数被夹紧到 10（不是原样落盘）', String(patched?.mood))
+const postThought = dataOf<WorldView>(await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
   op: 'patch',
   agentId: addedNullModel?.id ?? '',
-  patch: { mood: { value: 2 } },
+  patch: { thought: '盘算着先把账本翻出来。' },
 }))
-ok(clearedMood.run.agents.find((a) => a.id === addedNullModel?.id)?.mood?.label !== '亢奋', '只给指数时，词按指数自动取（不会留着上一次的词）')
+const thoughtAgent = postThought.run.agents.find((a) => a.id === addedNullModel?.id)
+ok(
+  (thoughtAgent?.memory ?? []).some((m) => m.kind === 'thought' && m.text.includes('账本')),
+  '「当前想法」可编辑：写进去会落成一条 thought 记忆（界面立刻读得到）',
+)
 
-// 心情变化的记忆必须记在**当时那一步**上。写死 tick 0 会让它显示成"第 0 步的事"，
-// 越往后越离谱——本地连跑 6 步后它显示"6 步前"，而它其实是刚发生的。
+// ── 图集路由：注释 / 导入 / 切片 ───────────────────────────────────────────
+//
+// 这三件事原先走的是 /sandbox {action:'save'}，而那条路在服务端读的是
+// **服务端自己那份沙盒**——客户端改完再 save 等于什么都没提交（标注完就丢）。
+// 所以它们有了自己的路由，这里逐条钉住。
 {
-  const mid = await routes.world({ workspace: '/tmp/fake-workspace', create: true })
-  const target = mid.run.agents[0]
-  await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
-    op: 'patch', agentId: target.id, patch: { mood: { value: 5, label: '平静' } },
+  const ts = dataOf<WorldView>(await call(route, 'POST', '/paranim/tileset?workspace=/tmp/fake-workspace', {
+    op: 'note', tilesetId: 'tiny-town', key: '5,5', note: { name: '测试墙', pass: 'block', use: 'door' },
+  }))
+  const noted = ts.sandbox.map.tilesets.find((t) => t.id === 'tiny-town')?.notes['5,5']
+  ok(noted?.name === '测试墙' && noted?.pass === 'block' && noted?.use === 'door', '注释写进了图集（走 /tileset，不再经 /sandbox save 白跑一趟）', JSON.stringify(noted))
+
+  const cleared = dataOf<WorldView>(await call(route, 'POST', '/paranim/tileset?workspace=/tmp/fake-workspace', {
+    op: 'note', tilesetId: 'tiny-town', key: '5,5', note: {},
+  }))
+  ok(cleared.sandbox.map.tilesets.find((t) => t.id === 'tiny-town')?.notes['5,5'] === undefined, '空注释等于清除（不留一条 {} 让判断多一种情况）')
+
+  // 导入一张 1×1 的图：整张图就是那一格
+  const skin = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  const imported = dataOf<WorldView>(await call(route, 'POST', '/paranim/tileset?workspace=/tmp/fake-workspace', {
+    op: 'add',
+    tileset: { id: 'skin-test', name: '测试皮肤', image: skin, imageW: 1, imageH: 1, tileW: 1, tileH: 1, margin: 0, spacing: 0, notes: {} },
+  }))
+  ok(imported.sandbox.map.tilesets.some((t) => t.id === 'skin-test'), '导入素材图登记进了沙盒的图集列表')
+
+  const badImport = await call(route, 'POST', '/paranim/tileset?workspace=/tmp/fake-workspace', {
+    op: 'add', tileset: { id: 'no-image', name: '没图', image: '', imageW: 16, imageH: 16, tileW: 16, tileH: 16, margin: 0, spacing: 0, notes: {} },
   })
-  const before = (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).run.tick
-  await routes.step({ workspace: '/tmp/fake-workspace' })
-  const after = await routes.world({ workspace: '/tmp/fake-workspace', create: true })
-  const moodNote = after.run.agents[0].memory.filter((m) => m.text.includes('心情从')).slice(-1)[0]
-  ok(
-    moodNote === undefined || moodNote.tick >= before,
-    '心情变化的记忆记在当步（不是写死的第 0 步）',
-    `before=${before} note.tick=${moodNote?.tick}`,
-  )
+  ok(badImport.status === 400, '没带图片数据的导入被拒（不能登记一张空图）', `status=${badImport.status}`)
+
+  // 智能体外观：指向某个瓦片
+  const skinAgent = dataOf<WorldView>(await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
+    op: 'patch', agentId: addedNullModel?.id ?? '', patch: { sprite: 'skin-test:0,0' },
+  }))
+  ok(skinAgent.run.agents.find((a) => a.id === addedNullModel?.id)?.sprite === 'skin-test:0,0', '智能体能换自定义外观（瓦片引用）')
+  const backToDefault = dataOf<WorldView>(await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
+    op: 'patch', agentId: addedNullModel?.id ?? '', patch: { sprite: '' },
+  }))
+  ok(backToDefault.run.agents.find((a) => a.id === addedNullModel?.id)?.sprite === undefined, '空串表示恢复内置角色外观')
 }
 
-// 心情要能跨落盘往返
-const moodRound = await routes.world({ workspace: '/tmp/fake-workspace', create: true })
-await runStore.save(moodRound.run)
-const moodReloaded = await runStore.load(moodRound.sandbox.id)
-ok(moodReloaded?.agents.find((a) => a.id === addedNullModel?.id)?.mood?.value === 2, '心情能落盘并读回（归一化没把它丢掉）')
-
-// 动作正文的清洗：模型常自带主语与句末标点，直接拼会得到「沈砚沈砚…。。」
-{
-  const before = (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).run.agents[0]
-  const settled = resolveAction(
-    { kind: 'observe', text: `${before.name}伸手抵住餐桌边缘。`, thought: '试试' },
-    {
-      sandbox: (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).sandbox,
-      run: (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).run,
-      agent: before,
-      ts: Date.now(),
-      operator: 'agent',
-      rng: { d6: () => 4 },
-    },
-  )
-  const actText = settled.events.find((e) => e.kind === 'act')?.text ?? ''
-  // 主语由 narrate() 有意补一次（正文没有主语时补上，已有则原样）——所以不变量不是
-  // "不以名字开头"，而是"名字恰好出现一次、且不出现连续句号"。
-  ok(
-    (actText.match(new RegExp(before.name, 'g')) ?? []).length === 1,
-    '动作正文里名字恰好出现一次（不会"沈砚沈砚…"）',
-    actText.slice(0, 44),
-  )
-  ok(!/[。．.]{2}/.test(actText), '动作正文不出现连续句号', actText.slice(0, 40))
-}
-
-/**
- * 一个只用内存的沙盒库：两个镜像，**顺序刻意让 alpha 排在前面**。
- *
- * SandboxStore 会去读真实目录，而这两段断言只关心"选了谁、兜底是谁"，
- * 所以这里继承后覆盖 list/get/save，不落任何盘。
- */
 function smallStore(): SandboxStore {
   const mk = (id: string, name: string): Sandbox => normalizeSandbox({
     id, name, desc: `${name}（自检用）`, map: { width: 40, height: 30, background: 'ado', tileset: 'dungeon' },
@@ -567,6 +576,58 @@ function smallStore(): SandboxStore {
     },
     async remove(): Promise<void> {},
   })
+}
+
+// 心情变化的记忆必须记在**当时那一步**上。写死 tick 0 会让它显示成"第 0 步的事"，
+// 越往后越离谱——本地连跑 6 步后它显示"6 步前"，而它其实是刚发生的。
+{
+  const mid = await routes.world({ workspace: '/tmp/fake-workspace', create: true })
+  const target = mid.run.agents[0]
+  await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
+    op: 'patch', agentId: target.id, patch: { mood: 5 },
+  })
+  const beforeTick = (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).run.tick
+  await routes.step({ workspace: '/tmp/fake-workspace' })
+  const afterStep = await routes.world({ workspace: '/tmp/fake-workspace', create: true })
+  const moodNote = afterStep.run.agents[0].memory.filter((m) => m.text.includes('心情从')).slice(-1)[0]
+  ok(
+    moodNote === undefined || moodNote.tick >= beforeTick,
+    '心情变化的记忆记在当步（不是写死的第 0 步）',
+    `before=${beforeTick} note.tick=${moodNote?.tick}`,
+  )
+}
+
+// 心情要能跨落盘往返：先显式设成 2，再落盘读回——不能依赖上一步留下的值
+// （中间隔了一次 step，引擎可能按 moodDelta 改过它）
+await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
+  op: 'patch', agentId: addedNullModel?.id ?? '', patch: { mood: 2 },
+})
+const moodRound = await routes.world({ workspace: '/tmp/fake-workspace', create: true })
+await runStore.save(moodRound.run)
+const moodReloaded = await runStore.load(moodRound.sandbox.id)
+ok(moodReloaded?.agents.find((a) => a.id === addedNullModel?.id)?.mood === 2, '心情能落盘并读回（归一化没把它丢掉）')
+
+// 动作正文的清洗：模型常自带主语与句末标点，直接拼会得到「沈砚沈砚…。。」
+{
+  const before2 = (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).run.agents[0]
+  const settled = resolveAction(
+    { kind: 'observe', text: `${before2.name}伸手抵住餐桌边缘。`, thought: '试试' },
+    {
+      sandbox: (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).sandbox,
+      run: (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).run,
+      agent: before2,
+      ts: Date.now(),
+      operator: 'agent',
+      rng: { d6: () => 4 },
+    },
+  )
+  const actText = settled.events.find((e) => e.kind === 'act')?.text ?? ''
+  ok(
+    (actText.match(new RegExp(before2.name, 'g')) ?? []).length === 1,
+    '动作正文里名字恰好出现一次（不会"沈砚沈砚…"）',
+    actText.slice(0, 44),
+  )
+  ok(!/[。．.]{2}/.test(actText), '动作正文不出现连续句号', actText.slice(0, 40))
 }
 
 // ── 回归：漏带 sandboxId 时必须回到"上次选的"，不能回到列表第一个 ────────────

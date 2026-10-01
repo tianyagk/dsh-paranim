@@ -103,6 +103,12 @@ export function createApi(scopeRef: () => Scope) {
       post('/step', { maxAgents: options?.maxAgents }),
     stepConfig: (patch: Partial<StepConfig>): Promise<WorldView> => post('/step/config', patch),
     object: (body: Record<string, unknown>): Promise<{ world: WorldView; changes: string[] }> => post('/object', body),
+    /**
+     * 图集操作：注释 / 导入 / 切片参数 / 删除。
+     *
+     * 与 paint 分开：注释属于**图集**，不属于某一格地图。
+     */
+    tileset: (body: Record<string, unknown>): Promise<WorldView> => post('/tileset', body),
     /** structure layer 增删改（建筑 + 门窗）。 */
     place: (body: Record<string, unknown>): Promise<WorldView> => post('/place', body),
     /**

@@ -7,7 +7,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { adjudicate, resolveCheck, normalizeAttrs, clampAttr, HUMAN_MID } from './model.ts'
-import { coerceAction, extractJson, resolveAction, placeAt, seqRng, moveDifficulty, canEnter, nearestOpen } from './rules.ts'
+import { coerceAction, extractJson, resolveAction, placeAt, seqRng, moveDifficulty, moveNeedsCheck, canEnter, nearestOpen, TRIVIAL_MOVE_DIST } from './rules.ts'
 import { makeTileRef, emptyLayers, stateAt } from './tilemap.ts'
 import type { Tileset } from './model.ts'
 import type { RunAgent, RunState, Sandbox, WorldObject } from './model.ts'
@@ -98,7 +98,6 @@ function mkAgent(id: string, x: number, y: number, over: Partial<RunAgent> = {})
     appearance: '',
     persona: '',
     backstory: '',
-    goal: '',
     x,
     y,
     attrs: normalizeAttrs({}),
@@ -451,4 +450,44 @@ test('placeAt 命中面积最小的地标（最具体的那一个）', () => {
   assert.equal(placeAt(sandbox, 20, 20)?.id, 'cafe-inner')
   assert.equal(placeAt(sandbox, 70, 70)?.id, 'park')
   assert.equal(placeAt(sandbox, 5, 5), undefined)
+})
+
+// ── 该不该掷骰 ────────────────────────────────────────────────────────────
+//
+// 用户反馈过"每次行动都要检定"：走过去看看这种事没有失败的意义，每次都赌
+// 一把只会把推演变成骰子表演。规则收敛成"只有有挑战性的行动才掷骰"。
+
+test('走近处不掷骰（日常走动）', () => {
+  assert.equal(moveNeedsCheck(1), false)
+  assert.equal(moveNeedsCheck(TRIVIAL_MOVE_DIST), false, '阈值上也算日常')
+})
+
+test('走远路才掷骰', () => {
+  assert.equal(moveNeedsCheck(TRIVIAL_MOVE_DIST + 1), true)
+  assert.equal(moveNeedsCheck(40), true)
+})
+
+test('近距离移动：位置真的变了，但一条判定都不产生', () => {
+  const sandbox = mkSandbox()
+  const agent = mkAgent('a', 20, 22)
+  const run = mkRun([agent])
+  const out = resolveAction(
+    { thought: '', kind: 'move', text: '走到旁边', x: 23, y: 22 },
+    { sandbox, run, agent, rng: seqRng([1]), ts: 5 },
+  )
+  assert.equal(out.rolls.length, 0, '日常走动不该产生判定')
+  // resolveAction 是纯函数：位置通过返回值传出，由引擎写回 agent（见 engine.ts）
+  assert.equal(out.x, 23, '人应该真的走到了')
+  assert.ok(out.events.some((e) => e.kind === 'move'))
+})
+
+test('远距离移动仍要掷骰（有挑战性）', () => {
+  const sandbox = mkSandbox()
+  const agent = mkAgent('a', 5, 5)
+  const run = mkRun([agent])
+  const out = resolveAction(
+    { thought: '', kind: 'move', text: '赶路去公园', placeId: 'park' },
+    { sandbox, run, agent, rng: seqRng([6]), ts: 5 },
+  )
+  assert.equal(out.rolls.length, 1, '长途移动要有判定')
 })
