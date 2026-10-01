@@ -692,11 +692,19 @@ section('图层：三层编辑')
   ok(s2?.doors?.length === 1 && s2.doors[0].x === 24, '门写进 structure', JSON.stringify(s2?.doors))
   ok(s2?.windows?.length === 1 && s2.windows[0].x === 21, '窗写进 structure', JSON.stringify(s2?.windows))
 
-  // ⑥ 门是通道：从室外走到门上不再被挡（这条断言对应"人能进屋"这件事本身）
-  const moved = await call(route, 'POST', `/paranim/agent?workspace=${encodeURIComponent(ws)}`, {
-    op: 'add', name: '验收路人', x: 24, y: 30,
+  // ⑥ 拆掉也要成功：add/patch/remove 三条支线都要能以 200 收尾。
+  //
+  // 这一条专门防"分支忘了 return"：这个 handler 是并列 if + 末尾无条件 throw 的
+  // 结构，漏掉 return 会让已经成功 send 的请求继续往下掉，最终报成"未知路由"——
+  // 看起来像路由没注册，实际是分支没退出。实测踩过一次，故钉死。
+  const razed = await call(route, 'POST', `/paranim/place?workspace=${encodeURIComponent(ws)}`, {
+    op: 'remove', id: struct?.id,
   })
-  ok(moved.status === 200, '加了位智能体用于验门', `status=${moved.status}`)
+  ok(razed.status === 200, '拆掉建筑返回 200（分支没有漏 return）', `status=${razed.status}`)
+  ok(
+    !(dataOf<WorldView>(razed).sandbox.map.layers?.structure ?? []).some((s) => s.id === struct?.id),
+    '建筑真的从 structure 层消失了',
+  )
 
   // 必须还原：注入是进程级的,留着会让后面所有段落读写这个已删除的临时目录
   setDataHomeForTest(undefined)

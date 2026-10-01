@@ -28,6 +28,7 @@ import {
   type StepConfig,
   type WorldObject,
   type Structure,
+  type RunState,
 } from '../shared/model.ts'
 import { findObject } from '../shared/rules.ts'
 import { isTrustedApiRequest } from './fence.ts'
@@ -510,6 +511,32 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
 
   // ── 路由表 ─────────────────────────────────────────────────────────────
 
+  /**
+   * 落盘一次改动：沙盒 + 事件流。
+   *
+   * 两件事必须一起做，缺第二件就是静默丢数据——只 save 沙盒的话，刚记下的
+   * mutate 事件在下一次重启后就消失了，而"谁动了这个世界"这条线索正是事件流
+   * 存在的意义。此前这两行在各路由里重复 9 次、顺序还不统一（有的先存 run 后
+   * 存 sandbox），漏掉一行的代价很高，所以合成一个动词。
+   */
+  const commit = async (view: { sandbox: Sandbox; run: RunState }, workspace: string): Promise<Sandbox> => {
+    const saved = await deps.store.save(view.sandbox)
+    await deps.runOf(workspace).save(view.run)
+    return saved
+  }
+
+  /** 落盘并回一份最新的世界视图给前端。 */
+  const sendWorld = async (
+    res: ServerResponse,
+    view: { sandbox: Sandbox; run: RunState },
+    workspace: string,
+    sandboxId?: string,
+  ): Promise<void> => {
+    await commit(view, workspace)
+    send(res, 200, { ok: true, data: await world({ workspace, sandboxId: sandboxId ?? view.sandbox.id, create: true }) })
+  }
+
+
   const routes: PluginWebRoute[] = [
     {
       kind: 'prefix',
@@ -720,19 +747,10 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
               }
             }
             view.sandbox.updatedAt = Date.now()
-            const saved = await deps.store.save(view.sandbox)
-            // 事件流改动也要落盘:只 save 沙盒的话,刚记的 mutate 事件下一次重启就没了。
-            await deps.runOf(workspace).save(view.run)
+            const saved = await commit(view, workspace)
             return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: saved.id, create: true }) })
           }
 
-          /**
-           * POST /paranim/place —— 增删改地标（"编辑当前沙盒世界的布局"）。
-           *
-           * 与 /object 分开是有意的：地标参与 ① 建筑绘制（墙圈/屋顶）② 路网生成
-           * ③ 智能体的"所在地点数"，改一个矩形会牵动这三处，所以它有自己的校验
-           * （宽高下限、必须落在图内）与自己的事件类型（kind=mutate + 地标前缀）。
-           */
           /**
            * POST /paranim/place —— 增删改 structure layer 里的建筑。
            *
@@ -751,7 +769,21 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
             const H = view.sandbox.map.height
             const clampX = (v: number): number => Math.min(W - 1, Math.max(0, Math.round(v)))
             const clampY = (v: number): number => Math.min(H - 1, Math.max(0, Math.round(v)))
-            const structs = view.sandbox.map.layers?.structure ?? []
+            /**
+             * structure 层必须真的存在再往里加。
+             *
+             * `?? []` 看着安全,其实是个陷阱:新建的空沙盒可能还没走过一次归一化,
+             * map.layers 仍是 undefined——此时 push 进这个临时数组,谁也不持有它,
+             * 请求返回 200 但建筑根本没落上。宁可就地补一层。
+             */
+            if (view.sandbox.map.layers === undefined) {
+              view.sandbox.map.layers = {
+                background: Array.from({ length: view.sandbox.map.height }, () => 'g'.repeat(view.sandbox.map.width)),
+                structure: [],
+                object: [],
+              }
+            }
+            const structs = view.sandbox.map.layers.structure
             const logMutate = (text: string, targetId?: string): void => {
               view.run.events.push({
                 id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate', actor: 'gm', actorName: by,
@@ -780,9 +812,10 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
               structs.push(struct)
               logMutate(`${by}新建了建筑「${struct.name}」（${struct.w}×${struct.h} @${struct.x},${struct.y}）。`, struct.id)
               view.sandbox.updatedAt = Date.now()
-              await deps.store.save(view.sandbox)
-              await deps.runOf(workspace).save(view.run)
-              return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: view.sandbox.id, create: true }) })
+              // 必须 return：掉下去会走到"按 placeId 找建筑"，而 add 请求没带 id，
+              // 于是表现为"新建成功了却报 404"。
+              await sendWorld(res, view, workspace)
+              return
             }
 
             // id / placeId 两种写法都收：与 /map 保持一致的宽容度。
@@ -795,9 +828,9 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
               const [gone] = structs.splice(index, 1)
               logMutate(`${by}拆掉了建筑「${gone.name}」。`)
               view.sandbox.updatedAt = Date.now()
-              await deps.store.save(view.sandbox)
-              await deps.runOf(workspace).save(view.run)
-              return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: view.sandbox.id, create: true }) })
+              // 同样必须 return：否则会带着一个已经不存在的结构掉进下面的 patch 分支。
+              await sendWorld(res, view, workspace)
+              return
             }
 
             // patch：只收白名单字段，改完做一次范围收敛
@@ -831,9 +864,8 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
             target.lastEditedAt = Date.now()
             view.sandbox.updatedAt = Date.now()
             logMutate(`${by}改了建筑「${target.name}」：${before} → ${target.name} ${target.w}×${target.h} @${target.x},${target.y}。`, target.id)
-            await deps.store.save(view.sandbox)
-            await deps.runOf(workspace).save(view.run)
-            return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: view.sandbox.id, create: true }) })
+            await sendWorld(res, view, workspace)
+            return
           }
 
           /**
@@ -871,8 +903,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
                 id: shortId('ev'), tick: view.run.tick, ts: Date.now(), kind: 'mutate', actor: 'gm', actorName: by,
                 text: `${by}用「${kind}」刷了 ${painted} 格地面。`,
               })
-              await deps.store.save(view.sandbox)
-              await deps.runOf(workspace).save(view.run)
+              await commit(view, workspace)
             }
             return send(res, 200, { ok: true, data: await world({ workspace, sandboxId: view.sandbox.id, create: true }) })
           }
@@ -925,8 +956,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
               targetId: target.id,
             })
             if (view.run.events.length > 3000) view.run.events = view.run.events.slice(-3000)
-            await deps.store.save(view.sandbox)
-            await deps.runOf(workspace).save(view.run)
+            await commit(view, workspace)
             return send(res, 200, {
               ok: true,
               data: { world: await world({ workspace, sandboxId, create: true }), changes },
@@ -991,7 +1021,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
               // 加进沙盒模板，下次开新局还在（用户新增的角色属于"设定"，不是一次性的）。
               view.sandbox.agents.push(stripRunFields(agent))
               await deps.runOf(workspace).save(view.run)
-              await deps.store.save(view.sandbox)
+              await commit(view, workspace)
               return send(res, 200, { ok: true, data: await world({ workspace, sandboxId, create: true }) })
             }
 
@@ -1029,7 +1059,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
             if (template !== undefined) Object.assign(template, stripRunFields(agent))
             else view.sandbox.agents.push(stripRunFields(agent))
             await deps.runOf(workspace).save(view.run)
-            await deps.store.save(view.sandbox)
+            await commit(view, workspace)
             return send(res, 200, { ok: true, data: await world({ workspace, sandboxId, create: true }) })
           }
 

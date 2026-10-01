@@ -691,7 +691,7 @@ function WorldPage(props: {
         ...world.run.agents.map((a) =>
           React.createElement(
             'li',
-            { key: a.id, className: 'pa-item' },
+{ key: a.id, className: 'pa-item', onClick: () => onSelect(a.id) },
             React.createElement('span', { className: 'pa-portrait' }, a.portrait),
             React.createElement(
               'span',
@@ -753,10 +753,6 @@ function WorldPage(props: {
                     title: '下一条指令：它下一步会把它当成脑子里必须立刻执行的声音',
                     onClick: () => { setSayTo(a.id); setSayText('') },
                   }, '指令'),
-                  React.createElement('button', {
-                    className: 'pa-btn', 'data-tiny': 'true',
-                    onClick: () => onSelect(a.id),
-                  }, '档案'),
                 ),
           ),
         ),

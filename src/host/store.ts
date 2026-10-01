@@ -55,10 +55,6 @@ export function sandboxDir(): string {
   return join(dataHome(), 'sandboxes')
 }
 
-export function stepDir(): string {
-  return join(dataHome(), 'step')
-}
-
 /**
  * 数据根目录的可选注入点。
  *
