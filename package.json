@@ -28,7 +28,7 @@
     "test": "node --test --experimental-strip-types \"src/**/*.test.ts\"",
     "selftest": "node src/host/selftest.ts",
     "gen:fallback": "node scripts/gen-fallback.mjs",
-    "check": "npm run typecheck && npm run test && npm run selftest && npm run check:assets && npm run build",
+    "check": "npm run typecheck && npm run test && npm run selftest && npm run check:assets && npm run build && npm run smoke",
     "install:profile": "bash scripts/install.sh",
     "uninstall:profile": "bash scripts/uninstall.sh",
     "migrate:fields": "node scripts/migrate-drop-fields.mjs",
@@ -43,7 +43,8 @@
     "check:assets": "node scripts/check-assets.mjs",
     "assets:props": "node scripts/gen-city-props.mjs",
     "assets:review": "node scripts/make-asset-review.mjs",
-    "assets:annotate": "node scripts/make-sheet-annotator.mjs"
+    "assets:annotate": "node scripts/make-sheet-annotator.mjs",
+    "smoke": "node scripts/smoke-build.mjs && bash scripts/smoke.sh"
   },
   "keywords": [
     "deepseek",
