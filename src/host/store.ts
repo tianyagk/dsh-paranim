@@ -498,7 +498,9 @@ export class SandboxStore {
       log(`seeded sandbox mirror: ${mirror.id} v${version} (${mirror.places.length} places / ${mirror.agents.length} agents)`)
     }
     if (seeded > 0) await writeJson(join(sandboxDir(), '.seed-version.json'), stamps)
-    else log('all sandbox mirrors already present')
+    // 不再输出"already present"：ensureSeed 每次 list() 都会跑，而"镜像已经在
+    // 用户目录里"是**正常路径**，每几秒刷一行只会把真正有用的日志淹掉。
+    // 真正种入镜像时上面那行会说话——那才是需要被看见的事。
   }
 
   /** 单个镜像（用于「恢复出厂」）。 */

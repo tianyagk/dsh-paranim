@@ -129,6 +129,33 @@ export function canEnter(sandbox: Sandbox, x: number, y: number): { ok: boolean;
 }
 
 /**
+ * 沿途每一格能不能走。
+ *
+ * 上一步把"走近处"改成直接到达（不再掷骰）之后，**只查落点**就出事了：
+ * 中间隔着一堵墙也能一步迈过去。用户看到的正是"行动和身边的环境无关"——
+ * 因为地形实际上不参与判定，只有目的地那一格算数。
+ *
+ * 这里按直线插值把沿途走一遍。不做真正的寻路（那要引一套图算法，而沙盒
+ * 的地形简单、直线上有墙时玩家本来也会换个方向），但"隔着墙走不过去"
+ * 这条必须是硬的——它就是墙存在的意义。
+ */
+export function pathBlocked(
+  sandbox: Sandbox,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+): string | undefined {
+  const steps = Math.max(Math.abs(to.x - from.x), Math.abs(to.y - from.y))
+  if (steps === 0) return undefined
+  for (let i = 1; i <= steps; i += 1) {
+    const x = Math.round(from.x + ((to.x - from.x) * i) / steps)
+    const y = Math.round(from.y + ((to.y - from.y) * i) / steps)
+    const r = canEnter(sandbox, x, y)
+    if (!r.ok) return `途中 (${x},${y}) ${r.reason}`
+  }
+  return undefined
+}
+
+/**
  * 走到目标格的路上是否被挡（只查落点，不做寻路）。
  *
  * 用瓦片之后不需要再判"从室内到室外"这种情形：墙就是墙那一格，
@@ -444,6 +471,17 @@ export function resolveAction(action: AgentAction, ctx: ActionContext): ActionOu
        * 提示改成指方向而不是指"门"——瓦片模型下门是普通一格，是否可通行由
        * 它的注释决定，没必要在这里特判"最近的门在哪"。
        */
+      /**
+       * 先查沿途、再查落点。只看落点的话，智能体会直接穿墙走到隔壁房间——
+       * 那正是"行动与身边环境无关"的观感来源。
+       */
+      const blockedOnTheWay = pathBlocked(sandbox, { x: agent.x, y: agent.y }, { x: goalX, y: goalY })
+      if (blockedOnTheWay !== undefined) {
+        const text = `${agent.name}想往${targetObj?.name ?? `(${Math.round(tx)},${Math.round(ty)})`}去，${blockedOnTheWay}——过不去。`
+        events.push(mkEvent({ kind: 'move', actor: agent.id, actorName: agent.name, text, from: { x: agent.x, y: agent.y }, to: { x: agent.x, y: agent.y } }, run, ts))
+        memory.push({ tick: run.tick, kind: 'event', text, ts })
+        break
+      }
       if (!canEnter(sandbox, goalX, goalY).ok) {
         const text = `${agent.name}想去${targetObj?.name ?? `(${Math.round(tx)},${Math.round(ty)})`}，但那一带过不去。`
         events.push(mkEvent({ kind: 'move', actor: agent.id, actorName: agent.name, text, from: { x: agent.x, y: agent.y }, to: { x: agent.x, y: agent.y } }, run, ts))

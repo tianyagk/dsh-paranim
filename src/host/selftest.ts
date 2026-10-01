@@ -493,18 +493,24 @@ ok(addedNullModel?.model === null || addedNullModel?.model === undefined, 'null 
 //
 // 心情现在就是一个 0–10 的指数（用户要求去掉"那个词"：词由模型自由发挥，
 // 同一档心情在十个角色嘴里有十种说法，既没法比较也没法排序）。
-ok(typeof addedNullModel?.mood === 'number', '新增的智能体带默认心情（不是空一块）')
+ok(typeof addedNullModel?.mood?.value === 'number', '新增的智能体带默认心情（不是空一块）')
 ok(
-  (addedNullModel?.mood ?? -1) >= 0 && (addedNullModel?.mood ?? 99) <= 10,
+  (addedNullModel?.mood?.value ?? -1) >= 0 && (addedNullModel?.mood?.value ?? 99) <= 10,
   '心情指数在 0–10',
+)
+ok(
+  typeof addedNullModel?.mood?.label === 'string' && addedNullModel.mood.label !== '',
+  '心情带一个词（显示成「生气 4/10」这种形式）',
+  String(addedNullModel?.mood?.label),
 )
 const moodPatch = dataOf<WorldView>(await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
   op: 'patch',
   agentId: addedNullModel?.id ?? '',
-  patch: { mood: 99 },
+  patch: { mood: { value: 99, label: '亢奋' } },
 }))
 const patched = moodPatch.run.agents.find((a) => a.id === addedNullModel?.id)
-ok(patched?.mood === 10, '越界的心情指数被夹紧到 10（不是原样落盘）', String(patched?.mood))
+ok(patched?.mood?.value === 10, '越界的心情指数被夹紧到 10（不是原样落盘）', String(patched?.mood?.value))
+ok(patched?.mood?.label === '亢奋', '模型给的心情词被保留（不被自动词覆盖）')
 const postThought = dataOf<WorldView>(await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
   op: 'patch',
   agentId: addedNullModel?.id ?? '',
@@ -584,7 +590,7 @@ function smallStore(): SandboxStore {
   const mid = await routes.world({ workspace: '/tmp/fake-workspace', create: true })
   const target = mid.run.agents[0]
   await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
-    op: 'patch', agentId: target.id, patch: { mood: 5 },
+    op: 'patch', agentId: target.id, patch: { mood: { value: 5, label: '平静' } },
   })
   const beforeTick = (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).run.tick
   await routes.step({ workspace: '/tmp/fake-workspace' })
@@ -600,12 +606,16 @@ function smallStore(): SandboxStore {
 // 心情要能跨落盘往返：先显式设成 2，再落盘读回——不能依赖上一步留下的值
 // （中间隔了一次 step，引擎可能按 moodDelta 改过它）
 await call(route, 'POST', '/paranim/agent?workspace=/tmp/fake-workspace', {
-  op: 'patch', agentId: addedNullModel?.id ?? '', patch: { mood: 2 },
+  op: 'patch', agentId: addedNullModel?.id ?? '', patch: { mood: { value: 2, label: '烦躁' } },
 })
 const moodRound = await routes.world({ workspace: '/tmp/fake-workspace', create: true })
 await runStore.save(moodRound.run)
 const moodReloaded = await runStore.load(moodRound.sandbox.id)
-ok(moodReloaded?.agents.find((a) => a.id === addedNullModel?.id)?.mood === 2, '心情能落盘并读回（归一化没把它丢掉）')
+ok(moodReloaded?.agents.find((a) => a.id === addedNullModel?.id)?.mood?.value === 2, '心情能落盘并读回（归一化没把它丢掉）')
+ok(
+  moodReloaded?.agents.find((a) => a.id === addedNullModel?.id)?.mood?.label === '烦躁',
+  '心情的词也能跨落盘往返',
+)
 
 // 动作正文的清洗：模型常自带主语与句末标点，直接拼会得到「沈砚沈砚…。。」
 {
@@ -782,6 +792,17 @@ ok(directRes.status === 200, 'POST /directive 返回 200', `status=${directRes.s
 const directData = dataOf<{ directive: { id: string; consumed: boolean }; world: WorldView }>(directRes)
 ok(directData.directive.consumed === false, '指令初始为未消费')
 ok(directData.world.run.events.some((e) => e.kind === 'directive' && e.text.includes('指令')), '指令进了事件流')
+/**
+ * 指令必须"暂存在智能体身上、下一步生效"，而不是被白消费。
+ *
+ * 原先无条件标记 consumed：模型那一步要是返回空动作，指令就没了——人明明
+ * 刚下过指令，智能体却当没听见（用户描述的"步进卡住"）。现在改成
+ * "真做出动作才算用完"，并且用过之后留一条 whisper 记忆备查。
+ */
+ok(
+  (directData.world.run.directives ?? []).every((d) => d.consumedAtTick === undefined),
+  '刚下达的指令还没被消费（要等下一步）',
+)
 llm.mode = 'move'
 const step5 = await routes.step({ workspace: '/tmp/fake-workspace' })
 const afterDirect = await routes.world({ workspace: '/tmp/fake-workspace', create: true })

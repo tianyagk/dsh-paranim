@@ -17,6 +17,7 @@ import {
   MOOD_DEFAULT,
   MOOD_MAX,
   clampMood,
+  moodLabel,
   normalizeMood,
   shortId,
   type AgentAction,
@@ -297,25 +298,28 @@ function currentThoughtOf(agent: RunAgent): string | undefined {
   return undefined
 }
 
-/** 心情的一行文本，例如「6/10」——心情就是一个指数，没有词可写。 */
+/** 心情的一行文本，例如「生气 4/10」——词给色彩，指数给高低。 */
 function moodText(agent: RunAgent): string {
-  return `${normalizeMood(agent.mood ?? MOOD_DEFAULT)}/${MOOD_MAX}`
+  const mood = normalizeMood(agent.mood ?? MOOD_DEFAULT)
+  return `${mood.label} ${mood.value}/${MOOD_MAX}`
 }
 
 /** 把一步的心情增量应用上去（没有增量就保持不变）。 */
 function applyMood(agent: RunAgent, action: AgentAction, tick: number, ts: number): void {
   const delta = action.moodDelta ?? 0
-  if (delta === 0) return
+  if (delta === 0 && action.moodLabel === undefined) return
   const before = normalizeMood(agent.mood ?? MOOD_DEFAULT)
-  const value = clampMood(before + delta)
-  agent.mood = value
-  if (value !== before) {
+  const value = clampMood(before.value + delta)
+  // 模型给了词就用它（它对"刚才那件事"的反应最清楚），没给才按指数自动取
+  const label = action.moodLabel ?? (value === before.value ? before.label : moodLabel(value))
+  agent.mood = { value, label }
+  if (value !== before.value) {
     remember(agent, {
       // tick 必须是**当时**的世界步数：写死 0 会让这条记忆显示成"第 0 步的事"，
       // 越往后越离谱（本地跑了 6 步后它显示"6 步前"，而它其实是刚发生的）。
       tick,
       kind: 'event',
-      text: `心情从 ${before}/${MOOD_MAX} 变成 ${value}/${MOOD_MAX}。`,
+      text: `心情从「${before.label} ${before.value}/${MOOD_MAX}」变成「${label} ${value}/${MOOD_MAX}」。`,
       ts,
     })
   }
@@ -405,12 +409,24 @@ function settle(deps: EngineDeps, agent: RunAgent, action: AgentAction, ts: numb
   for (const entry of resolved.memory) remember(agent, entry)
   applyMood(agent, action, run.tick, ts)
 
-  // 消费掉本步用过的指令：已消费的指令不再是"立刻执行"，但留在记忆里。
-  const used = run.directives.filter((d) => d.agentId === agent.id && !d.consumed)
-  for (const directive of used) {
-    directive.consumed = true
-    directive.consumedAtTick = run.tick
-    remember(agent, { tick: run.tick, kind: 'whisper', text: `有人对你说：${directive.text}`, ts })
+  /**
+   * 指令的消费时机：**只有真的做出了动作才算用完**。
+   *
+   * 原先无条件消费，于是模型这一步要是返回了空动作、或者动作在清洗里被丢掉，
+   * 指令就白白消耗了——它会从上下文里消失，而人明明看到自己刚下过指令。
+   * 用户描述的"下达指令后步进卡住"正是这种：指令不见了，智能体也不照做。
+   *
+   * 反过来也不能永远不消费：那会每步都注入"必须立刻执行"，把同一条指令
+   * 反复塞进观察，模型一直对着它打转。所以条件是"这一步确实做了事"。
+   */
+  const acted = resolved.events.length > 0 || resolved.mutations.length > 0
+  if (acted) {
+    const used = run.directives.filter((d) => d.agentId === agent.id && !d.consumed)
+    for (const directive of used) {
+      directive.consumed = true
+      directive.consumedAtTick = run.tick
+      remember(agent, { tick: run.tick, kind: 'whisper', text: `有人对你说：${directive.text}`, ts })
+    }
   }
 
   const events = resolved.events

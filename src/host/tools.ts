@@ -157,7 +157,10 @@ export function makeTools(deps: ToolDeps): {
           lines.push(`    ${agent.model === null || agent.model === undefined ? '驱动模型：跟随宿主默认' : `驱动模型：${agent.model.provider}/${agent.model.model}`}｜已走 ${agent.stepsTaken} 步`)
           if (agent.appearance !== '') lines.push(`    外貌：${agent.appearance}`)
           if (agent.persona !== '') lines.push(`    性格：${agent.persona}`)
-          lines.push(`    心情：${normalizeMood(agent.mood ?? MOOD_DEFAULT)}/${MOOD_MAX}`)
+          {
+            const mood = normalizeMood(agent.mood ?? MOOD_DEFAULT)
+            lines.push(`    心情：${mood.label} ${mood.value}/${MOOD_MAX}`)
+          }
           const lastThought = [...agent.memory].reverse().find((m) => m.kind === 'thought')
           if (lastThought !== undefined) lines.push(`    此刻在想：${lastThought.text}`)
           if (agent.plan.length > 0) lines.push(`    计划：${agent.plan.join(' → ')}`)
@@ -565,10 +568,13 @@ export function makeTools(deps: ToolDeps): {
       }
       if (typeof args.x === 'number' && Number.isFinite(args.x)) { agent.x = Math.round(args.x); changed.push(`x=${agent.x}`) }
       if (typeof args.y === 'number' && Number.isFinite(args.y)) { agent.y = Math.round(args.y); changed.push(`y=${agent.y}`) }
-      // 心情就是一个 0–10 的指数
-      if (typeof args.mood === 'number') {
-        const next = normalizeMood(args.mood)
-        changed.push(`心情 → ${next}/${MOOD_MAX}`)
+      // 心情 = 词 + 指数；只给指数时词按指数自动取
+      if (args.mood !== undefined || typeof args.moodLabel === 'string') {
+        const next = normalizeMood({
+          value: typeof args.mood === 'number' ? args.mood : (agent.mood ?? MOOD_DEFAULT).value,
+          label: typeof args.moodLabel === 'string' ? args.moodLabel : (agent.mood ?? MOOD_DEFAULT).label,
+        })
+        changed.push(`心情 → ${next.label} ${next.value}/${MOOD_MAX}`)
         agent.mood = next
       }
       if (Object.keys(attrs).length > 0) {

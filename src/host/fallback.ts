@@ -763,7 +763,10 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "inventory": [],
       "color": "#7aa2f7",
       "portrait": "🙂",
-      "mood": 6
+      "mood": {
+        "value": 6,
+        "label": "平静"
+      }
     },
     {
       "id": "klaus",
@@ -791,7 +794,10 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "inventory": [],
       "color": "#7aa2f7",
       "portrait": "🙂",
-      "mood": 6
+      "mood": {
+        "value": 6,
+        "label": "平静"
+      }
     },
     {
       "id": "isabella",
@@ -819,7 +825,10 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "inventory": [],
       "color": "#7aa2f7",
       "portrait": "🙂",
-      "mood": 6
+      "mood": {
+        "value": 6,
+        "label": "平静"
+      }
     },
     {
       "id": "maria",
@@ -847,7 +856,10 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "inventory": [],
       "color": "#7aa2f7",
       "portrait": "🙂",
-      "mood": 6
+      "mood": {
+        "value": 6,
+        "label": "平静"
+      }
     },
     {
       "id": "mei",
@@ -875,7 +887,10 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "inventory": [],
       "color": "#7aa2f7",
       "portrait": "🙂",
-      "mood": 6
+      "mood": {
+        "value": 6,
+        "label": "平静"
+      }
     },
     {
       "id": "john",
@@ -903,7 +918,10 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "inventory": [],
       "color": "#7aa2f7",
       "portrait": "🙂",
-      "mood": 6
+      "mood": {
+        "value": 6,
+        "label": "平静"
+      }
     },
     {
       "id": "tom",
@@ -931,7 +949,10 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "inventory": [],
       "color": "#7aa2f7",
       "portrait": "🙂",
-      "mood": 6
+      "mood": {
+        "value": 6,
+        "label": "平静"
+      }
     },
     {
       "id": "sam",
@@ -959,7 +980,10 @@ export const INLINE_SMALLVILLE: Sandbox = {
       "inventory": [],
       "color": "#7aa2f7",
       "portrait": "🙂",
-      "mood": 6
+      "mood": {
+        "value": 6,
+        "label": "平静"
+      }
     }
   ],
   startTick: 0,

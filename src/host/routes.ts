@@ -10,7 +10,7 @@
  * 的防线，不是身份认证。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import {clampStepConfig, isAttrId, MOOD_DEFAULT, normalizeAttrs, normalizeMood, resolveCheck, randomToken, shortId, toStateValue, type Sandbox, type SandboxAgent, type SandboxSaveBody, type StateValue, type AgentModelRoute, type StepConfig, type WorldObject, type RunState, type SandboxMap, type TileLayer} from '../shared/model.ts'
+import {clampStepConfig, isAttrId, MOOD_DEFAULT, normalizeAttrs, normalizeMood, resolveCheck, randomToken, shortId, toStateValue, type Sandbox, type SandboxAgent, type SandboxSaveBody, type StateValue, type AgentModelRoute, type StepConfig, type WorldObject, type RunState, type SandboxMap, type TileLayer, type TileNote} from '../shared/model.ts'
 import { findObject } from '../shared/rules.ts'
 import { LAYER_LABEL, emptyLayers, makeBuiltinTileset, objectsOf, parseRef, positionOfObjectId, resolveRef, setObjectState } from '../shared/tilemap.ts'
 import { isTrustedApiRequest } from './fence.ts'
@@ -772,10 +772,15 @@ const writeQueues = new Map<string, Promise<unknown>>()
                 const key = String(body.key ?? '')
                 if (!/^\d{1,3},\d{1,3}$/.test(key)) throw new HttpError('格子写成「列,行」', 400)
                 const raw = (body.note ?? {}) as Record<string, unknown>
-                const note: { name?: string; pass?: 'walk' | 'block' | 'water' | 'lava'; use?: 'door' | 'window' | 'switch' } = {}
+                const note: TileNote = {}
                 if (typeof raw.name === 'string' && raw.name.trim() !== '') note.name = raw.name.trim().slice(0, 40)
                 if (raw.pass === 'walk' || raw.pass === 'block' || raw.pass === 'water' || raw.pass === 'lava') note.pass = raw.pass
                 if (raw.use === 'door' || raw.use === 'window' || raw.use === 'switch') note.use = raw.use
+                if (typeof raw.desc === 'string' && raw.desc.trim() !== '') note.desc = raw.desc.trim().slice(0, 200)
+                if (Array.isArray(raw.states)) {
+                  const list = raw.states.filter((v) => typeof v === 'string' && v.trim() !== '').map((v) => String(v).trim().slice(0, 16)).slice(0, 12)
+                  if (list.length > 0) note.states = list
+                }
                 if (Object.keys(note).length === 0) delete ts.notes[key]
                 else ts.notes[key] = note
                 view.sandbox.updatedAt = Date.now()

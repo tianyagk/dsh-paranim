@@ -80,8 +80,8 @@ const agents = (raw.agents ?? []).map((a) => ({
   inventory: (a.inventory ?? []).map((item) => clip(item, 16)).slice(0, 4),
   color: a.color ?? '#7aa2f7',
   portrait: a.portrait ?? '🙂',
-  // 心情：只带指数（老镜像里是 {value,label}，取 value）
-  mood: typeof a.mood === 'number' ? a.mood : (a.mood?.value ?? 6),
+  // 心情：词 + 指数（老镜像里可能只有 {value,label} 或裸数字）
+  mood: typeof a.mood === 'number' ? { value: a.mood, label: '平静' } : (a.mood ?? { value: 6, label: '平静' }),
 }))
 
 const relations = (raw.relations ?? []).map((r) => ({

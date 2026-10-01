@@ -491,3 +491,43 @@ test('远距离移动仍要掷骰（有挑战性）', () => {
   )
   assert.equal(out.rolls.length, 1, '长途移动要有判定')
 })
+
+// ── 移动不能穿墙 ──────────────────────────────────────────────────────────
+//
+// 上一轮把"走近处"改成直接到达（不再掷骰）之后，只查落点就出事了：
+// 中间隔着一堵墙也能一步迈过去。用户看到的正是"行动和身边环境无关"——
+// 因为地形实际上没参与判定。
+
+test('墙在中间：走近处也过不去（不能穿墙）', () => {
+  const sandbox = mkSandbox()
+  putTile(sandbox, 'structure', 22, 22, 1)   // 1,0 是「墙」，pass 为 block
+  const agent = mkAgent('a', 20, 22)
+  const out = resolveAction(
+    { thought: '', kind: 'move', text: '走到对面', x: 24, y: 22 },
+    { sandbox, run: mkRun([agent]), agent, rng: seqRng([6]), ts: 5 },
+  )
+  assert.equal(out.x, 20, '被墙挡住，人应该还在原地')
+  assert.ok(out.events.some((e) => e.text.includes('过不去')), '要有"过不去"的事件说明')
+})
+
+test('路上没东西：同样距离能正常走到', () => {
+  const sandbox = mkSandbox()
+  const agent = mkAgent('a', 20, 22)
+  const out = resolveAction(
+    { thought: '', kind: 'move', text: '走到对面', x: 24, y: 22 },
+    { sandbox, run: mkRun([agent]), agent, rng: seqRng([6]), ts: 5 },
+  )
+  assert.equal(out.x, 24, '没有阻挡就该走到')
+  assert.equal(out.rolls.length, 0, '近距离仍然是日常走动，不掷骰')
+})
+
+test('水面同样挡住去路（地形参与判定）', () => {
+  const sandbox = mkSandbox()
+  putTile(sandbox, 'background', 22, 22, 3)   // 3,0 是「水面」
+  const agent = mkAgent('a', 20, 22)
+  const out = resolveAction(
+    { thought: '', kind: 'move', text: '涉水过去', x: 24, y: 22 },
+    { sandbox, run: mkRun([agent]), agent, rng: seqRng([6]), ts: 5 },
+  )
+  assert.equal(out.x, 20, '水面不能趟过去')
+})

@@ -250,9 +250,16 @@ export function MapCanvas(props: MapCanvasProps): React.ReactElement {
     setHit(hitTest(px, py))
   }
 
+  /**
+   * 画布像素 → 格子坐标。
+   *
+   * 用 **floor 而不是 round**：round 取的是"离最近格中心最近的那一格"，
+   * 于是鼠标落在格子偏左/偏上的半边时，选中框会跳到相邻格——看起来就是
+   * "光标不在所选网格里"。floor 得到的是鼠标**真正压在**的那一格。
+   */
   const cellAt = (px: number, py: number): { x: number; y: number } => {
     const w = toWorld(px, py)
-    return { x: Math.round(w.x), y: Math.round(w.y) }
+    return { x: Math.floor(w.x), y: Math.floor(w.y) }
   }
 
   /**

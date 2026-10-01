@@ -128,16 +128,14 @@ function currentThought(agent: RunAgent): string | undefined {
 }
 
 /**
- * 心情徽标：0–10，低于 4 偏红、7 以上偏绿。
- *
- * 只显示指数，不带词——心情现在就是一个数（用户要求），颜色比形容词更快
- * 看出高低。
+ * 心情徽标，形式是「生气 4/10」：词给色彩、指数给高低。
+ * 低于 4 偏红、7 以上偏绿——颜色比形容词更快看出状态。
  */
-function MoodChip(props: { mood?: number }): React.ReactElement | null {
+function MoodChip(props: { mood?: { value: number; label: string } }): React.ReactElement | null {
   if (props.mood === undefined) return null
-  const value = props.mood
+  const { value, label } = props.mood
   const tone = value >= 7 ? 'ok' : value < 4 ? 'danger' : undefined
-  return React.createElement('span', { className: 'pa-chip', 'data-tone': tone, title: `心情指数 ${value}/10` }, `心情 ${value}/10`)
+  return React.createElement('span', { className: 'pa-chip', 'data-tone': tone, title: `心情 ${value}/10` }, `${label} ${value}/10`)
 }
 
 
@@ -896,8 +894,8 @@ interface AgentDraft {
   model: string
   plan: string
   inventory: string
-  /** 心情：0–10 的指数。 */
-  mood: number
+  /** 心情：词 + 指数。 */
+  mood: { value: number; label: string }
   /** 当前想法——编辑它会往记忆里追一条 thought（见 currentThought 的取法）。 */
   thought: string
   /** 自定义外观（瓦片引用）；空串 = 用内置角色表。 */
@@ -927,7 +925,7 @@ function AgentEditor(props: {
     model: agent.model === undefined || agent.model === null ? '' : `${agent.model.provider}/${agent.model.model}`,
     plan: agent.plan.join('\n'),
     inventory: agent.inventory.join('、'),
-    mood: agent.mood ?? MOOD_DEFAULT,
+    mood: { ...(agent.mood ?? MOOD_DEFAULT) },
     thought: currentThought(agent) ?? '',
     sprite: agent.sprite ?? '',
   })
@@ -1167,21 +1165,21 @@ function AgentEditor(props: {
       'div',
       { className: 'pa-form' },
       React.createElement('label', null, '指数'),
-      // 心情就是一个 0–10 的数：滑条调，右侧显示当前值。
-      // 原先还配一个"这个词"输入框，词由模型自由发挥，同一档心情说法各异，
-      // 既没法比较也没法排序（用户要求收敛成一个数）。
+      // 心情 = 词 + 指数，显示成「生气 4/10」：滑条调指数，输入框改词。
       React.createElement(
         'div',
         { className: 'pa-line' },
         React.createElement('input', {
           type: 'range', min: 0, max: 10, step: 1,
-          value: draft.mood,
+          value: draft.mood.value,
           style: { flex: 1, accentColor: 'var(--pa-gold)' },
           onChange: (event: React.ChangeEvent<HTMLInputElement>) =>
-            setDraft((prev) => ({ ...prev, mood: Number(event.target.value) })),
+            setDraft((prev) => ({ ...prev, mood: { value: Number(event.target.value), label: prev.mood.label } })),
         }),
-        React.createElement('span', { className: 'pa-mono' }, `${draft.mood}/10`),
+        React.createElement('span', { className: 'pa-mono' }, `${draft.mood.label} ${draft.mood.value}/10`),
       ),
+      // 词可以自己写；留空则按指数自动取一个
+      field('这个词', draft.mood.label, (v) => setDraft((p) => ({ ...p, mood: { ...p.mood, label: v } }))),
     ),
 
     // 日程与随身
@@ -1269,12 +1267,12 @@ function TilesetPanel(props: {
   noteTarget: string | undefined
   onPick: (ref: string) => void
   onNote: (key: string) => void
-  onSaveNote: (key: string, note: { name?: string; pass?: string; use?: string }) => void
+  onSaveNote: (key: string, note: { name?: string; pass?: string; use?: string; desc?: string; states?: string }) => void
   onSlice: (slice: { w: number; h: number; spacing: number }) => void
 }): React.ReactElement {
   const { tileset, brushRef, noteTarget, onPick, onNote, onSaveNote, onSlice } = props
   const grid = gridOf(tileset)
-  const [draft, setDraft] = React.useState<{ name: string; pass: string; use: string }>({ name: '', pass: '', use: '' })
+  const [draft, setDraft] = React.useState<{ name: string; pass: string; use: string; desc: string; states: string }>({ name: '', pass: '', use: '', desc: '', states: '' })
   /** 切片草稿（导入的图集才能改）。 */
   const [draftSlice, setDraftSlice] = React.useState({ w: tileset.tileW, h: tileset.tileH, spacing: tileset.spacing })
   const note = noteTarget === undefined ? undefined : tileset.notes[noteTarget]
@@ -1284,8 +1282,10 @@ function TilesetPanel(props: {
       name: note?.name ?? '',
       pass: note?.pass ?? '',
       use: note?.use ?? '',
+      desc: note?.desc ?? '',
+      states: (note?.states ?? []).join(', '),
     })
-  }, [noteTarget, note?.name, note?.pass, note?.use])
+  }, [noteTarget, note?.name, note?.pass, note?.use, note?.desc, note?.states])
 
   const cellRef = (col: number, row: number): string => makeTileRef(tileset.id, col, row)
 
@@ -1354,20 +1354,28 @@ function TilesetPanel(props: {
       ? React.createElement(
           'div',
           { style: { border: '1px solid var(--pa-border)', borderRadius: 6, padding: 8, marginTop: 4 } },
-          React.createElement('div', { className: 'pa-dim' }, `注释 ${tileset.name} ${noteTarget}`),
+          React.createElement('div', { className: 'pa-line', style: { marginBottom: 4 } },
+            React.createElement('b', null, `编辑瓦片 ${tileset.name} ${noteTarget}`),
+            React.createElement('span', { className: 'pa-spacer' }),
+            React.createElement('button', { className: 'pa-btn', 'data-tiny': 'true', onClick: () => onNote(noteTarget) }, '关闭'),
+          ),
           React.createElement('div', { className: 'pa-place-grid' },
             React.createElement('label', { className: 'pa-place-cell' },
               React.createElement('span', { className: 'pa-dim' }, '名字（如：木门）'),
               React.createElement('input', { value: draft.name, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setDraft((d) => ({ ...d, name: e.target.value })) }),
             ),
             React.createElement('label', { className: 'pa-place-cell' },
-              React.createElement('span', { className: 'pa-dim' }, '通行性'),
+              React.createElement('span', { className: 'pa-dim' }, '是否可通过'),
               React.createElement('select', {
                 value: draft.pass,
                 onChange: (e: React.ChangeEvent<HTMLSelectElement>) => setDraft((d) => ({ ...d, pass: e.target.value })),
               },
-                ...[['', '（默认可走）'], ['walk', '可走'], ['block', '挡路（墙/栅栏）'], ['water', '水面'], ['lava', '岩浆']].map(([v, l]) =>
-                  React.createElement('option', { key: v, value: v }, l)),
+                ...[
+                  ['', 'True（可通过）'],
+                  ['block', 'False（不可通过）'],
+                  ['water', '不可通过 · 水面'],
+                  ['lava', '不可通过 · 岩浆'],
+                ].map(([v, l]) => React.createElement('option', { key: v, value: v }, l)),
               ),
             ),
             React.createElement('label', { className: 'pa-place-cell' },
@@ -1379,6 +1387,22 @@ function TilesetPanel(props: {
                 ...[['', '（无）'], ['door', '门（可开关）'], ['window', '窗（隔窗相望）'], ['switch', '开关']].map(([v, l]) =>
                   React.createElement('option', { key: v, value: v }, l)),
               ),
+            ),
+          ),
+          React.createElement('div', { className: 'pa-place-grid' },
+            React.createElement('label', { className: 'pa-place-cell' },
+              React.createElement('span', { className: 'pa-dim' }, '备注'),
+              React.createElement('input', {
+                value: draft.desc, placeholder: '给玩家看的说明，不参与判定',
+                onChange: (e: React.ChangeEvent<HTMLInputElement>) => setDraft((d) => ({ ...d, desc: e.target.value })),
+              }),
+            ),
+            React.createElement('label', { className: 'pa-place-cell' },
+              React.createElement('span', { className: 'pa-dim' }, '可选状态（逗号分隔）'),
+              React.createElement('input', {
+                value: draft.states, placeholder: '正常, 故障, 维修中',
+                onChange: (e: React.ChangeEvent<HTMLInputElement>) => setDraft((d) => ({ ...d, states: e.target.value })),
+              }),
             ),
           ),
           React.createElement('div', { className: 'pa-line', style: { marginTop: 4 } },
@@ -1451,7 +1475,14 @@ function TileThumb(props: {
       // 左键选中、右键注释——与 Godot/Unity 的 tileset 面板一致。
       // 原来把注释塞在一个 8px 的「注」小按钮里，既难点中又看不出是干什么的。
       onClick: onPick,
-      onContextMenu: (e: React.MouseEvent) => { e.preventDefault(); onNote() },
+      onContextMenu: (e: React.MouseEvent) => {
+        // 两道都要：preventDefault 挡浏览器菜单，stopPropagation 挡宿主页面
+        // 在更外层对右键的监听——只做前者的话，事件继续冒泡、宿主先处理了它，
+        // 表现就是"右键点了没反应"。
+        e.preventDefault()
+        e.stopPropagation()
+        onNote()
+      },
     })
 }
 
@@ -1724,11 +1755,12 @@ function SandboxPage(props: {
           noteTarget,
           onPick: (ref: string) => { setBrushRef(ref); setNoteTarget(undefined) },
           onNote: (key: string) => setNoteTarget(key === noteTarget ? undefined : key),
-          onSaveNote: (key: string, note: { name?: string; pass?: string; use?: string }) => {
+          onSaveNote: (key: string, note: { name?: string; pass?: string; use?: string; desc?: string; states?: string }) => {
             void run('存注释', async () => {
               // 走 /tileset 写服务端——原先改客户端对象再调 /sandbox save，
               // 而那条路读的是服务端自己那份沙盒，等于什么都没提交（标注完就丢）。
-              applyWorld(await api.tileset({ op: 'note', tilesetId: tileset.id, key, note }))
+              const states = (note.states ?? '').split(/[,,、\s]+/).map((v) => v.trim()).filter((v) => v !== '')
+              applyWorld(await api.tileset({ op: 'note', tilesetId: tileset.id, key, note: { ...note, states } }))
               flash(note.name === undefined ? `已清除「${tileset.name} ${key}」的注释` : `已标注「${note.name}」`)
             })
           },
