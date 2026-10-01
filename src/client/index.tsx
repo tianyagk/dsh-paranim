@@ -744,76 +744,22 @@ function WorldPage(props: {
     React.createElement(
       'div',
       { className: 'pa-sec' },
-      React.createElement('h4', null, `${world.sandbox.name}`, React.createElement('span', { className: 'pa-chip' }, `${world.sandbox.map.width}×${world.sandbox.map.height}`)),
-      React.createElement('div', { className: 'pa-dim' }, world.sandbox.desc),
-      world.sandbox.attribution === undefined
-        ? null
-        : React.createElement('div', { className: 'pa-dim', style: { marginTop: 3 } }, `素材出处：${world.sandbox.attribution}${world.sandbox.license === undefined ? '' : ` · ${world.sandbox.license}`}`),
-      React.createElement(
-        'div',
-        { className: 'pa-kv', style: { marginTop: 5 } },
-        React.createElement('span', null, '地标'),
-        React.createElement('span', null, `${world.sandbox.places.length} 处`),
-        React.createElement('span', null, '物件'),
-        React.createElement('span', null, `${objectsOf(world.sandbox.map).length} 件`),
-        React.createElement('span', null, '世界状态'),
-        React.createElement('span', null, Object.entries(world.run.worldState).map(([k, v]) => `${k}=${String(v)}`).join(' ') || '（无）'),
-      ),
-    ),
-    React.createElement(
-      'div',
-      { className: 'pa-sec' },
-    // ── 物件：这个世界的物件**此刻**是什么状态 ────────────────────────────
-    //
-    // 与沙盒页的"物件资源池"分工：那一页决定世界上**有哪些**物件，
-    // 这一页改它们**当前怎么样**（亮着/坏了/锁着）——后者属于推演，不属于编辑。
-    React.createElement(
-      'div',
-      { className: 'pa-sec' },
+      /**
+       * 世界简述：**名称、尺寸、在场人数**。
+       *
+       * 原先这里还堆着描述全文、素材出处、地标/物件计数、世界状态——它们要么
+       * 在沙盒页能看到、要么在这个面板里没人会看第二眼。右栏一共就三块地方，
+       * 每块都该只说最该说的那件事（用户要求"移除冗余元素"）。
+       * 描述与出处移到 title 里：想看时悬停就有，不占位置。
+       */
       React.createElement(
         'h4',
-        null,
-        '物件状态',
-        React.createElement('span', { className: 'pa-chip' }, `${objectsOf(world.sandbox.map).length} 件`),
+        { title: [world.sandbox.desc, world.sandbox.attribution === undefined ? '' : `素材：${world.sandbox.attribution}${world.sandbox.license === undefined ? '' : ` · ${world.sandbox.license}`}`].filter((x) => x !== '').join('\n') },
+        world.sandbox.name,
+        React.createElement('span', { className: 'pa-chip' }, `${world.sandbox.map.width}×${world.sandbox.map.height}`),
+        React.createElement('span', { className: 'pa-chip' }, `${world.run.agents.length} 人`),
       ),
-      React.createElement('div', { className: 'pa-dim', style: { marginBottom: 5 } },
-        '改的是这个世界的当前状态，会立刻写进事件流。'),
-      React.createElement(
-        'div',
-        { className: 'pa-scroll', style: { maxHeight: 200 } },
-        ...objectsOf(world.sandbox.map).slice(0, 40).map((object) =>
-          React.createElement(
-            'div',
-            { key: object.id, className: 'pa-item' },
-            React.createElement(
-              'span',
-              { className: 'pa-main' },
-              React.createElement('b', null, object.name),
-              React.createElement('span', { className: 'pa-dim pa-mono' }, `@${object.x},${object.y}`),
-              React.createElement(
-                'div',
-                { className: 'pa-line', style: { marginTop: 3 } },
-                ...Object.entries(object.state).map(([key, value]) =>
-                  React.createElement('span', { key, className: 'pa-chip' }, `${key}=${String(value)}`),
-                ),
-                Object.keys(object.state).length === 0
-                  ? React.createElement('span', { className: 'pa-dim' }, '（无状态槽）')
-                  : null,
-                React.createElement('span', { className: 'pa-spacer' }),
-                React.createElement('button', {
-                  className: 'pa-btn', 'data-tiny': 'true',
-                  disabled: busy !== '',
-                  onClick: () => void run('改状态', async () => {
-                    const result = await api.object({ objectId: object.id, state: { status: (object.state.status === '故障' ? '正常' : '故障') } })
-                    applyWorld(result.world)
-                    flash(`${object.name}：${result.changes.join('，') || '状态已切换'}`)
-                  }),
-                }, '切换完好/故障'),
-              ),
-            ),
-          ),
-        ),
-      ),
+    ),
     ),
     React.createElement(
       'div',
@@ -898,8 +844,6 @@ function WorldPage(props: {
           ),
         ),
       ),
-      ),
-    ),
     // 「最近发生的事」已移除：世界页右侧就是完整的事件流，同一件事不该有
     // 两处列表——还都叫不同的名字，看的人得先弄清它俩的关系（用户反馈重复）。
   )
@@ -1419,8 +1363,11 @@ function TilesetPanel(props: {
   gridHeight: number
   onGridDelta: (dy: number) => void
   onGridReset: () => void
+  /** 折叠时只留标题行——132 格的网格全铺开会把真正要用的东西推得很远。 */
+  collapsed: boolean
+  onToggle: () => void
 }): React.ReactElement {
-  const { tileset, brushRef, noteTarget, onPick, onNote, onSaveNote, onSlice, gridHeight, onGridDelta, onGridReset } = props
+  const { tileset, brushRef, noteTarget, onPick, onNote, onSaveNote, onSlice, gridHeight, onGridDelta, onGridReset, collapsed, onToggle } = props
   const grid = gridOf(tileset)
   /** 这一张图集自己的编辑目标；别的图集的面板拿到的不等于它，就不会显示卡片。 */
   const myTarget = `${tileset.id}#${noteTarget ?? ''}`
@@ -1452,11 +1399,33 @@ function TilesetPanel(props: {
 
   const cellRef = (col: number, row: number): string => makeTileRef(tileset.id, col, row)
 
+  // 标题行（两张状态共用）：名字 + 格数 + "笔刷在这儿"的指示
+  const brushHere = brushRef !== undefined && brushRef !== null && brushRef.startsWith(`${tileset.id}:`)
+  const head = React.createElement(
+    'div',
+    {
+      className: 'pa-tileset-head',
+      onClick: onToggle,
+      title: collapsed ? '展开这张图集' : '收起',
+    },
+    React.createElement('span', { className: 'pa-chevron', 'data-open': collapsed ? undefined : 'true' }, '▸'),
+    React.createElement('b', null, tileset.name),
+    React.createElement('span', { className: 'pa-dim' }, `${grid.cols}×${grid.rows}${tileset.image === '' ? ' · 内置' : ''}`),
+    // 折叠状态下更要紧：笔刷是不是在这张图集里
+    brushHere ? React.createElement('span', { className: 'pa-chip', 'data-tone': 'ok' }, '笔刷') : null,
+    noteTarget !== undefined && noteTarget.startsWith(`${tileset.id}#`)
+      ? React.createElement('span', { className: 'pa-chip' }, '编辑中')
+      : null,
+  )
+
+  if (collapsed) {
+    return React.createElement('div', { className: 'pa-tileset', 'data-collapsed': 'true' }, head)
+  }
+
   return React.createElement(
     'div',
-    { style: { marginTop: 6 } },
-    React.createElement('div', { className: 'pa-dim' },
-      `${tileset.name}（${grid.cols}×${grid.rows} 格${tileset.image === '' ? '，内置' : ''}）`),
+    { className: 'pa-tileset' },
+    head,
     React.createElement(
       'div',
       {
@@ -1681,6 +1650,18 @@ function SandboxPage(props: {
   const [noteTarget, setNoteTarget] = React.useState<string | undefined>(undefined)
   /** 正在等待二次确认的镜像 id（不用 window.confirm，见删除按钮处的说明）。 */
   const [confirming, setConfirming] = React.useState<string | undefined>(undefined)
+  /**
+   * 收起的图集 id。图集多了之后一屏放不下三张，收起用不到的能把
+   * 正在注的那张留在视野里（TilesetPanel 的 collapsed/onToggle）。
+   */
+  const [collapsedSets, setCollapsedSets] = React.useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(window.localStorage?.getItem('paranim.collapsedSets') ?? '[]')
+      return Array.isArray(saved) ? saved.filter((x) => typeof x === 'string') : []
+    } catch {
+      return []
+    }
+  })
   /** 镜像列表高度（可拖拽，记住上次）。 */
   const [mirrorListH, setMirrorListH] = React.useState<number>(() => {
     const saved = Number(window.localStorage?.getItem('paranim.mirrorListH'))
@@ -1752,7 +1733,11 @@ function SandboxPage(props: {
       'div',
       { className: 'pa-sec' },
       React.createElement('h4', null, '世界沙盒', React.createElement('span', { className: 'pa-chip' }, `当前：${world.sandbox.id}`)),
-      React.createElement('div', { className: 'pa-dim' }, '沙盒是明文 JSON，存在 `~/.dsh/dsh-paranim/sandboxes/`；运行态按工作区分桶存在 `runs/` 下。'),
+      // 文件位置这类"知道一次就够"的信息移进悬停提示，不占版面
+      React.createElement('div', {
+        className: 'pa-dim',
+        title: '沙盒是明文 JSON，存在 ~/.dsh/dsh-paranim/sandboxes/；运行态按工作区分桶存在 runs/ 下，可以直接改。',
+      }, '沙盒镜像即明文文件，可直接编辑'),
       // ── 镜像元信息：名字、尺寸 ───────────────────────────────────────────
       //
       // 拿这里当"改名/改尺寸"的入口。尺寸改动会把三个图层一起重排
@@ -2000,7 +1985,10 @@ function SandboxPage(props: {
           className: 'pa-btn', 'data-tiny': 'true',
           onClick: () => importRef.current?.click(),
         }, '＋ 导入素材图 (PNG)'),
-        React.createElement('span', { className: 'pa-dim' }, '导入后按 16×16、间隙 1 切格，可在下面调整'),
+        React.createElement('span', {
+          className: 'pa-dim',
+          title: '导入后按 16×16、间隙 1 切格；导入的图集下面有切片参数可以改。',
+        }, 'PNG'),
       ),
       ...world.sandbox.map.tilesets.map((tileset) =>
         React.createElement(TilesetPanel, {
@@ -2008,6 +1996,13 @@ function SandboxPage(props: {
           tileset,
           brushRef,
           noteTarget,
+          collapsed: collapsedSets.includes(tileset.id),
+          onToggle: () =>
+            setCollapsedSets((list) => {
+              const next = list.includes(tileset.id) ? list.filter((x) => x !== tileset.id) : [...list, tileset.id]
+              window.localStorage?.setItem('paranim.collapsedSets', JSON.stringify(next))
+              return next
+            }),
           onPick: (ref: string) => { setBrushRef(ref); setNoteTarget(undefined) },
           onNote: (key: string) => setNoteTarget(noteTarget === `${tileset.id}#${key}` ? undefined : `${tileset.id}#${key}`),
           onSaveNote: (key: string, note: { name?: string; pass?: string; use?: string; desc?: string; states?: string }) => {
@@ -2084,7 +2079,9 @@ function EventsPage(props: { world: WorldView; selected?: string; feedMode: Feed
     React.createElement(
       'div',
       { className: 'pa-sec' },
-      React.createElement('h4', null, `事件流（${world.run.events.length} 条，显示最近 ${events.length}）`),
+      // 叫「日志」而不是「事件流」：它记的就是"这个世界里发生过什么"，
+      // 用推演术语命名只会让人先猜它是什么（用户指定改名）。
+      React.createElement('h4', null, `日志（最近 ${events.length} / 共 ${world.run.events.length} 条）`),
       React.createElement(
         'div',
         { className: 'pa-line' },
