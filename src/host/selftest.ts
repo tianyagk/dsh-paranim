@@ -783,6 +783,56 @@ section('图层：三层编辑')
   ok(true, '图层验收段跑完（临时目录已清）')
 }
 
+// ── 三条反馈的回归 ────────────────────────────────────────────────────────
+
+// ① 自动步进能暂停：mode 切回 manual 后 stepper 必须立刻停
+{
+  const on = dataOf<WorldView>(await call(route, 'POST', '/paranim/step/config?workspace=/tmp/fake-workspace', { mode: 'auto', intervalMs: 600000 }))
+  ok(on.stepper.running === true, '切到 auto 后自动步进在跑')
+  const off = dataOf<WorldView>(await call(route, 'POST', '/paranim/step/config?workspace=/tmp/fake-workspace', { mode: 'manual' }))
+  ok(off.stepper.running === false, '切回 manual 立刻停住（这条路由不排队，否则要等正在跑的那一步）')
+}
+
+// ② 步进失败要留下细节
+{
+  llm.mode = 'broken-json'
+  const broken = await routes.step({ workspace: '/tmp/fake-workspace' })
+  const fell = broken.outcomes.filter((o) => o.source !== 'model')
+  ok(fell.length > 0, '模型输出不是 JSON 时记为降级（而不是假装正常）', `${fell.length}/${broken.outcomes.length}`)
+  ok(
+    broken.events.some((e) => e.kind === 'system' && e.text.includes('没走成模型')),
+    '降级写进了事件流（复盘时看得到原因，不是"这一步什么都没发生"）',
+  )
+  ok(fell.every((o) => o.detail !== ''), '每条降级都带具体原因（不是空字符串）', fell[0]?.detail ?? '')
+  llm.mode = 'move'
+}
+
+// ③ 删掉的正是"当前选中"时，回退不能炸
+{
+  const home = await mkdtemp(join(tmpdir(), 'pa-del-'))
+  setDataHomeForTest(home)
+  await new SandboxStore().ensureSeed()
+  const boxRoutes = makeRoutes({
+    store: new SandboxStore(),
+    runOf: () => new RunStore(join(home, 'ws')),
+    stepOf: () => new StepStore(join(home, 'ws')),
+    llm: () => undefined,
+    defaultRoute: () => undefined,
+    workspaceOf: () => join(home, 'ws'),
+  })
+  boxRoutes.setTrustedHosts(['127.0.0.1:3080'])
+  const r = boxRoutes.routes[0]
+  const made = dataOf<WorldView>(await call(r, 'POST', `/paranim/sandbox?workspace=${encodeURIComponent(join(home, 'ws'))}`, { action: 'create', name: '待删' }))
+  const id = made.sandbox.id
+  await call(r, 'POST', `/paranim/sandbox?workspace=${encodeURIComponent(join(home, 'ws'))}`, { action: 'select', id })
+  const del = await call(r, 'POST', `/paranim/sandbox?workspace=${encodeURIComponent(join(home, 'ws'))}`, { action: 'remove', id })
+  ok(del.status === 200, '删除沙盒返回 200（删掉的正是当前选中时，回退不能去读一个不存在的沙盒）', `status=${del.status}`)
+  const after = dataOf<WorldView>(await call(r, 'GET', `/paranim/world?workspace=${encodeURIComponent(join(home, 'ws'))}`, undefined))
+  ok(after.sandbox.id !== id, '删完之后世界切到了别的沙盒', after.sandbox.id)
+  setDataHomeForTest(undefined)
+  await rm(home, { recursive: true, force: true })
+}
+
 // 需求 3：指令引导
 const directRes = await call(route, 'POST', '/paranim/directive?workspace=/tmp/fake-workspace', {
   agentId: added?.id ?? 'abigail',

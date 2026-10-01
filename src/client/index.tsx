@@ -454,6 +454,23 @@ function ParanimApp(props: TabProps): React.ReactElement {
               void run('手动步进', async () => {
                 const result = await api.step()
                 applyWorld(result.world)
+                /**
+                 * 步进失败的细节必须看得见。
+                 *
+                 * 每个智能体的 outcome 里带着 source（'model' 还是降级）与
+                 * detail（为什么），但此前界面只用它们数了个数——模型挂了、
+                 * 输出不是合法 JSON 时，用户看到的仍是"第 N 步完成"，完全
+                 * 不知道刚才那步其实没按预期走。
+                 *
+                 * 抛在 applyWorld 之后：世界照常更新，错误走 run() 的红色提示。
+                 */
+                const fell = result.outcomes.filter((o) => o.source !== 'model')
+                if (fell.length > 0) {
+                  throw new Error(
+                    `第 ${result.tick} 步：${fell.length}/${result.outcomes.length} 位智能体没走成模型 —— `
+                    + fell.map((o) => `${o.agentName}（${o.detail}）`).join('；'),
+                  )
+                }
                 flash(`第 ${result.tick} 步完成：驱动 ${result.driven} 个智能体，产生 ${result.events.length} 条事件`)
               }),
           },

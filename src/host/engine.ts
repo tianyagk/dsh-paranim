@@ -463,6 +463,27 @@ export async function runTick(deps: EngineDeps): Promise<TickResult> {
     outcomes.push({ agentId: agent.id, agentName: agent.name, ok: true, source: draft.source, detail: draft.detail })
   }
 
+  /**
+   * 有智能体没走成模型时，**在事件流里留一条**。
+   *
+   * 这条信息原先只存在于返回值里（outcomes），而界面只用它数了个数——
+   * 模型挂了、输出不是合法 JSON 时，复盘的人翻事件流什么也看不到，
+   * 只看到那一步"什么都没发生"。降级本身不打断推演，但必须留痕。
+   */
+  const degraded = outcomes.filter((o) => o.source !== 'model')
+  if (degraded.length > 0) {
+    events.push({
+      id: shortId('ev'),
+      tick: run.tick,
+      ts,
+      kind: 'system',
+      actor: 'gm',
+      actorName: '世界',
+      text: `${degraded.length}/${outcomes.length} 位智能体这一步没走成模型：`
+        + degraded.map((o) => `${o.agentName}（${o.detail}）`).join('；'),
+    })
+  }
+
   run.events.push(...events)
   if (run.events.length > 3000) run.events = run.events.slice(-3000)
   run.updatedAt = ts

@@ -711,6 +711,24 @@ const writeQueues = new Map<string, Promise<unknown>>()
               if (action === 'remove') {
                 const id = String(body.id ?? '')
                 await deps.store.remove(id)
+                /**
+                 * 删掉的若正是"上次选中的那个"，选择要一并清掉。
+                 *
+                 * 否则这台工作区里所有**不带 sandboxId** 的请求都会先去找它，
+                 * 而它已经不在了——world() 抛"找不到沙盒"，前端拿到 500，
+                 * 表现就是"点删除没反应"（其实文件已经删了，是回退那一步炸的）。
+                 */
+                const stepStore = deps.stepOf(workspace)
+                const cfg = await stepStore.load()
+                if (cfg.sandboxId === id) {
+                  // 用**显式 undefined** 覆盖，而不是 delete 掉键再 set：
+                  // StepStore.set 是合并语义（{...旧, ...patch}），少一个键
+                  // 就等于"保持原值"——删键再 set 什么也没发生（实测踩过）。
+                  await stepStore.set({ sandboxId: undefined })
+                }
+                // 它要是正在自动步进，也一并停掉——不然计时器会一直对着一个
+                // 不存在的沙盒继续跑（每次都失败，日志越滚越多）。
+                stopStepper(stepperKey(workspace, id))
                 return send(res, 200, { ok: true, data: await world({ workspace, create: true }) })
               }
               if (action === 'reset') {
@@ -1230,7 +1248,17 @@ const writeQueues = new Map<string, Promise<unknown>>()
            * 队列把这三步绑成一个不可交错的整体。只读路由（掷骰、探测）不排队：
            * 让它们跟着等没有意义，还会让界面显得卡。
            */
-          if (method === 'POST' && path !== '/roll' && path !== '/llm-probe') {
+          /**
+           * 不排队的那几类：
+           *  · /roll、/llm-probe —— 只读，跟着等没有意义
+           *  · /step/config    —— 其中的"暂停"必须**立刻**生效。它也排队的话，
+           *    暂停请求会排在正在跑的那次步进后面（模型调用可能几十秒），
+           *    表现就是"点了暂停没反应、还在自己往前走"。
+           *    停止计时器是纯内存操作，不参与沙盒的读-改-写，本来就不需要排队；
+           *    落盘那步配置也没有竞争可言（同一工作区只有一份）。
+           */
+          const UNQUEUED = new Set(['/roll', '/llm-probe', '/step/config'])
+          if (method === 'POST' && !UNQUEUED.has(path)) {
             await serialize(workspace, handle)
           } else {
             await handle()
