@@ -424,12 +424,26 @@ export interface AgentModelRoute {
 }
 
 /** 智能体记忆的一条（需求 3 的「引导」也落在这里作为 whispered）。 */
+/** 记忆的种类。决定它在提示词里怎么被称呼，也决定它默认有多要紧。 */
+export type MemoryKind = 'thought' | 'observation' | 'speech' | 'action' | 'event' | 'whisper' | 'summary' | 'reflection' | 'plan'
+
 export interface MemoryEntry {
   /** 发生时的世界步。 */
   tick: number
-  kind: 'thought' | 'observation' | 'speech' | 'action' | 'event' | 'whisper' | 'summary'
+  kind: MemoryKind
   text: string
   ts: number
+  /**
+   * 这件事对"我"有多要紧（1–10）。检索时参与打分。
+   *
+   * 老数据没有这个字段，读到时按 kind 现推一个（见 shared/memory.ts 的
+   * importanceOf）——用一个可选字段而不是迁移一遍全部存档。
+   */
+  importance?: number
+  /** 上次被检索到的世界步，用于 recency 衰减。没被取用过就等于 tick。 */
+  lastAccessTick?: number
+  /** 预分好的检索词（2-gram）。没存过就现算。 */
+  tokens?: string[]
 }
 
 export interface SandboxAgent {
@@ -660,6 +674,14 @@ export interface RunAgent extends SandboxAgent {
   lastUpdateTick: number
   /** 累计步数，用于记忆压缩节流。 */
   stepsTaken: number
+  /**
+   * 上次反思时的记忆条数。
+   *
+   * 论文的做法是"一天反思两三次"，本项目按**新积累的记忆条数**折算——
+   * 用条数而不是步数，是因为"这几十步里有没有值得琢磨的事"和"走了多少步"
+   * 不是一回事：原地发呆十步不该触发反思。
+   */
+  lastReflectAt?: number
 }
 
 export interface RunState {

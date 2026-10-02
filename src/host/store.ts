@@ -669,6 +669,22 @@ export class SandboxStore {
           text: a.backstory === '' ? `${a.name}在镇上醒来，今天是普通的一天。` : a.backstory,
           ts: Date.now(),
         },
+        /**
+         * 计划本身也是一条记忆（P2，论文第 4.3 节）。
+         *
+         * 原先计划只是 `plan: string[]`，逐条消耗、不进记忆流——于是智能体
+         * **不记得自己今天打算做什么**，只能被动执行一个列表；检索也取不到它。
+         * 写进记忆流之后，"我今天要盯着炉子"这件事会和别的事一起被想起来。
+         */
+        ...(a.plan.length === 0
+          ? []
+          : [{
+              tick,
+              kind: 'plan' as const,
+              text: `今天打算：${a.plan.join('；')}`,
+              ts: Date.now(),
+              importance: 5,
+            }]),
       ],
       lastUpdateTick: tick,
       stepsTaken: 0,

@@ -43,6 +43,7 @@ import {
   type Rng,
 } from '../shared/rules.ts'
 import { objectsOf } from '../shared/tilemap.ts'
+import { reflectionPrompt, retrieveMemories, shouldReflect } from '../shared/memory.ts'
 import type { PluginLlm } from './context.ts'
 import { log } from './context.ts'
 
@@ -139,9 +140,28 @@ function buildObservation(sandbox: Sandbox, run: RunState, agent: RunAgent): str
 
   const planLeft = agent.plan.length === 0 ? '（今天的计划已经做完了）' : agent.plan.map((p, i) => `  ${i + 1}. ${p}`).join('\n')
 
-  const recent = agent.memory.slice(-MEMORY_KEEP)
-  const summary = recent.filter((m) => m.kind === 'summary').slice(-1)[0]
-  const rest = recent.filter((m) => m.kind !== 'summary')
+  const summary = agent.memory.filter((m) => m.kind === 'summary').slice(-1)[0]
+  /**
+   * **检索**而不是"取最近 N 条"（见 shared/memory.ts 的说明）。
+   *
+   * 查询串用"我在哪 + 我打算做什么"——也就是 P0 里 relevance 的 query：
+   * 站在厨房里的人，该想起的是**在这个厨房里发生过的事**，而不是恰好排在
+   * 时间线末尾的那几条（那可能全是刚才路上的风景）。
+   */
+  // query 只放**实词**：地点名 + 计划。坐标塞进去只会切出一堆数字噪音，
+  // 把 relevance 的分母撑大（"厨房"命中一次就只值几分之一）。
+  const queryText = [place?.name ?? '', ...agent.plan.slice(0, 4)].join(' ')
+  const recalled = retrieveMemories(
+    agent.memory.filter((m) => m.kind !== 'summary'),
+    queryText,
+    run.tick,
+    MEMORY_KEEP,
+  )
+  // 取出来的按时间排回：检索决定"想起哪些"，时间顺序决定"怎么读"。
+  recalled.sort((a, b) => a.entry.tick - b.entry.tick)
+  // 被取用过就记一笔，下次的 recency 从这里算（论文的 recency 也是这么定义的）
+  for (const r of recalled) r.entry.lastAccessTick = run.tick
+  const rest = recalled.map((r) => r.entry)
 
   const worldState = Object.entries(run.worldState)
     .map(([k, v]) => `${k}=${v === null ? '—' : Array.isArray(v) ? v.join('/') : String(v)}`)
@@ -356,6 +376,49 @@ interface Draft {
  * （无路由 → 兜底；空文本/非 JSON/调用失败 → 兜底）只有一处，不会出现
  * "重试路径悄悄放宽了格式要求"这种双份契约。
  */
+/**
+ * 反思（P1）。
+ *
+ * 对照 Stanford 论文第 4.2 节：拿最近一段经历问模型"这说明了什么"，把答案
+ * 作为一条更高层的记忆存回记忆流。原文说"一天约两三次"——因为**只有反思
+ * 能让智能体从重复经历里得出结论**，光有观察，它只能一次次重新试探。
+ *
+ * 三条工程上的分寸：
+ *  · 反思失败**不影响这一步的行动**：它是锦上添花，不该把整步拖垮；
+ *  · 无论成没成都推进游标（lastReflectAt），否则同一段记忆会被反复反思，
+ *    白白烧掉调用；
+ *  · 没有可用模型时直接跳过并推进游标——不推进的话每步都会重试同一段。
+ */
+async function maybeReflect(
+  deps: EngineDeps,
+  agent: RunAgent,
+  run: RunState,
+  ts: number,
+  signal: AbortSignal,
+): Promise<void> {
+  if (!shouldReflect(agent.memory, agent.lastReflectAt)) return
+  const upto = agent.memory.length
+  const route = agent.model ?? deps.defaultRoute
+  if (route === undefined || route === null) {
+    agent.lastReflectAt = upto
+    return
+  }
+  try {
+    const text = await deps.callModel(agent, {
+      route,
+      system: `你是${agent.name}，${agent.concept}。你会定期回顾自己最近的经历，并写下几句真实的感想。`,
+      user: reflectionPrompt(agent.name, agent.memory),
+    }, signal)
+    const clean = text.trim().slice(0, 400)
+    if (clean !== '') {
+      remember(agent, { tick: run.tick, kind: 'reflection', text: clean, ts, importance: 8 })
+    }
+  } catch (error) {
+    log('reflection failed:', String(error))
+  }
+  agent.lastReflectAt = upto
+}
+
 async function draftAction(
   deps: EngineDeps,
   agent: RunAgent,
@@ -466,7 +529,11 @@ export async function runTick(deps: EngineDeps): Promise<TickResult> {
   const controller = new AbortController()
 
   // 1) 并发取动作——模型调用是整步里唯一的慢操作。
-  const drafted = await Promise.all(pool.map(async (agent) => ({ agent, draft: await draftAction(deps, agent, controller.signal) })))
+  const drafted = await Promise.all(pool.map(async (agent) => {
+    // 反思排在取动作之前：这样它刚得出的结论，紧接着就能影响这一步的选择
+    await maybeReflect(deps, agent, run, ts, controller.signal)
+    return { agent, draft: await draftAction(deps, agent, controller.signal) }
+  }))
 
   // 2) 串行结算：世界状态是共享可变的，顺序结算才有可复现的因果（谁先动手）。
   const events: WorldEvent[] = []

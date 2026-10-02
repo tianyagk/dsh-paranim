@@ -294,12 +294,17 @@ const CSS = `
 .pa-scroll { overflow: auto; min-height: 0; overscroll-behavior: contain; }
 
 /**
- * 世界页的左右分栏：地图在左，推演日志在右。
- * 两列都必须是 min-width: 0，否则 flex 子项不肯收缩、长文本会把它们撑破。
+ * 右栏的**上下**分栏：智能体列表在上、推演日志在下（用户指定）。
+ *
+ * 上下排而不是左右排：地图已经在左边了，右栏再切一刀，每块就只剩一百多像素，
+ * 人名和日志行都会被折成好几行。上下分栏则各自拿满宽度。
+ *
+ * 两个方向都要 min-height/min-width: 0——flex 子项默认不肯收缩，缺了它
+ * 长文本会把容器撑破（这是本文件里反复出现的一类坑）。
  */
-.pa-split { display: flex; gap: 8px; flex: 1; min-height: 0; }
-.pa-split-main { flex: 1 1 auto; min-width: 0; overflow: auto; }
-.pa-split-feed { min-width: 0; overflow: auto; padding-left: 8px; }
+.pa-split { display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; min-width: 0; }
+.pa-split-main { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.pa-split-feed { min-height: 0; overflow: auto; }
 
 /* 可拖拽的分隔线：细但好抓（命中区 9px，视觉只有 1px 线） */
 .pa-splitter { flex: 0 0 auto; position: relative; background: transparent; }

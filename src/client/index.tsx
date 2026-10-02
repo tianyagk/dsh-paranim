@@ -480,6 +480,7 @@ function ParanimApp(props: TabProps): React.ReactElement {
               { className: 'pa-split', ref: splitBoxRef },
               React.createElement(
                 'div',
+                /* 上：世界简述 + 智能体列表 */
                 { className: 'pa-split-main pa-col' },
                 React.createElement(WorldPage, {
                   world,
@@ -499,14 +500,17 @@ function ParanimApp(props: TabProps): React.ReactElement {
                * 地图的缩放与选中状态都在，切回去反而像换了个地方。
                */
               React.createElement(Splitter, {
-                dir: 'v',
-                // 左右拖：往左拖 = 日志变窄。用容器宽度换算成百分比，
-                // 这样调整过窗口大小之后比例仍然成立（存 px 就不成立了）。
-                onDelta: (dx: number) => {
-                  const width = splitBoxRef.current?.getBoundingClientRect().width ?? 0
-                  if (width <= 0) return
+                // **上下**分栏（用户指定）：智能体列表在上、日志在下。
+                // 看地图时最常扫的是"谁在场"，日志是用来回看的——把它放在
+                // 下面一栏更顺手。
+                dir: 'h',
+                // 往下拖 = 日志变高。用容器**高度**换算成百分比，
+                // 这样调过窗口大小之后比例仍然成立（存 px 就不成立）。
+                onDelta: (dy: number) => {
+                  const height = splitBoxRef.current?.getBoundingClientRect().height ?? 0
+                  if (height <= 0) return
                   setFeedPct((pct) => {
-                    const next = Math.max(15, Math.min(75, pct - (dx / width) * 100))
+                    const next = Math.max(15, Math.min(75, pct - (dy / height) * 100))
                     window.localStorage?.setItem('paranim.feedPct', String(Math.round(next)))
                     return next
                   })
@@ -518,6 +522,7 @@ function ParanimApp(props: TabProps): React.ReactElement {
               }),
               React.createElement(
                 'div',
+                /* 下：日志 */
                 { className: 'pa-split-feed pa-col', style: { flex: `0 0 ${feedPct}%` } },
                 React.createElement(EventsPage, { world, selected, feedMode }),
               ),
@@ -550,7 +555,20 @@ function ParanimApp(props: TabProps): React.ReactElement {
                   brushRef,
                   setBrushRef,
                 })
-              : React.createElement(EventsPage, { world, selected, feedMode }),
+              : React.createElement(SandboxPage, {
+                  world,
+                  sandboxes,
+                  busy,
+                  api,
+                  run,
+                  applyWorld,
+                  setSandboxes,
+                  flash,
+                  editLayer,
+                  setEditLayer,
+                  brushRef,
+                  setBrushRef,
+                }),
       ),
     ),
     // ── 底栏：步进控制 + 指令 + 状态 ────────────────────────────────────
