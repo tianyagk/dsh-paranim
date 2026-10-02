@@ -19,7 +19,6 @@ import {
   ATTR_IDS,
   ATTR_LABEL,
   DEFAULT_STEP_CONFIG,
-  DIFFICULTY_LADDER,
   HUMAN_MAX,
   HUMAN_MIN,
   OBJECT_KIND_LABEL,
@@ -226,7 +225,8 @@ function ParanimApp(props: TabProps): React.ReactElement {
    */
   const [feedPct, setFeedPct] = useState<number>(() => {
     const saved = Number(window.localStorage?.getItem('paranim.feedPct'))
-    return Number.isFinite(saved) && saved >= 10 && saved <= 80 ? saved : 40
+    // 默认给日志留大半：它是这一页最常盯着看的东西（用户反馈过它占比太低）
+    return Number.isFinite(saved) && saved >= 10 && saved <= 80 ? saved : 55
   })
   const splitBoxRef = useRef<HTMLDivElement | null>(null)
   const [world, setWorld] = useState<WorldView | null>(null)
@@ -625,23 +625,49 @@ function ParanimApp(props: TabProps): React.ReactElement {
           world.stepper.running ? '⏸ 停止自动步进' : '▶ 自动步进',
         ),
         React.createElement('span', { className: 'pa-dim' }, '时间流速'),
+        /**
+         * 滑杆用 **0–100 的百分比**，不再把 min/max 直接设成两个毫秒值。
+         *
+         * 原先写的是 `min: 600000, max: 2000`——为了"往右拖 = 变快"而把上下界
+         * 反了过来。那是**未定义行为**：HTML 规定 min 应不大于 max，Chrome 下
+         * 这个 range 会退化，拖不动（用户反馈的"时间流速无法编辑"）。
+         * 改成百分比之后方向仍然符合直觉，而范围永远合法。
+         */
         React.createElement('input', {
           type: 'range',
-          min: STEP_INTERVAL_MAX,
-          max: STEP_INTERVAL_MIN,
-          step: 1000,
-          // 反向滑杆：往右 = 更快 = 间隔更小。写成 min=2000/max=600000 的直向滑杆，
-          // "往右拖"会变成"变慢"，与直觉相反。
-          value: STEP_INTERVAL_MAX + STEP_INTERVAL_MIN - world.stepper.intervalMs,
+          min: 0,
+          max: 100,
+          step: 1,
+          value: Math.round(((STEP_INTERVAL_MAX - world.stepper.intervalMs) / (STEP_INTERVAL_MAX - STEP_INTERVAL_MIN)) * 100),
           onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
-            const intervalMs = STEP_INTERVAL_MAX + STEP_INTERVAL_MIN - Number(event.target.value)
+            const pct = Number(event.target.value)
+            const intervalMs = Math.round(STEP_INTERVAL_MAX - (STEP_INTERVAL_MAX - STEP_INTERVAL_MIN) * (pct / 100))
             setWorld((current) => (current === null ? current : { ...current, stepper: { ...current.stepper, intervalMs } }))
             void run('流速', async () => {
               applyWorld(await api.stepConfig({ intervalMs }))
             })
           },
         }),
-        React.createElement('span', { className: 'pa-mono' }, `${(world.stepper.intervalMs / 1000).toFixed(1)}s/步`),
+        // 数字框：滑杆给手感，输入框给精确值（想设成正好 30 秒时不用来回蹭）
+        React.createElement('input', {
+          type: 'number',
+          min: Math.round(STEP_INTERVAL_MIN / 1000),
+          max: Math.round(STEP_INTERVAL_MAX / 1000),
+          step: 1,
+          style: { width: 56 },
+          title: '每一步之间的间隔（秒）',
+          value: Math.round(world.stepper.intervalMs / 1000),
+          onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+            const secs = Number(event.target.value)
+            if (!Number.isFinite(secs)) return
+            const intervalMs = Math.max(STEP_INTERVAL_MIN, Math.min(STEP_INTERVAL_MAX, Math.round(secs * 1000)))
+            setWorld((current) => (current === null ? current : { ...current, stepper: { ...current.stepper, intervalMs } }))
+            void run('流速', async () => {
+              applyWorld(await api.stepConfig({ intervalMs }))
+            })
+          },
+        }),
+        React.createElement('span', { className: 'pa-dim' }, '秒/步'),
         React.createElement('span', { className: 'pa-dim' }, world.stepper.running ? (world.stepper.inFlight ? '· 正在推进一步' : `· 自动运转中（已自动走 ${world.stepper.ticks} 步）`) : '· 手动模式'),
         world.stepper.error === undefined ? null : React.createElement('span', { className: 'pa-err' }, `· 上次自动步进出错：${world.stepper.error}`),
       ),
@@ -2120,16 +2146,9 @@ function EventsPage(props: { world: WorldView; selected?: string; feedMode: Feed
     React.createElement('div', { className: 'pa-scroll pa-feed', 'data-mode': feedMode, style: { flex: 1, padding: '6px 10px' } },
       ...events.map((event) => React.createElement(EventRow, { key: event.id, event, mode: feedMode })),
     ),
-    React.createElement(
-      'div',
-      { className: 'pa-sec' },
-      React.createElement('h4', null, '难度阶梯（1D6 + 属性 ≥ 难度 即成功）'),
-      React.createElement(
-        'div',
-        { className: 'pa-dim' },
-        ...DIFFICULTY_LADDER.map((step) => React.createElement('div', { key: step.id }, `${step.label}（${step.value}）：${step.desc}`)),
-      ),
-    ),
+    // 难度阶梯的解释区已移除：它是一段永远不变的说明，却常年占着右栏一大块
+    // （用户要求删）。难度本身仍然生效——判定用的阶梯在规则层，智能体的观察里
+    // 也照旧带着它，只是不再在界面上重复讲一遍。
   )
 }
 
