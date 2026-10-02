@@ -226,14 +226,23 @@ export function moveNeedsCheck(dist: number): boolean {
 }
 
 export function moveDifficulty(dist: number): { step: (typeof DIFFICULTY_LADDER)[number]; mods: CheckMod[] } {
-  const mods: CheckMod[] = []
   let step = DIFFICULTY_LADDER[1] // 容易 9
   if (dist > 60) step = DIFFICULTY_LADDER[4] // 艰难 15
   else if (dist > 35) step = DIFFICULTY_LADDER[3] // 棘手 13
   else if (dist > 15) step = DIFFICULTY_LADDER[2] // 常规 11
-  if (dist > 35) mods.push({ label: `长途 ${dist} 格`, value: 1 })
-  if (dist <= 3) mods.push({ label: '就在旁边', value: 1 })
-  return { step, mods }
+  /**
+   * 这里原先挂着两个修正，各自都有问题（第三方审查 F8）：
+   *
+   *  · dist > 35 给 +1：正修正是**变简单**。好不容易按距离把难度调到 13，
+   *    又送一格回去，有效难度实际是"16 格→11、36 格→12、61 格→14"，
+   *    与本函数和 README 说的"越远越难"相反。距离梯度上面三行已经表达完了。
+   *
+   *  · dist <= 3 给 +1：死代码。moveNeedsCheck 规定 6 格以内根本不检定，
+   *    这个分支永远走不到。
+   *
+   * 两个都删掉。距离的影响仍然在，只是不再自相抵消。
+   */
+  return { step, mods: [] }
 }
 
 /** 依据动作里的难度档位解析目标数；缺省用常规。 */
@@ -693,15 +702,39 @@ export function resolveAction(action: AgentAction, ctx: ActionContext): ActionOu
       const record = toRollRecord(agent.id, '脱身', roll)
       rolls.push(record)
       if (roll.ok) {
-        // 逃向最近的地标（有明确去处才不用事后编坐标）。
-        const nearest = sandbox.places
+        /**
+         * 逃向一个有距离的地标，而且**落点必须真的站得住**。
+         *
+         * 原先直接把地标坐标当落点写进去：不查通行性、不查有没有人——第三方
+         * 审查实测，四面墙围死的密室中心、而且已经站着人，照样落得进去。
+         * 一旦叠人，之后所有"谁在哪"的判断都会双重命中且毫无提示（这正是
+         * 当初给移动加占用检查要防的事，flee 这条路漏了）。
+         *
+         * 选地标也从"排序后取下标 1"改成"跳过脚边两格内的"，因为智能体不
+         * 站在任何地标上时，下标 1 完全看运气。
+         */
+        const occupied = { cells: run.agents, except: agent.id }
+        const candidates = sandbox.places
           .map((p) => ({ p, d: distance(agent.x, agent.y, p.x, p.y) }))
-          .sort((l, r) => l.d - r.d)[1]
-        if (nearest !== undefined) {
-          x = nearest.p.x
-          y = nearest.p.y
+          .filter((c) => c.d > 2)
+          .sort((l, r) => l.d - r.d)
+        let landed: { x: number; y: number } | undefined
+        let where: string | undefined
+        for (const c of candidates) {
+          const spot = nearestOpen(sandbox, c.p.x, c.p.y, 6, occupied)
+          if (spot !== undefined && (spot.x !== agent.x || spot.y !== agent.y)) {
+            landed = spot
+            where = c.p.name
+            break
+          }
         }
-        const text = `${agent.name}摆脱了纠缠，退向${nearest?.p.name ?? '别处'}。`
+        if (landed !== undefined) {
+          x = landed.x
+          y = landed.y
+        }
+        const text = landed === undefined
+          ? `${agent.name}想退开，但四下里没有可以落脚的地方，只能留在原地。`
+          : `${agent.name}摆脱了纠缠，退向${where ?? '别处'}。`
         events.push(mkEvent({ kind: 'move', actor: agent.id, actorName: agent.name, text, from: { x: agent.x, y: agent.y }, to: { x, y }, roll: record }, run, ts))
       } else {
         const text = `${agent.name}想脱身却没走成。`

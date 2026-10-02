@@ -1173,14 +1173,19 @@ section('8. 持久化与记忆裁剪')
 const longRun: RunState = (await routes.world({ workspace: '/tmp/fake-workspace', create: true })).run
 // 走引擎真正的写入路径 remember()，而不是直接 push —— 直接 push 会绕过裁剪，
 // 那测的就不是"裁剪有没有生效"，而是"数组能有多长"。
-for (let i = 0; i < 60; i += 1) {
+// 写**超过存储上限**的量，验证裁剪真的在裁（写死一个数字的断言会随
+// 上限调整而失效——这次把上限从 24 提到 200 就撞上了）
+for (let i = 0; i < 320; i += 1) {
   remember(longRun.agents[0], { tick: i, kind: 'event', text: `第 ${i} 件事：一段相当长的记忆文本，用来把字符预算撑满，检验裁剪逻辑是否真的在裁。`, ts: Date.now() })
 }
-remember(longRun.agents[0], { tick: 60, kind: 'summary', text: '来历摘要：他是一个钟表匠。', ts: Date.now() })
+remember(longRun.agents[0], { tick: 320, kind: 'summary', text: '来历摘要：他是一个钟表匠。', ts: Date.now() })
+remember(longRun.agents[0], { tick: 321, kind: 'reflection', text: '我近来总在琢磨钟表的齿轮。', ts: Date.now() })
 await runStore.save(longRun)
 const reloaded = await runStore.load(longRun.sandboxId)
 const memory = reloaded?.agents[0].memory ?? []
-ok(memory.length <= 26, `记忆被裁到 ${memory.length} 条以内`, String(memory.length))
+ok(memory.length < 320, `记忆真的被裁了（${memory.length} < 320）`, String(memory.length))
+ok(memory.some((m) => m.kind === 'summary'), '来历摘要不会第一个被丢')
+ok(memory.some((m) => m.kind === 'reflection'), '反思不会被日常流水账顶掉')
 ok(memory.some((m) => m.kind === 'summary'), '裁剪后仍保留一条来历摘要（不会忘记自己是谁）')
 ok((await routes.world({ workspace: '/tmp/fake-workspace', create: true })).run.tick === longRun.tick, '运行态落盘后可原样读回')
 

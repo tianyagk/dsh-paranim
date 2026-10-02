@@ -161,9 +161,15 @@ export const REFLECT_WINDOW = 100
 export function shouldReflect(
   memories: readonly MemoryEntry[],
   lastReflectAt: number | undefined,
+  memoriesSeen: number,
 ): boolean {
-  const fresh = memories.slice(lastReflectAt ?? 0)
-  if (fresh.length < REFLECT_EVERY) return false
+  /**
+   * 游标是**单调计数**（一共经历过多少条），不是数组下标。
+   * 用下标的话，pruneMemory 把数组裁到定长之后 `slice(游标)` 恒为空，
+   * 反思只触发一次就永远沉默（第三方审查实测，F2）。
+   */
+  if (memoriesSeen - (lastReflectAt ?? 0) < REFLECT_EVERY) return false
+  const fresh = memories.slice(-REFLECT_EVERY)
   // 至少有一条来自外界（别人说的话、发生的事），而不是清一色自己的动作
   return fresh.some((m) => m.kind !== 'action' && m.kind !== 'thought')
 }

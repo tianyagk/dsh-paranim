@@ -682,6 +682,8 @@ export interface RunAgent extends SandboxAgent {
    * 不是一回事：原地发呆十步不该触发反思。
    */
   lastReflectAt?: number
+  /** 累计见过的记忆条数（单调递增）。反思游标用它，而不是数组下标——见 remember()。 */
+  memoriesSeen?: number
 }
 
 export interface RunState {

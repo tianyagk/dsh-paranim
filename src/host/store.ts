@@ -383,26 +383,51 @@ function normalizeRun(input: unknown, sandboxId: string): RunState {
       const e = a as Record<string, unknown>
       const tpl = normalizeAgentTemplate(e, 1000, 1000, i)
       if (tpl === undefined) return undefined
-      const memory = Array.isArray(e.memory)
-        ? e.memory
-            .filter((m) => m !== null && typeof m === 'object')
-            .slice(-200)
+      /**
+       * 加载时也要按"什么不能丢"裁剪，而不是一刀 slice(-200)。
+       *
+       * 摘要、反思、计划是"我是谁""我悟到什么""我今天要做什么"——它们发生在
+       * 最早或零散的时刻，纯按时间截断会把它们整批丢掉，留下的全是最近的流水账。
+       * 裁剪逻辑在 engine 里已经这样做了，落盘往返这条路也得一致。
+       */
+      const memoryRows = Array.isArray(e.memory) ? e.memory.filter((m) => m !== null && typeof m === 'object') : []
+      const kindOf = (m: unknown): string => String((m as { kind?: unknown }).kind ?? '')
+      const precious = memoryRows.filter((m) => ['summary', 'reflection', 'plan'].includes(kindOf(m)))
+      const ordinary = memoryRows.filter((m) => !precious.includes(m)).slice(-200)
+      const memory = [...precious.slice(-24), ...ordinary]
+        .sort((l, r) => Number((l as { tick?: unknown }).tick ?? 0) - Number((r as { tick?: unknown }).tick ?? 0))
             .map((m) => {
               const mm = m as Record<string, unknown>
+              /**
+               * 记忆的附加字段逐个保留。归一化是白名单式的，漏一个就静默丢失——
+               * 第三方审查实测：importance / lastAccessTick / tokens 全在这里被
+               * 丢掉，检索质量因此退化（打分用的三个量有两个永久为空）。
+               */
               return {
                 tick: Math.round(num(mm.tick, 0)),
                 kind: str(mm.kind, 'event') as RunAgent['memory'][number]['kind'],
                 text: str(mm.text),
                 ts: num(mm.ts, Date.now()),
+                ...(typeof mm.importance === 'number' ? { importance: mm.importance } : {}),
+                ...(typeof mm.lastAccessTick === 'number' ? { lastAccessTick: mm.lastAccessTick } : {}),
+                ...(Array.isArray(mm.tokens) ? { tokens: mm.tokens.filter((t): t is string => typeof t === 'string') } : {}),
               }
             })
-        : []
       return {
         ...tpl,
         x: Math.max(0, Math.round(num(e.x, tpl.x))),
         y: Math.max(0, Math.round(num(e.y, tpl.y))),
         spawnTick: Math.round(num(e.spawnTick, 0)),
         origin: e.origin === 'user' ? 'user' : 'preset',
+        /**
+         * 反思游标要**持久化**。归一化是白名单式的，漏一个字段就静默丢失——
+         * 第三方审查实测：重载后游标归零，把已经反思过的记忆再反思一次
+         * （白烧一次调用），然后同样永远沉默。
+         */
+        // 用条件展开而不是 `x ? x : undefined`：后者会被推断成**必填**的
+        // number，与 RunAgent 里的可选字段不兼容（tsc 会报类型谓词不成立）
+        ...(typeof e.lastReflectAt === 'number' ? { lastReflectAt: e.lastReflectAt } : {}),
+        ...(typeof e.memoriesSeen === 'number' ? { memoriesSeen: e.memoriesSeen } : {}),
         memory,
         lastUpdateTick: Math.round(num(e.lastUpdateTick, 0)),
         stepsTaken: Math.round(num(e.stepsTaken, 0)),

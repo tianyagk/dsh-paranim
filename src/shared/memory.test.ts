@@ -83,7 +83,7 @@ test('边界：空记忆、k<=0 都不炸', () => {
 
 test('新记忆不够多时不反思', () => {
   const few = Array.from({ length: 5 }, (_, i) => mem(i, 'event', `发生了点事 ${i}`))
-  assert.equal(shouldReflect(few, undefined), false, '五条不够')
+  assert.equal(shouldReflect(few, undefined, few.length), false, '五条不够')
 })
 
 test('攒够了、且其中有事来自外界 → 该反思', () => {
@@ -91,20 +91,20 @@ test('攒够了、且其中有事来自外界 → 该反思', () => {
     ...Array.from({ length: REFLECT_EVERY }, (_, i) => mem(i, 'action', `随手做了点什么 ${i}`)),
     mem(99, 'speech', '有人对我说了一句话'),
   ]
-  assert.equal(shouldReflect(many, undefined), true)
+  assert.equal(shouldReflect(many, undefined, many.length), true)
 })
 
 test('攒够了但全是自己的日常动作 → 不反思（那种反思只会产出废话）', () => {
   const onlyMine = Array.from({ length: REFLECT_EVERY + 4 }, (_, i) => mem(i, 'action', `在原地转了转 ${i}`))
-  assert.equal(shouldReflect(onlyMine, undefined), false)
+  assert.equal(shouldReflect(onlyMine, undefined, onlyMine.length), false)
 })
 
 test('已经反思过的那一段不再重复触发', () => {
   const many = [
     ...Array.from({ length: REFLECT_EVERY }, (_, i) => mem(i, 'speech', `有人说话 ${i}`)),
   ]
-  assert.equal(shouldReflect(many, undefined), true)
-  assert.equal(shouldReflect(many, many.length), false, '游标推到最后就不该再触发')
+  assert.equal(shouldReflect(many, undefined, many.length), true)
+  assert.equal(shouldReflect(many, many.length, many.length), false, '游标推到最后就不该再触发')
 })
 
 test('反思提示词带上经历本身，并要求写判断而不是复述', () => {

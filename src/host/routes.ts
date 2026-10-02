@@ -241,7 +241,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
       run: view.run,
       timeoutMs: view.step.callTimeoutMs,
       maxAgentsPerTick: args.maxAgents ?? view.step.maxAgentsPerTick,
-      callModel: makeCaller(deps.llm()),
+      callModel: makeCaller(deps.llm(), view.step.callTimeoutMs),
       defaultRoute: deps.defaultRoute(),
     })
     if (args.persist !== false) {
@@ -255,11 +255,15 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
   }
 
   /** 从 llm 服务造一个调用器；llm 缺失时返回一个总是抛错的实现，让引擎走兜底。 */
-  const makeCaller = (llm: PluginLlm | undefined) => {
+  /**
+   * @param idleMs `step.callTimeoutMs`——**空闲**上限（多久没有新产出才中止）。
+   *   不传下去的话，callModelOnce 会用它的默认 90 秒，用户配的值等于没生效。
+   */
+  const makeCaller = (llm: PluginLlm | undefined, idleMs?: number) => {
     return async (agent: { id: string; name: string }, call: LlmCall, signal: AbortSignal): Promise<string> => {
       if (llm === undefined) throw new Error('宿主 llm 服务不可用')
       void agent
-      const attempt = await callModelOnce(llm, call, signal)
+      const attempt = await callModelOnce(llm, call, signal, idleMs === undefined ? undefined : { idleMs })
       if (attempt.text.trim() !== '') return attempt.text
 
       // 空文本不是"模型没话说"，是**调用没成**。这里不立刻降级：先摘掉
@@ -268,7 +272,7 @@ export function makeRoutes(deps: RouteDeps): ParanimRoutes {
       // 并把现场（chunk 构成 / 结束原因 / 耗时）写进错误信息，而不是只说
       // "返回空文本"让后来的人无从下手。
       if (call.route.reasoningEffort !== undefined && call.route.reasoningEffort !== '') {
-        const retry = await callModelOnce(llm, call, signal, { dropReasoningEffort: true })
+        const retry = await callModelOnce(llm, call, signal, { dropReasoningEffort: true, ...(idleMs === undefined ? {} : { idleMs }) })
         if (retry.text.trim() !== '') return retry.text
         throw new Error(`模型 ${call.route.provider}/${call.route.model} 两次调用都没有文本（首次 ${attempt.detail}；摘掉 reasoningEffort 后 ${retry.detail}）`)
       }

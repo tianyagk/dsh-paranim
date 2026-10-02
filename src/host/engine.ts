@@ -47,8 +47,18 @@ import { reflectionPrompt, retrieveMemories, shouldReflect } from '../shared/mem
 import type { PluginLlm } from './context.ts'
 import { log } from './context.ts'
 
-const MEMORY_KEEP = 24
-const MEMORY_CHARS = 6000
+/**
+ * **存多少**（裁剪上限）与**取多少**（检索 top-k）是两件事。
+ *
+ * 原先两者共用一个 24，于是检索在最多 25 条里取 24 条——recency/importance/
+ * relevance 三项打分对结果没有任何实质影响，memory.ts 那套 2-gram relevance、
+ * 开方抬升、按步衰减**全是死代码**（第三方审查实测指出，F7）。
+ * 落盘侧本来就是 slice(-200)，说明本来的心理模型就是两百条。
+ */
+const MEMORY_STORE = 200
+/** 每次进提示词取几条（其余留在库里参与下次打分）。 */
+const MEMORY_RECALL = 10
+const MEMORY_CHARS = 9000
 
 interface AgentCall {
   /** 该智能体的模型路由（null = 由调用方给出的兜底路由）。 */
@@ -155,7 +165,7 @@ function buildObservation(sandbox: Sandbox, run: RunState, agent: RunAgent): str
     agent.memory.filter((m) => m.kind !== 'summary'),
     queryText,
     run.tick,
-    MEMORY_KEEP,
+    MEMORY_RECALL,
   )
   // 取出来的按时间排回：检索决定"想起哪些"，时间顺序决定"怎么读"。
   recalled.sort((a, b) => a.entry.tick - b.entry.tick)
@@ -238,22 +248,40 @@ function systemPromptFor(agent: RunAgent): string {
  * 压成一行常量，窗口才敢开小。
  */
 function pruneMemory(agent: RunAgent): void {
-  if (agent.memory.length <= MEMORY_KEEP) return
+  if (agent.memory.length <= MEMORY_STORE) return
   const summaries = agent.memory.filter((m) => m.kind === 'summary')
   const keepSummary = summaries.slice(-1)
-  const rest = agent.memory.filter((m) => m.kind !== 'summary')
-  let kept = rest.slice(-MEMORY_KEEP)
+  /**
+   * 反思与计划**不参与"丢最旧的"**。
+   *
+   * 它们是更高层的结论（反思是模型从几十条经历里提炼的一句话，计划是今天
+   * 的意图），按时间裁剪时会被新产生的日常动作顶掉——留下的全是流水账，
+   * 反而把最该记住的东西挤没了。各自只保最近若干条，避免无限增长。
+   */
+  const highLevel = agent.memory.filter((m) => m.kind === 'reflection' || m.kind === 'plan').slice(-12)
+  const highSet = new Set(highLevel)
+  const rest = agent.memory.filter((m) => m.kind !== 'summary' && !highSet.has(m))
+  let kept = rest.slice(-(MEMORY_STORE - highLevel.length))
   let chars = kept.reduce((sum, m) => sum + m.text.length, 0)
   while (chars > MEMORY_CHARS && kept.length > 4) {
     kept = kept.slice(1)
     chars = kept.reduce((sum, m) => sum + m.text.length, 0)
   }
-  agent.memory = [...keepSummary, ...kept]
+  agent.memory = [...keepSummary, ...highLevel, ...kept]
 }
 
 /** 把一次经历写进记忆。 */
 export function remember(agent: RunAgent, entry: MemoryEntry): void {
   agent.memory.push(entry)
+  /**
+   * 单调递增的"我这一生经历过多少条"。
+   *
+   * 反思游标原先存的是**数组下标**，而 pruneMemory 把数组裁到定长——
+   * 第一次反思时游标写 24，此后长度恒为 24，`slice(24)` 恒为空，
+   * **永远不再反思**（第三方审查实测指出，F2）。计数与数组长度解耦之后
+   * 裁剪多少都不影响它。
+   */
+  agent.memoriesSeen = (agent.memoriesSeen ?? 0) + 1
   pruneMemory(agent)
 }
 
@@ -396,25 +424,34 @@ async function maybeReflect(
   ts: number,
   signal: AbortSignal,
 ): Promise<void> {
-  if (!shouldReflect(agent.memory, agent.lastReflectAt)) return
-  const upto = agent.memory.length
+  const seen = agent.memoriesSeen ?? agent.memory.length
+  if (!shouldReflect(agent.memory, agent.lastReflectAt, seen)) return
+  const upto = seen
   const route = agent.model ?? deps.defaultRoute
   if (route === undefined || route === null) {
     agent.lastReflectAt = upto
     return
   }
+  /**
+   * 反思也要过闸。原先传的是 `controller.signal`——那个信号在 runTick 里
+   * **从不 abort**，于是"一次挂起的反思会把整步的 Promise.all 永远吊住"
+   * （第三方审查指出，F1 附带项）。这里给它自己的总时长上限。
+   */
+  const gate = timeoutSignal(Math.max(deps.timeoutMs * 2, 120_000), signal)
   try {
     const text = await deps.callModel(agent, {
       route,
       system: `你是${agent.name}，${agent.concept}。你会定期回顾自己最近的经历，并写下几句真实的感想。`,
       user: reflectionPrompt(agent.name, agent.memory),
-    }, signal)
+    }, gate.signal)
     const clean = text.trim().slice(0, 400)
     if (clean !== '') {
       remember(agent, { tick: run.tick, kind: 'reflection', text: clean, ts, importance: 8 })
     }
   } catch (error) {
     log('reflection failed:', String(error))
+  } finally {
+    gate.clear()
   }
   agent.lastReflectAt = upto
 }
@@ -438,10 +475,17 @@ async function draftAction(
    * 步数不动、事件不动、也不报错"，要等十分钟才等到一句超时——用户看到的正是
    * 这个（他反馈的"步进结束后没有任何变化"）。
    *
-   * 现在按配置走，只留一个 10 秒下限防止配成 0/负数。想要更宽松就把
-   * step.callTimeoutMs 调大——那是它存在的意义。
+   * ⚠️ 这里**不能用 callTimeoutMs 当总时长**。
+   *
+   * 我上一轮就是这么改的，结果只对了一半：callTimeoutMs 的语义是**空闲**上限
+   * （"多久没有新东西"），而这道闸是**总时长**（从调用开始计时，不看有没有
+   * 产出）。推理模型一次要跑 80 秒以上、期间一直在吐 token，被这道总闸先截断，
+   * 内层那道正确的空闲闸根本来不及响——用户看到的是"整轮降级"，而模型一切正常。
+   *
+   * 现在这里只保留**死锁兜底**（给得极宽，唯一的职责是"别让一次死锁把整局挂住"），
+   * 真正的超时判据交给 routes.ts 里按 idleMs 实现的那一个。
    */
-  const bounded = timeoutSignal(Math.max(deps.timeoutMs, 10_000), signal)
+  const bounded = timeoutSignal(Math.max(deps.timeoutMs * 5, 300_000), signal)
   try {
     const call: AgentCall = { route, system: systemPromptFor(agent), user: buildObservation(sandbox, run, agent) }
     const text = await deps.callModel(agent, call, bounded.signal)
@@ -484,6 +528,24 @@ function settle(deps: EngineDeps, agent: RunAgent, action: AgentAction, ts: numb
   if (agent.plan.length > 0) agent.plan = agent.plan.slice(1)
   for (const entry of resolved.memory) remember(agent, entry)
   applyMood(agent, action, run.tick, ts)
+
+  /**
+   * 被互动的**对方**也要记得（第三方审查 F6）。
+   *
+   * `resolveAction` 只返回行动方的记忆，于是被搭话的人下一步完全不记得
+   * "刚才有人对我说了 X"——它的检索无从谈起（近处没有任何相关语料），
+   * 对话因此无法继续；关系变化的"为什么"也只剩单方视角。
+   * Stanford 论文里对话双方都会把这段对话记进各自的记忆流。
+   *
+   * 直接沿用事件原文（第三人称），与记忆里其它条目保持同一种口吻。
+   */
+  for (const event of resolved.events) {
+    const targetId = event.targetAgentId
+    if (targetId === undefined || targetId === agent.id) continue
+    const other = run.agents.find((a) => a.id === targetId)
+    if (other === undefined) continue
+    remember(other, { tick: run.tick, kind: 'observation', text: event.text, ts })
+  }
 
   /**
    * 指令的消费时机：**只有真的做出了动作才算用完**。
